@@ -16,6 +16,9 @@ pub enum Op {
     Load(usize),
     /// Pop the top of the stack and print it.
     Say,
+    /// Pop two values and fail if they are not the same.
+    /// `example` is set when the check came from a doc example.
+    Check { example: bool },
 }
 
 /// A compiled program.
@@ -62,6 +65,16 @@ impl Compiler {
                 self.chunk.slot_count += 1;
                 self.slots.insert(name.clone(), slot);
                 self.emit(Op::Store(slot), *name_span);
+            }
+            Statement::Check {
+                left,
+                right,
+                span,
+                example,
+            } => {
+                self.expression(left)?;
+                self.expression(right)?;
+                self.emit(Op::Check { example: *example }, *span);
             }
         }
         Ok(())
@@ -151,6 +164,22 @@ mod tests {
             ]
         );
         assert_eq!(chunk.slot_count, 2);
+    }
+
+    #[test]
+    fn compiles_a_check_and_an_example() {
+        let chunk = compile_source("check \"Hi\" == \"Hi\"\n--- example: 1 == 1").unwrap();
+        assert_eq!(
+            chunk.code,
+            vec![
+                Op::Constant(0),
+                Op::Constant(1),
+                Op::Check { example: false },
+                Op::Constant(2),
+                Op::Constant(3),
+                Op::Check { example: true },
+            ]
+        );
     }
 
     #[test]

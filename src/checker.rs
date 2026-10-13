@@ -57,6 +57,16 @@ impl<'a> Checker<'a> {
                     self.defined.push((name, *name_span));
                 }
             }
+            Statement::Check {
+                left,
+                right,
+                example,
+                ..
+            } => {
+                let written = if *example { "--- example:" } else { "check" };
+                self.expression(left, None, |fixed| format!("{written} {fixed} == {right}"));
+                self.expression(right, None, |fixed| format!("{written} {left} == {fixed}"));
+            }
         }
     }
 
@@ -202,6 +212,20 @@ mod tests {
     fn reports_every_problem_not_just_the_first() {
         let found = problems("say a\nsay b\nx = 1\nx = 2");
         assert_eq!(found.len(), 3);
+    }
+
+    #[test]
+    fn check_rewrites_the_side_that_is_wrong() {
+        let found = problems("greeting = \"Hi\"\ncheck greting == \"Hi\"");
+        assert_eq!(
+            found[0].suggestion.as_deref(),
+            Some("check greeting == \"Hi\"")
+        );
+        let found = problems("greeting = \"Hi\"\ncheck greeting == greting");
+        assert_eq!(
+            found[0].suggestion.as_deref(),
+            Some("check greeting == greeting")
+        );
     }
 
     #[test]

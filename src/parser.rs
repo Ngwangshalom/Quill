@@ -3,7 +3,11 @@
 //! Supported so far, one statement per line:
 //!   say VALUE
 //!   NAME = VALUE
+//!   check VALUE == VALUE
+//!   --- example: VALUE == VALUE
 //! where VALUE is text, a number, or the name of an existing value.
+//! A `--` comment is skipped. A `---` line is a doc comment, and
+//! `--- example:` is a test.
 
 use std::fmt;
 
@@ -25,6 +29,26 @@ pub enum Statement {
         name_span: Span,
         value: Expr,
     },
+    /// `check left == right`, or a doc example that means the same thing.
+    Check {
+        left: Expr,
+        right: Expr,
+        /// Covers the whole statement, so a failure can underline it.
+        span: Span,
+        /// `true` when this came from `--- example:`.
+        example: bool,
+    },
+}
+
+impl Statement {
+    /// The line this statement starts on.
+    pub fn line(&self) -> usize {
+        match self {
+            Statement::Say { span, .. } => span.line,
+            Statement::Let { name_span, .. } => name_span.line,
+            Statement::Check { span, .. } => span.line,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -68,6 +92,18 @@ impl fmt::Display for Statement {
         match self {
             Statement::Say { value, .. } => write!(f, "say {value}"),
             Statement::Let { name, value, .. } => write!(f, "{name} = {value}"),
+            Statement::Check {
+                left,
+                right,
+                example,
+                ..
+            } => {
+                if *example {
+                    write!(f, "--- example: {left} == {right}")
+                } else {
+                    write!(f, "check {left} == {right}")
+                }
+            }
         }
     }
 }
@@ -123,10 +159,18 @@ impl<'a> Parser<'a> {
         let token = self.peek();
         match &token.kind {
             TokenKind::Say => self.say(),
+            TokenKind::Check => self.check_statement(false),
+            TokenKind::Example => self.check_statement(true),
             TokenKind::Identifier(name) if self.peek_at(1).kind == TokenKind::Equals => {
                 self.let_statement(name)
             }
             TokenKind::Identifier(name) => Err(self.stray_name(name, token)),
+            TokenKind::EqualEqual => Err(Diagnostic::new(
+                token.span(),
+                "This line starts with ==, but == belongs inside a check.\n\
+                 A check names two values and passes when they are the same.",
+            )
+            .suggest("check name == \"Hello\"")),
             TokenKind::Equals => Err(Diagnostic::new(
                 token.span(),
                 "This line starts with =, but = needs a name on its left.\n\
@@ -148,6 +192,52 @@ impl<'a> Parser<'a> {
                 "Quill expected a statement here.",
             )),
         }
+    }
+
+    fn check_statement(&mut self, example: bool) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        let word = if example { "example" } else { "check" };
+        let written = if example { "--- example:" } else { "check" };
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                format!(
+                    "{word} needs two values with == between them.\n\
+                     A {word} passes when both sides are the same value."
+                ),
+            )
+            .suggest(format!("{written} name == \"Hello\"")));
+        }
+        let left = self.expression()?;
+        if !matches!(self.peek().kind, TokenKind::EqualEqual) {
+            let found = self.peek();
+            return Err(Diagnostic::new(
+                found.span(),
+                format!(
+                    "{word} compares with ==, but found {}.\n\
+                     Write the value you have, then ==, then the value you expect.",
+                    describe(&found.kind)
+                ),
+            )
+            .suggest(format!("{written} {left} == \"expected\"")));
+        }
+        let eq = self.advance().clone();
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                eq.span(),
+                "== needs a value on its right.\n\
+                 A check compares two values, so write the one you expect."
+                    .to_string(),
+            )
+            .suggest(format!("{written} {left} == \"expected\"")));
+        }
+        let right = self.expression()?;
+        Ok(Statement::Check {
+            span: cover(keyword.span(), right.span),
+            left,
+            right,
+            example,
+        })
     }
 
     fn say(&mut self) -> Result<Statement, Diagnostic> {
@@ -201,6 +291,21 @@ impl<'a> Parser<'a> {
                      It shows a value, so it has to start its own line.",
                 ))
             }
+            TokenKind::Check => {
+                return Err(Diagnostic::new(
+                    token.span(),
+                    "check can't be used as a value.\n\
+                     It compares two values, so it has to start its own line.",
+                )
+                .suggest("check name == \"Hello\""))
+            }
+            TokenKind::Example => {
+                return Err(Diagnostic::new(
+                    token.span(),
+                    "An example can't be used as a value.\n\
+                     It compares two values, so it stays on its own line.",
+                ))
+            }
             other => {
                 return Err(Diagnostic::new(
                     token.span(),
@@ -233,11 +338,31 @@ impl<'a> Parser<'a> {
             .suggest(format!("say {name}"));
         }
 
+        if matches!(self.peek().kind, TokenKind::EqualEqual) {
+            self.advance();
+            let suggestion = if self.at_end_of_line() {
+                format!("check {name} == \"expected\"")
+            } else {
+                match self.expression() {
+                    Ok(value) => format!("check {name} == {value}"),
+                    Err(_) => format!("check {name} == \"expected\""),
+                }
+            };
+            return Diagnostic::new(
+                token.span(),
+                format!(
+                    "{name} is being compared, but a comparison belongs in a check.\n\
+                     check runs as a test and passes when both sides are the same value."
+                ),
+            )
+            .suggest(suggestion);
+        }
+
         let diagnostic = Diagnostic::new(
             token.span(),
             format!(
                 "Quill doesn't know what to do with {name} here.\n\
-                 A line can start with say, or with a name and = to create a value."
+                 A line can start with say, check, or a name and = to create a value."
             ),
         );
         match self.expression() {
@@ -272,12 +397,24 @@ impl<'a> Parser<'a> {
 fn describe(kind: &TokenKind) -> String {
     match kind {
         TokenKind::Say => "say".to_string(),
+        TokenKind::Check => "check".to_string(),
         TokenKind::Text(text) => format!("the text {text:?}"),
         TokenKind::Number(number) => format!("the number {number}"),
         TokenKind::Identifier(name) => format!("the name {name}"),
         TokenKind::Equals => "=".to_string(),
+        TokenKind::EqualEqual => "==".to_string(),
+        TokenKind::Example => "a doc example".to_string(),
         TokenKind::Newline => "the end of the line".to_string(),
         TokenKind::EndOfFile => "the end of the file".to_string(),
+    }
+}
+
+/// A span from the start of `start` through the end of `end`, on the same line.
+fn cover(start: Span, end: Span) -> Span {
+    Span {
+        line: start.line,
+        column: start.column,
+        length: (end.column + end.length).saturating_sub(start.column),
     }
 }
 
@@ -431,6 +568,50 @@ mod tests {
         let err = error("x = = 1");
         assert_eq!((err.line, err.column), (1, 5));
         assert!(err.message.contains("found ="));
+    }
+
+    #[test]
+    fn checks_and_examples() {
+        assert_eq!(
+            statements(
+                "greeting = \"Hello\"\n\
+                 check greeting == \"Hello\"\n\
+                 --- a note\n\
+                 --- example: greeting == \"Hello\"\n"
+            ),
+            vec![
+                "greeting = \"Hello\"",
+                "check greeting == \"Hello\"",
+                "--- example: greeting == \"Hello\""
+            ]
+        );
+    }
+
+    #[test]
+    fn comments_do_not_become_statements() {
+        assert_eq!(statements("say \"hi\" -- note\n"), vec!["say \"hi\""]);
+    }
+
+    #[test]
+    fn check_needs_a_comparison() {
+        let err = error("check\n");
+        assert!(err.message.contains("needs two values"));
+        assert_eq!(err.suggestion.as_deref(), Some("check name == \"Hello\""));
+
+        let err = error("check greeting \"Hello\"");
+        assert!(err.message.contains("compares with =="));
+
+        let err = error("check greeting ==");
+        assert!(err.message.contains("needs a value on its right"));
+    }
+
+    #[test]
+    fn a_bare_comparison_suggests_check() {
+        let err = error("greeting == \"Hello\"");
+        assert_eq!(
+            err.suggestion.as_deref(),
+            Some("check greeting == \"Hello\"")
+        );
     }
 
     #[test]

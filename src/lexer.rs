@@ -1,6 +1,7 @@
 //! The lexer: turns Quill source text into a flat list of tokens.
 //!
-//! Supported so far: `say`, text literals, numbers, names, `=` and new lines.
+//! Supported so far: `say`, `check`, text literals, numbers, names, `=`, `==`,
+//! comments (`--` and `---`) and new lines.
 //! Every token remembers the line and column it started on (both 1-based,
 //! counted in characters) so later stages can point at the exact spot.
 
@@ -11,12 +12,17 @@ use crate::diagnostic::{Diagnostic, Span};
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     Say,
+    Check,
     /// A text literal, with escapes already resolved.
     Text(String),
     /// A number exactly as written, so `Decimal` and `Money` can stay exact.
     Number(String),
     Identifier(String),
     Equals,
+    /// `==`, used by `check` and doc examples.
+    EqualEqual,
+    /// The `--- example:` marker. The comparison itself follows on the same line.
+    Example,
     Newline,
     EndOfFile,
 }
@@ -44,10 +50,13 @@ impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             TokenKind::Say => write!(f, "say"),
+            TokenKind::Check => write!(f, "check"),
             TokenKind::Text(text) => write!(f, "Text {text:?}"),
             TokenKind::Number(number) => write!(f, "Number {number}"),
             TokenKind::Identifier(name) => write!(f, "Identifier {name}"),
             TokenKind::Equals => write!(f, "="),
+            TokenKind::EqualEqual => write!(f, "=="),
+            TokenKind::Example => write!(f, "example"),
             TokenKind::Newline => write!(f, "Newline"),
             TokenKind::EndOfFile => write!(f, "EndOfFile"),
         }
@@ -119,8 +128,17 @@ impl Lexer {
                 }
                 '=' => {
                     self.advance();
-                    TokenKind::Equals
+                    if self.peek() == Some('=') {
+                        self.advance();
+                        TokenKind::EqualEqual
+                    } else {
+                        TokenKind::Equals
+                    }
                 }
+                '-' => match self.comment(line, column)? {
+                    Some(kind) => kind,
+                    None => continue,
+                },
                 '"' => self.text(line, column)?,
                 c if c.is_ascii_digit() => self.number(line, column)?,
                 c if c.is_alphabetic() || c == '_' => self.word(),
@@ -243,8 +261,50 @@ impl Lexer {
         let word = self.take_while(|c| c.is_alphanumeric() || c == '_');
         match word.as_str() {
             "say" => TokenKind::Say,
+            "check" => TokenKind::Check,
             _ => TokenKind::Identifier(word),
         }
+    }
+
+    /// `--` is a comment to the end of the line. `--- example:` is a doc example,
+    /// and the comparison after it is tokenized normally. Anything else after
+    /// `---` is a doc comment and is skipped.
+    fn comment(&mut self, line: usize, column: usize) -> Result<Option<TokenKind>, Diagnostic> {
+        self.advance(); // first '-'
+        if self.peek() != Some('-') {
+            return Err(unexpected('-', line, column));
+        }
+        self.advance(); // second '-'
+        if self.peek() == Some('-') {
+            self.advance();
+            while matches!(self.peek(), Some(' ' | '\t')) {
+                self.advance();
+            }
+            if self.starts_with("example:") {
+                for _ in 0.."example:".len() {
+                    self.advance();
+                }
+                while matches!(self.peek(), Some(' ' | '\t')) {
+                    self.advance();
+                }
+                return Ok(Some(TokenKind::Example));
+            }
+        }
+        while let Some(c) = self.peek() {
+            if c == '\n' || c == '\r' {
+                break;
+            }
+            self.advance();
+        }
+        Ok(None)
+    }
+
+    fn starts_with(&self, text: &str) -> bool {
+        self.chars[self.pos..]
+            .iter()
+            .copied()
+            .take(text.chars().count())
+            .eq(text.chars())
     }
 
     fn take_while(&mut self, keep: impl Fn(char) -> bool) -> String {
@@ -272,13 +332,26 @@ fn unexpected(c: char, line: usize, column: usize) -> Diagnostic {
         };
     }
 
+    if c == '-' {
+        return Diagnostic {
+            line,
+            column,
+            length: 1,
+            message: "Quill doesn't use a single - here.\n\
+                      A comment starts with --, and a doc comment starts with ---."
+                .to_string(),
+            suggestion: Some("--".to_string()),
+        };
+    }
+
     Diagnostic {
         line,
         column,
         length: 1,
         message: format!(
             "Quill doesn't understand the character {c:?} here.\n\
-             So far Quill only reads say, text in \"quotes\", numbers, names, = and new lines."
+             So far Quill reads say, check, text in \"quotes\", numbers, names, \
+             =, ==, comments starting with -- and new lines."
         ),
         suggestion: None,
     }
@@ -361,6 +434,46 @@ mod tests {
             tokens("say greeting"),
             vec![(Say, 1, 1), (ident("greeting"), 1, 5), (EndOfFile, 1, 13)]
         );
+    }
+
+    #[test]
+    fn check_and_equals_are_their_own_tokens() {
+        assert_eq!(
+            tokens("check greeting == \"Hi\""),
+            vec![
+                (Check, 1, 1),
+                (ident("greeting"), 1, 7),
+                (EqualEqual, 1, 16),
+                (text("Hi"), 1, 19),
+                (EndOfFile, 1, 23),
+            ]
+        );
+    }
+
+    #[test]
+    fn comments_are_skipped_and_examples_stay() {
+        assert_eq!(
+            tokens("say \"hi\" -- note\n--- just a doc\n--- example: greeting == \"Hi\""),
+            vec![
+                (Say, 1, 1),
+                (text("hi"), 1, 5),
+                (Newline, 1, 17),
+                (Newline, 2, 15),
+                (Example, 3, 1),
+                (ident("greeting"), 3, 14),
+                (EqualEqual, 3, 23),
+                (text("Hi"), 3, 26),
+                (EndOfFile, 3, 30),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_single_dash_is_not_a_comment() {
+        let err = lex("say -").unwrap_err();
+        assert_eq!((err.line, err.column), (1, 5));
+        assert!(err.message.contains("single -"));
+        assert_eq!(err.suggestion.as_deref(), Some("--"));
     }
 
     #[test]

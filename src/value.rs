@@ -18,3 +18,35 @@ impl fmt::Display for Value {
         }
     }
 }
+
+impl Value {
+    /// The value written the way it would appear in Quill source.
+    pub fn written(&self) -> String {
+        match self {
+            Value::Text(text) => format!("\"{}\"", escape(text)),
+            Value::Number(number) => number.clone(),
+        }
+    }
+
+    /// A short name for the kind of value, for use in a sentence.
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            Value::Text(_) => "text",
+            Value::Number(_) => "a number",
+        }
+    }
+}
+
+fn escape(text: &str) -> String {
+    let mut out = String::new();
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out
+}

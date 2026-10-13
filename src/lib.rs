@@ -5,6 +5,7 @@
 pub mod checker;
 pub mod compiler;
 pub mod diagnostic;
+pub mod explain;
 pub mod lexer;
 pub mod parser;
 pub mod value;
