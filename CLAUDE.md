@@ -1,7 +1,8 @@
 # Quill
 
 Quill is a readable, safe programming language for backends and AI-powered apps.
-The full design is in README.md. Treat it as the spec.
+The full design is in README.md. docs/spec.md defines the language as implemented;
+keep it in sync when behaviour changes.
 
 ## Implementation
 - Written in Rust. Pipeline: lexer → parser → checker → bytecode compiler → VM.

@@ -246,6 +246,10 @@ Quill stopped here before running anything.
 | `quill explain file.ql:LINE` | Show how the compiler read a line |
 | `quill new NAME` | Start a new project |
 
+## Language specification
+
+[docs/spec.md](docs/spec.md) defines exactly what Quill programs mean today: values and their kinds, exact numbers, operators, statements, `when`, tests and errors. This README shows the full design, including features that are still planned.
+
 ## How it works
 
 Quill is implemented in **Rust**, which gives it a single-binary install, a fast virtual machine, memory safety, and a WebAssembly build for an in-browser playground.
@@ -263,7 +267,7 @@ Being clear about scope is part of the design. Quill is **not** aimed at operati
 ## Roadmap
 
 **Foundation**
-- [ ] Language specification (v0.1 draft)
+- [x] [Language specification](docs/spec.md) (v0.1 draft)
 - [x] Lexer and parser
 - [x] `say`, values, `var` / `set`, expressions
 - [x] `when` with conditions
