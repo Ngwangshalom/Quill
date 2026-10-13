@@ -35,6 +35,10 @@ say shows a value. name = value creates a value, and that name can't be used
 before it exists or created again. check and --- example: pass when both sides
 are the same value. quill test runs those. -- starts a comment.
 
+A quote inside text needs no backslash when the text uses three quotes:
+
+  \"\"\"She said \"hi\".\"\"\"
+
 Examples:
   quill new shop
   quill run shop/hello.ql
@@ -398,11 +402,15 @@ fn is_test_line(line: &str) -> bool {
     rest.trim_start().starts_with("example:")
 }
 
+/// Shows `path` relative to `root`, with `/` between folders on every system,
+/// so `quill test` prints the same thing on Windows as on macOS and Linux.
 fn relative(path: &Path, root: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .display()
-        .to_string()
+    let shown = path.strip_prefix(root).unwrap_or(path).to_string_lossy();
+    if cfg!(windows) {
+        shown.replace('\\', "/")
+    } else {
+        shown.into_owned()
+    }
 }
 
 fn report(path: &str, source: &str, problems: &[Diagnostic]) {
@@ -485,4 +493,16 @@ fn fail(message: String, suggestion: Option<String>) -> ExitCode {
         eprintln!("\nDid you mean:  {suggestion}");
     }
     ExitCode::FAILURE
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn relative_paths_use_forward_slashes_everywhere() {
+        let root = Path::new("project");
+        let file = root.join("tests").join("programs").join("checks.ql");
+        assert_eq!(relative(&file, root), "tests/programs/checks.ql");
+    }
 }
