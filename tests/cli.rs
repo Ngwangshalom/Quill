@@ -284,6 +284,19 @@ fn update_explains_how_to_update_a_copy_built_from_source() {
 }
 
 #[test]
+fn upgrade_is_another_name_for_update() {
+    for args in [
+        &["upgrade"][..],
+        &["upgrade", "latest"],
+        &["update", "0.2.0"],
+    ] {
+        let output = quill(args);
+        assert_reported_problem(&output);
+        assert!(stderr(&output).contains("quill update can't replace it"));
+    }
+}
+
+#[test]
 fn update_is_suggested_for_a_typo() {
     let output = quill(&["upate"]);
     assert!(stderr(&output).contains("Did you mean:  quill update"));

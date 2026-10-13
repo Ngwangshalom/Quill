@@ -434,7 +434,7 @@ Quill never crashes on a mistake in a program. If it ever does, that is a bug in
 | `quill explain FILE.ql:N` | Show how Quill read line N: what each part means, its kind, and where names were created |
 | `quill new NAME` | Create a folder `NAME` holding a starter `hello.ql` |
 | `quill tokens FILE.ql` | Show the pieces Quill read the file as, with their line and column |
-| `quill update` | Replace this copy of Quill with the latest release. Works for copies installed with the installer; a copy built from source explains how to update it with `cargo`. |
+| `quill update [VERSION]` | Install a release of Quill. With no version, shows a menu of every release to choose from with the arrow keys (or installs the latest when there's no terminal). `VERSION` is a version like `0.2.0`, or `latest`. Works for copies installed with the installer; a copy built from source explains how to update it with `cargo`. `quill upgrade` is another name for this command. |
 | `quill help` | Show help |
 | `quill version` | Show the version |
 

@@ -28,11 +28,31 @@ It prints the version you installed, such as `quill 0.2.0`.
 
 ## Updating Quill
 
-Quill gets better with every release. To update to the latest version, run:
+Quill gets better with every release. To update, run:
 
 ```bash
 quill update
 ```
+
+Quill shows every version you can install. Move with the ↑ and ↓ keys, press Enter to install the one you want, or press Esc to leave everything as it is:
+
+```text
+Which version of Quill do you want? (↑ ↓ to move, Enter to install, Esc to cancel):
+> 0.3.0     14 Oct 2026  latest
+  0.2.0     13 Oct 2026  installed
+  0.1.0     13 Oct 2026
+```
+
+You can also name the version you want, which is handy in scripts:
+
+```bash
+quill update latest
+quill update 0.2.0
+```
+
+Choosing an older version is how you go back if a new release causes a problem. Versions before 0.3.0 don't have `quill update`, so Quill asks before installing one of them: to come back to a newer version from there, you run the installer again.
+
+`quill upgrade` does exactly the same as `quill update`, for anyone used to that word from other tools.
 
 You don't have to remember to check. At most once a day, Quill quietly asks whether a new version is out, and if one is, it tells you after your command finishes:
 
@@ -129,7 +149,7 @@ Welcome!
 | `quill test` | Run the tests in every file in this folder |
 | `quill explain FILE.ql:N` | Show how Quill understood line N |
 | `quill new NAME` | Start a new project |
-| `quill update` | Update Quill to the latest version |
+| `quill update` | Choose a version of Quill to install |
 | `quill help` | Show all the commands |
 
 ## Try it
