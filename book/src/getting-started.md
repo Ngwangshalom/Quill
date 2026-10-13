@@ -38,7 +38,7 @@ Quill shows every version you can install. Move with the ↑ and ↓ keys, press
 
 ```text
 Which version of Quill do you want? (↑ ↓ to move, Enter to install, Esc to cancel):
-> 0.3.0     14 Oct 2026  latest
+> 0.3.0     13 Oct 2026  latest
   0.2.0     13 Oct 2026  installed
   0.1.0     13 Oct 2026
 ```

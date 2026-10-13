@@ -6,6 +6,10 @@ What changed in each version of Quill. The newest version is at the top.
 
 Changes that are finished but not yet in a release.
 
+- *Nothing yet.*
+
+## v0.3.0 (13 October 2026)
+
 - **`quill update`** shows every version of Quill in a menu: choose one with ↑ ↓ and Enter. `quill update latest` or `quill update 0.2.0` installs a version directly, and `quill upgrade` is another name for the same command.
 - Quill checks for a new version **at most once a day**, in the background, and says when one is out. It never updates by itself. Set `QUILL_NO_UPDATE_CHECK=1` to turn the check off.
 
