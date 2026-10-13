@@ -434,10 +434,13 @@ Quill never crashes on a mistake in a program. If it ever does, that is a bug in
 | `quill explain FILE.ql:N` | Show how Quill read line N: what each part means, its kind, and where names were created |
 | `quill new NAME` | Create a folder `NAME` holding a starter `hello.ql` |
 | `quill tokens FILE.ql` | Show the pieces Quill read the file as, with their line and column |
+| `quill update` | Replace this copy of Quill with the latest release. Works for copies installed with the installer; a copy built from source explains how to update it with `cargo`. |
 | `quill help` | Show help |
 | `quill version` | Show the version |
 
 `quill` exits with code `0` on success and `1` when it reports a problem.
+
+**Update check.** At most once a day, `quill` asks GitHub for the latest release, in a separate background process so commands are never slowed down, and remembers the answer in `~/.quill/update-check`. When a newer version exists, commands end with a one-line notice on standard error. Quill never updates itself. The check is skipped when standard error isn't a terminal, when the `CI` environment variable is set, when `curl` isn't available, and whenever `QUILL_NO_UPDATE_CHECK` is set.
 
 ## 12. Planned, not yet implemented
 
