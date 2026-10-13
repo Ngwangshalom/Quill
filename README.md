@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo/quill-256.png" alt="Quill logo" width="128" height="128">
+</p>
+
 <h1 align="center">Quill</h1>
 
 <p align="center">
