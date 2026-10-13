@@ -13,4 +13,5 @@
 - [ ] Tests added for the new behaviour **and** its errors
 - [ ] Error messages say what went wrong, why, and suggest a fix
 - [ ] No `unwrap()` / `panic!` on anything from user code
+- [ ] The book teaches it (`book/src/`), the spec is updated (`docs/spec.md`), and "Unreleased" in the version history has a line for it
 - [ ] `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test` pass

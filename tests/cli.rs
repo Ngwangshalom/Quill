@@ -154,13 +154,14 @@ fn help_and_version() {
 
 #[test]
 fn test_runs_checks_and_examples() {
-    let output = quill(&["test"]);
+    // Run inside tests/programs, so files in the project folder don't change the count.
+    let programs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs");
+    let output = quill_in(&programs, &["test"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let out = stdout(&output);
-    assert!(out.contains("tests/programs/checks.ql: 3 checks passed"));
-    assert!(out.contains("tests/programs/receipt.ql: 3 checks passed"));
-    assert!(out.contains("hello.ql: 10 checks passed"));
-    assert!(out.contains("16 checks passed."));
+    assert!(out.contains("checks.ql: 3 checks passed"));
+    assert!(out.contains("receipt.ql: 3 checks passed"));
+    assert!(out.ends_with("\n6 checks passed.\n"), "{out}");
 }
 
 #[test]

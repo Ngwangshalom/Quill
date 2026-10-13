@@ -14,3 +14,24 @@ keep it in sync when behaviour changes.
   why, and suggest a fix. Never panic on bad user code.
 - Every new feature gets tests.
 - Build in small, working steps. `cargo test` must pass after each one.
+
+## Documentation: the Quill book
+The book in book/ (mdBook) teaches Quill and will be published. It must
+always match the language. Any change that adds, changes or removes something
+users can see (syntax, behaviour, error messages, commands) also, in the same
+change:
+- Teaches it in the book: update the chapter in book/src/ that covers it, or
+  add a chapter (and list it in book/src/SUMMARY.md). Write for beginners:
+  explain the idea, show examples and the common mistakes, end with "Try it".
+- Updates docs/spec.md, the precise reference (Appendix B of the book).
+- Adds a line under "Unreleased" in book/src/appendix-version-history.md.
+- Updates README.md, CONTRIBUTING.md and `quill help` where they mention it.
+
+Book examples are run by `cargo test` (tests/book.rs): ```quill must run,
+```quill,error must stop with a problem, ```quill,ignore is not run (planned
+features), and an ```output block after an example must match exactly. After an
+intended output change, `QUILL_BLESS=1 cargo test --test book` refreshes the
+output blocks; read the diff before committing.
+
+On a release: move the "Unreleased" notes under the new version's heading, and
+add the release to the timeline in book/src/story.md.

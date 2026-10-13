@@ -1,0 +1,10 @@
+[book]
+title = "The Quill Programming Language"
+description = "Learn Quill, a readable, safe programming language for backends and AI-powered apps."
+authors = ["The Quill contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/Ngwangshalom/Quill"
+edit-url-template = "https://github.com/Ngwangshalom/Quill/edit/main/book/{path}"

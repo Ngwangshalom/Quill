@@ -52,6 +52,9 @@ source (.ql) → lexer → parser → checker → compiler → VM
 | `src/main.rs` | The `quill` command line tool |
 | `tests/cli.rs` | End-to-end tests that run the real `quill` binary |
 | `tests/programs/` | Small `.ql` programs used by those tests |
+| `tests/book.rs` | Runs every example in the book |
+| `docs/spec.md` | The language specification |
+| `book/src/` | The Quill book, one Markdown file per chapter |
 
 ### Adding a feature: the usual path
 
@@ -107,7 +110,45 @@ Bad code must produce a `Diagnostic`, never a crash. No `unwrap()`, `expect()` o
 - **Unit tests** go at the bottom of the module you changed, in its `mod tests`. Test both what works *and* each error: its line, column and suggestion.
 - **End-to-end tests** go in `tests/cli.rs`. They run the real `quill` binary on a file in `tests/programs/` and compare the exact output.
 
-### 4. Small, working steps
+### 4. Every change is documented in the book
+
+[The Quill book](book/src/SUMMARY.md) teaches the language to newcomers, and it grows with Quill. Any change people can see (new syntax, changed behaviour, a new error message or command) updates the documentation **in the same pull request**:
+
+- **The book** (`book/src/`): update the chapter that teaches it, or add a new chapter and list it in `book/src/SUMMARY.md`. Write for someone new to programming: explain the idea, show small examples and the common mistakes, and end with a "Try it" section.
+- **The specification** (`docs/spec.md`): the precise rules. It appears in the book as Appendix B.
+- **The version history** (`book/src/appendix-version-history.md`): add a line under "Unreleased".
+- **The README, this guide and `quill help`**, wherever they mention the feature.
+
+Every example in the book is run by `cargo test`, so the book can't go out of date:
+
+````markdown
+```quill
+say 1 + 2          -- must run without problems
+```
+
+```output
+3
+```
+
+```quill,error
+say 1 + "2"        -- must stop with a problem
+```
+
+```quill,ignore
+for i in 1..3      -- a planned feature: not run
+```
+````
+
+An `output` block right after an example must match exactly what Quill prints. Add `file=shop.ql` (as in ```` ```quill,error,file=shop.ql ````) to choose the file name an error mentions. After a change that intentionally changes output, refresh the output blocks with `QUILL_BLESS=1 cargo test --test book`, and read the diff to make sure the book still says what you mean.
+
+To read the book as a website while you write, install [mdBook](https://rust-lang.github.io/mdBook/) and run:
+
+```bash
+cargo install mdbook
+mdbook serve book --open
+```
+
+### 5. Small, working steps
 
 Each pull request should do one thing, and the code must pass all checks after it:
 
@@ -122,7 +163,7 @@ GitHub runs these automatically on every pull request.
 ## Making a pull request
 
 1. Fork the repository and create a branch: `git checkout -b add-plus-operator`.
-2. Make your change with tests.
+2. Make your change with tests, and document it in the book (rule 4).
 3. Run `cargo fmt`, `cargo clippy --all-targets -- -D warnings` and `cargo test`.
 4. Open a pull request that says what it does and why. Fill in the checklist in the template.
 5. A maintainer reviews it. Expect friendly questions: they're about the code, never about you.
