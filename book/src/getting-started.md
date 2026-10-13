@@ -26,6 +26,24 @@ quill version
 
 It prints the version you installed, such as `quill 0.2.0`.
 
+## Updating Quill
+
+Quill gets better with every release. To update to the latest version, run:
+
+```bash
+quill update
+```
+
+You don't have to remember to check. At most once a day, Quill quietly asks whether a new version is out, and if one is, it tells you after your command finishes:
+
+```text
+Quill 0.3.0 is available (you have 0.2.0). Run quill update to get it.
+```
+
+Quill never updates itself without asking, so a program that works today won't change behaviour tomorrow unless you choose to update. The check runs in the background and never slows Quill down. If you'd rather Quill didn't check at all, set `QUILL_NO_UPDATE_CHECK=1` in your environment.
+
+`quill update` works for copies installed with the commands above. If you built Quill from its source code with `cargo`, update it by getting the latest code and running `cargo install --path . --force` in the Quill folder.
+
 ## Hello, World!
 
 It's a tradition to start with a program that shows the words "Hello, World!". In Quill, that program is one line.
@@ -111,6 +129,7 @@ Welcome!
 | `quill test` | Run the tests in every file in this folder |
 | `quill explain FILE.ql:N` | Show how Quill understood line N |
 | `quill new NAME` | Start a new project |
+| `quill update` | Update Quill to the latest version |
 | `quill help` | Show all the commands |
 
 ## Try it

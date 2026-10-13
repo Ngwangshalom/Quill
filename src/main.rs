@@ -1,3 +1,5 @@
+mod update;
+
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
@@ -21,6 +23,7 @@ Usage:
   quill explain FILE.ql:N   Show how Quill read line N
   quill new NAME            Create a folder NAME with hello.ql inside
   quill tokens FILE.ql      Show how Quill reads a file, token by token
+  quill update              Update Quill to the latest version
   quill help                Show this message
   quill version             Show which version of Quill this is
 
@@ -47,6 +50,9 @@ A quote inside text needs no backslash when the text uses three quotes:
 
   \"\"\"She said \"hi\".\"\"\"
 
+Quill checks for a new version at most once a day and tells you when one is
+out. It never updates by itself. Set QUILL_NO_UPDATE_CHECK=1 to turn this off.
+
 Examples:
   quill new shop
   quill run shop/hello.ql
@@ -54,8 +60,8 @@ Examples:
   quill test
 ";
 
-const COMMANDS: [&str; 8] = [
-    "run", "check", "tokens", "test", "explain", "new", "help", "version",
+const COMMANDS: [&str; 9] = [
+    "run", "check", "tokens", "test", "explain", "new", "update", "help", "version",
 ];
 
 const STARTER: &str = "\
@@ -70,6 +76,17 @@ fn main() -> ExitCode {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
 
     match args.as_slice() {
+        [update::CHECK_COMMAND] => return update::background_check(),
+        ["update"] => return update::update(),
+        _ => {}
+    }
+    let code = command(&args);
+    update::notice();
+    code
+}
+
+fn command(args: &[&str]) -> ExitCode {
+    match args {
         [] => {
             eprint!("{USAGE}");
             ExitCode::FAILURE

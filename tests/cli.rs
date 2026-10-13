@@ -274,6 +274,21 @@ fn dividing_by_zero_stops_the_program_with_an_explanation() {
     assert!(err.contains("This divides by zero, which has no answer."));
 }
 
+#[test]
+fn update_explains_how_to_update_a_copy_built_from_source() {
+    let output = quill(&["update"]);
+    assert_reported_problem(&output);
+    let err = stderr(&output);
+    assert!(err.contains("built from source with cargo, so quill update can't replace it"));
+    assert!(err.contains("cargo install --path . --force"));
+}
+
+#[test]
+fn update_is_suggested_for_a_typo() {
+    let output = quill(&["upate"]);
+    assert!(stderr(&output).contains("Did you mean:  quill update"));
+}
+
 fn quill_in(dir: &std::path::Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_quill"))
         .args(args)

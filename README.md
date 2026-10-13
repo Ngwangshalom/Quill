@@ -60,6 +60,8 @@ quill new hello
 quill run hello/hello.ql
 ```
 
+To update later, run `quill update`. Quill also tells you when a new version is out (set `QUILL_NO_UPDATE_CHECK=1` to turn that off).
+
 Building from source needs [Rust](https://rustup.rs): `cargo install --git https://github.com/Ngwangshalom/Quill`
 
 ## Learn Quill
@@ -249,6 +251,7 @@ Quill stopped here before running anything.
 | `quill test` | Run every `check` and doc example in the project |
 | `quill explain file.ql:LINE` | Show how the compiler read a line |
 | `quill new NAME` | Start a new project |
+| `quill update` | Update Quill to the latest version |
 
 ## Language specification
 
