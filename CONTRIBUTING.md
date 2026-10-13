@@ -32,7 +32,7 @@ Useful commands while you work:
 
 ## How Quill is built
 
-The [README](README.md) is the language spec. The implementation is a pipeline, one module per stage:
+The [language specification](docs/spec.md) defines what Quill does today, and the [README](README.md) shows the full design. A change to how the language behaves should update the spec too. The implementation is a pipeline, one module per stage:
 
 ```
 source (.ql) → lexer → parser → checker → compiler → VM
