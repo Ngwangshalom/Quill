@@ -35,6 +35,29 @@ Quill's answer is a language where:
 
 None of these ideas is new on its own. Quill's goal is to make them all work together, consistently, in one language that a beginner can read and a team can trust.
 
+## Install
+
+**macOS and Linux:**
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/Ngwangshalom/Quill/releases/latest/download/quill-installer.sh | sh
+```
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/Ngwangshalom/Quill/releases/latest/download/quill-installer.ps1 | iex"
+```
+
+Or download a build for your system from the [Releases page](https://github.com/Ngwangshalom/Quill/releases). Then try it:
+
+```bash
+quill new hello
+quill run hello/hello.ql
+```
+
+Building from source needs [Rust](https://rustup.rs): `cargo install --git https://github.com/Ngwangshalom/Quill`
+
 ## A tour of Quill
 
 ### Hello, World
