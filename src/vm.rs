@@ -75,7 +75,10 @@ fn compare(example: bool, left: &Value, right: &Value) -> Option<String> {
         {
             None
         }
-        (Value::Text(_), Value::Text(_)) | (Value::Number(_), Value::Number(_)) => Some(format!(
+        (Value::Bool(left_value), Value::Bool(right_value)) if left_value == right_value => None,
+        (Value::Text(_), Value::Text(_))
+        | (Value::Number(_), Value::Number(_))
+        | (Value::Bool(_), Value::Bool(_)) => Some(format!(
             "This {word} failed.\n\
              One side is {} and the other is {}.\n\
              A {word} passes only when both sides are the same value, so change one of them to match.",
@@ -114,6 +117,7 @@ fn internal(span: Span, what: &str) -> Diagnostic {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::decimal::Decimal;
 
     fn span() -> Span {
         Span {
@@ -144,7 +148,7 @@ mod tests {
             vec![Op::Constant(0), Op::Say, Op::Constant(1), Op::Say],
             vec![
                 Value::Text("Hello".to_string()),
-                Value::Number("0.10".to_string()),
+                Value::Number(Decimal::parse("0.10").unwrap()),
             ],
             0,
         );
@@ -176,7 +180,7 @@ mod tests {
             chunk(vec![Op::Load(0)], vec![], 1),
             chunk(
                 vec![Op::Constant(0), Op::Store(5)],
-                vec![Value::Number("1".into())],
+                vec![Value::Number(Decimal::parse("1").unwrap())],
                 0,
             ),
         ];
@@ -230,7 +234,7 @@ mod tests {
             ],
             vec![
                 Value::Text("Hi".to_string()),
-                Value::Number("1".to_string()),
+                Value::Number(Decimal::parse("1").unwrap()),
             ],
             0,
         );

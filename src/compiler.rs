@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 
+use crate::decimal::Decimal;
 use crate::diagnostic::{Diagnostic, Span};
 use crate::parser::{Expr, ExprKind, Program, Statement};
 use crate::value::Value;
@@ -83,7 +84,10 @@ impl Compiler {
     fn expression(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
         let op = match &expr.kind {
             ExprKind::Text(text) => self.constant(Value::Text(text.clone())),
-            ExprKind::Number(number) => self.constant(Value::Number(number.clone())),
+            ExprKind::Number(number) => match Decimal::parse(number) {
+                Some(number) => self.constant(Value::Number(number)),
+                None => return Err(too_many_digits(number, expr.span)),
+            },
             ExprKind::Name(name) => match self.slots.get(name) {
                 Some(&slot) => Op::Load(slot),
                 // The checker reports this first; this keeps the compiler from
@@ -114,6 +118,17 @@ impl Compiler {
     }
 }
 
+/// A number literal that doesn't fit in a Quill number.
+pub fn too_many_digits(number: &str, span: Span) -> Diagnostic {
+    Diagnostic::new(
+        span,
+        format!(
+            "{number} has more digits than a Quill number can hold.\n\
+             Numbers can have up to 38 digits in total, before and after the point."
+        ),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,7 +157,7 @@ mod tests {
             chunk.constants,
             vec![
                 Value::Text("Hi".to_string()),
-                Value::Number("7".to_string())
+                Value::Number(Decimal::parse("7").unwrap())
             ]
         );
         assert_eq!(chunk.slot_count, 1);
