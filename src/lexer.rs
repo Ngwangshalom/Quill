@@ -92,6 +92,10 @@ impl Lexer {
         self.chars.get(self.pos + 1).copied()
     }
 
+    fn peek_at(&self, offset: usize) -> Option<char> {
+        self.chars.get(self.pos + offset).copied()
+    }
+
     fn advance(&mut self) -> Option<char> {
         let c = self.peek()?;
         self.pos += 1;
@@ -171,6 +175,12 @@ impl Lexer {
     fn text(&mut self, line: usize, column: usize) -> Result<TokenKind, Diagnostic> {
         let start = self.pos;
         self.advance(); // opening quote
+                        // """...""" holds quotes as themselves, so "hi" needs no backslash.
+        if self.peek() == Some('"') && self.peek_at(1) == Some('"') {
+            self.advance();
+            self.advance();
+            return self.plain_text(start, line, column);
+        }
         let mut value = String::new();
 
         loop {
@@ -227,6 +237,82 @@ impl Lexer {
                 }
             }
         }
+    }
+
+    /// Text wrapped in `"""`. A `"` inside is a quote. `\n`, `\t` and `\\` still work.
+    fn plain_text(
+        &mut self,
+        start: usize,
+        line: usize,
+        column: usize,
+    ) -> Result<TokenKind, Diagnostic> {
+        let mut value = String::new();
+        loop {
+            if self.peek() == Some('"')
+                && self.peek_at(1) == Some('"')
+                && self.peek_at(2) == Some('"')
+            {
+                self.advance();
+                self.advance();
+                self.advance();
+                return Ok(TokenKind::Text(value));
+            }
+            match self.peek() {
+                None | Some('\n') => {
+                    let raw: String = self.chars[start..self.pos].iter().collect();
+                    let raw = raw.trim_end_matches('\r');
+                    return Err(Diagnostic {
+                        line,
+                        column,
+                        length: raw.chars().count(),
+                        message: "This text starts with three quotes but never ends.\n\
+                                  Write \"\"\" again after the text. A quote inside needs no backslash."
+                            .to_string(),
+                        suggestion: Some(format!("{raw}\"\"\"")),
+                    });
+                }
+                Some('\\') => {
+                    if let Some(resolved) = self.escape()? {
+                        value.push(resolved);
+                    }
+                }
+                Some(c) => {
+                    self.advance();
+                    value.push(c);
+                }
+            }
+        }
+    }
+
+    /// One escape after a backslash that has not been consumed yet.
+    /// `None` means the escape ran off the end of the line; the caller reports that.
+    fn escape(&mut self) -> Result<Option<char>, Diagnostic> {
+        let escape_column = self.column;
+        self.advance();
+        let resolved = match self.peek() {
+            Some('n') => '\n',
+            Some('t') => '\t',
+            Some('"') => '"',
+            Some('\\') => '\\',
+            None | Some('\n') | Some('\r') => return Ok(None),
+            Some(other) => {
+                return Err(Diagnostic {
+                    line: self.line,
+                    column: escape_column,
+                    length: 2,
+                    message: format!(
+                        "`\\{other}` isn't an escape Quill knows.\n\
+                         Inside text, a backslash must be followed by n (new line), \
+                         t (tab), \" (a quote) or \\ (a backslash)."
+                    ),
+                    suggestion: Some(format!(
+                        "\\\\{other}   (to write a backslash followed by {other})"
+                    )),
+                });
+            }
+        };
+        self.advance();
+        Ok(Some(resolved))
     }
 
     fn number(&mut self, line: usize, column: usize) -> Result<TokenKind, Diagnostic> {
@@ -520,6 +606,25 @@ mod tests {
     fn dot_without_following_digit_is_not_part_of_the_number() {
         let err = lex("x = 3.").unwrap_err();
         assert_eq!((err.line, err.column), (1, 6));
+    }
+
+    #[test]
+    fn three_quotes_hold_a_quote_without_a_backslash() {
+        assert_eq!(
+            tokens("\"\"\"She said \"hi\".\"\"\""),
+            vec![(text("She said \"hi\"."), 1, 1), (EndOfFile, 1, 21)]
+        );
+    }
+
+    #[test]
+    fn three_quotes_must_close() {
+        let err = lex("\"\"\"She said \"hi\"").unwrap_err();
+        assert_eq!((err.line, err.column), (1, 1));
+        assert!(err.message.contains("three quotes"));
+        assert_eq!(
+            err.suggestion.as_deref(),
+            Some("\"\"\"She said \"hi\"\"\"\"")
+        );
     }
 
     #[test]

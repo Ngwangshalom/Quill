@@ -141,6 +141,7 @@ fn help_and_version() {
     assert!(help.contains("check greeting == \"Hello\""));
     assert!(help.contains("--- example: greeting == \"Hello\""));
     assert!(help.contains("quill run shop/hello.ql"));
+    assert!(help.contains("\"\"\"She said \"hi\".\"\"\""));
     assert_eq!(
         stdout(&quill(&["--version"])),
         format!("quill {}\n", env!("CARGO_PKG_VERSION"))

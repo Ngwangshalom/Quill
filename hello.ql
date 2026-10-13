@@ -5,7 +5,7 @@ greeting = "Hello"
 year = 2026
 price = 0.10
 copy = greeting
-quoted = "She said \"hi\"\tand left."
+quoted = """She said "hi" and left."""
 
 say name
 say greeting
@@ -20,7 +20,7 @@ check greeting == "Hello"
 check year == 2026
 check price == 0.10
 check copy == greeting
-check quoted == "She said \"hi\"\tand left."
+check quoted == """She said "hi" and left."""
 
 --- example: name == "Amina"
 --- example: greeting == "Hello"

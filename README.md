@@ -56,6 +56,12 @@ set name = "Omar"        -- error: name isn't marked var
 set vistis = 2           -- error: no value called vistis (did you mean visits?)
 ```
 
+Text that contains a quote is wrapped in three quotes, so the quote inside needs no backslash:
+
+```quill
+quoted = """She said "hi"."""
+```
+
 ### Functions, `when` and tests
 
 ```quill
