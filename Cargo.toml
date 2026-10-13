@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "A readable, safe programming language for backends and AI-powered apps."
 license = "Apache-2.0"
+repository = "https://github.com/Ngwangshalom/Quill"
+readme = "README.md"
 
 [[bin]]
 name = "quill"
