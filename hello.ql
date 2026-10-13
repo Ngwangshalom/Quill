@@ -1,28 +1,11 @@
---- Every value Quill can store: text, a number, and another name.
+var name = "Kopsala backend"
+var version = "0.04"
+developer = "Donald terms"
 
-name = "Amina"
-greeting = "Hello"
-year = 2026
-price = 0.10
-copy = greeting
-quoted = """She said "hi" and left."""
+say name 
 
-say name
-say greeting
-say year
-say price
-say copy
-say quoted
-
--- A check passes when both sides are the same value.
-check name == "Amina"
-check greeting == "Hello"
-check year == 2026
-check price == 0.10
-check copy == greeting
-check quoted == """She said "hi" and left."""
-
---- example: name == "Amina"
---- example: greeting == "Hello"
---- example: year == 2026
---- example: price == 0.10
+when 
+  version == "0.02" -> say "Hello Guys, your the best"
+  version == "0.03" -> say "Your the best in the world"
+  version == "0.03" -> say "We are the best in the world"
+  else -> say "We dont have that verison"

@@ -6,7 +6,8 @@ What changed in each version of Quill. The newest version is at the top.
 
 Changes that are finished but not yet in a release.
 
-- *Nothing yet.*
+- The book has a **Quill** theme: warm paper, ink, and a brass mark for the chapter you are reading. Pick it from the paintbrush menu. When your system is set to light, the book opens in Quill.
+- The book uses the Quill feather as its icon, in the browser tab and beside the title.
 
 ## v0.3.0 (13 October 2026)
 
