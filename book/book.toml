@@ -6,5 +6,7 @@ language = "en"
 src = "src"
 
 [output.html]
+default-theme = "quill"
 git-repository-url = "https://github.com/Ngwangshalom/Quill"
 edit-url-template = "https://github.com/Ngwangshalom/Quill/edit/main/book/{path}"
+additional-css = ["theme/quill.css"]

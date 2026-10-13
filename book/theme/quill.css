@@ -1,0 +1,85 @@
+/* The feather sits beside the book title in every theme. */
+
+.menu-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.7rem;
+}
+
+.menu-logo {
+    width: 2.4rem;
+    height: 2.4rem;
+    flex: none;
+}
+
+.menu-title span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Quill: warm paper and iron-gall ink, with a brass nib for the mark you are on. */
+
+.quill {
+    --bg: #f4efe6;
+    --fg: #1c1916;
+
+    --sidebar-bg: #1b2430;
+    --sidebar-fg: #efe8dc;
+    --sidebar-non-existant: #8a8174;
+    --sidebar-active: #e0b56a;
+    --sidebar-spacer: #2a3444;
+
+    --scrollbar: #8a8174;
+
+    --icons: #6e675c;
+    --icons-hover: #1c1916;
+
+    --links: #1f4b73;
+
+    --inline-code-color: #3f3428;
+
+    --theme-popup-bg: #f7f3eb;
+    --theme-popup-border: #8d6840;
+    --theme-hover: #e7dfd0;
+
+    --quote-bg: #ebe4d6;
+    --quote-border: #ddd4c4;
+
+    --warning-border: #b86e00;
+
+    --table-border-color: #e4dccb;
+    --table-header-bg: #d9cfbc;
+    --table-alternate-bg: #f7f3eb;
+
+    --searchbar-border-color: #b3a894;
+    --searchbar-bg: #f7f3eb;
+    --searchbar-fg: #1c1916;
+    --searchbar-shadow-color: #b3a894;
+    --searchresults-header-fg: #6e675c;
+    --searchresults-border-color: #c4b8a4;
+    --searchresults-li-bg: #efe6d4;
+    --search-mark-bg: #e0b56a;
+
+    --color-scheme: light;
+
+    --copy-button-filter: invert(45%);
+    --copy-button-filter-hover: invert(72%) sepia(32%) saturate(700%) hue-rotate(5deg) brightness(95%) contrast(90%);
+
+    --footnote-highlight: #d4b483;
+
+    --overlay-bg: rgba(28, 25, 22, 0.25);
+
+    --blockquote-note-color: #1f4b73;
+    --blockquote-tip-color: #2d6a3e;
+    --blockquote-important-color: #6b4c9a;
+    --blockquote-warning-color: #8a5a12;
+    --blockquote-caution-color: #9c2f2f;
+
+    --sidebar-header-border-color: #e0b56a;
+}
+
+.quill .hljs {
+    background: #fbf8f2;
+    color: #1c1916;
+}
