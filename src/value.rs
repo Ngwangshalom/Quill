@@ -2,11 +2,15 @@
 
 use std::fmt;
 
+use crate::decimal::Decimal;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Text(String),
-    /// Kept exactly as written until `Decimal` arrives, so nothing is rounded.
-    Number(String),
+    /// An exact decimal, so money and prices never round by surprise.
+    Number(Decimal),
+    /// The result of a comparison: `true` or `false`.
+    Bool(bool),
 }
 
 /// How `say` shows a value.
@@ -15,6 +19,7 @@ impl fmt::Display for Value {
         match self {
             Value::Text(text) => write!(f, "{text}"),
             Value::Number(number) => write!(f, "{number}"),
+            Value::Bool(value) => write!(f, "{value}"),
         }
     }
 }
@@ -24,7 +29,8 @@ impl Value {
     pub fn written(&self) -> String {
         match self {
             Value::Text(text) => format!("\"{}\"", escape(text)),
-            Value::Number(number) => number.clone(),
+            Value::Number(number) => number.to_string(),
+            Value::Bool(value) => value.to_string(),
         }
     }
 
@@ -33,6 +39,7 @@ impl Value {
         match self {
             Value::Text(_) => "text",
             Value::Number(_) => "a number",
+            Value::Bool(_) => "true or false",
         }
     }
 }

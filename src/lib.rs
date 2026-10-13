@@ -4,6 +4,7 @@
 
 pub mod checker;
 pub mod compiler;
+pub mod decimal;
 pub mod diagnostic;
 pub mod explain;
 pub mod lexer;
