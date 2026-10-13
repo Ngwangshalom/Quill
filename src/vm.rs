@@ -53,9 +53,45 @@ pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
                     )
                 })?;
             }
+            Op::Check { example } => {
+                let right = pop(&mut stack, span)?;
+                let left = pop(&mut stack, span)?;
+                if let Some(message) = compare(example, &left, &right) {
+                    return Err(Diagnostic::new(span, message));
+                }
+            }
         }
     }
     Ok(())
+}
+
+/// `None` when the two values are the same. Otherwise a message saying why not.
+fn compare(example: bool, left: &Value, right: &Value) -> Option<String> {
+    let word = if example { "example" } else { "check" };
+    match (left, right) {
+        (Value::Text(left_text), Value::Text(right_text)) if left_text == right_text => None,
+        (Value::Number(left_number), Value::Number(right_number))
+            if left_number == right_number =>
+        {
+            None
+        }
+        (Value::Text(_), Value::Text(_)) | (Value::Number(_), Value::Number(_)) => Some(format!(
+            "This {word} failed.\n\
+             One side is {} and the other is {}.\n\
+             A {word} passes only when both sides are the same value, so change one of them to match.",
+            left.written(),
+            right.written()
+        )),
+        _ => Some(format!(
+            "This {word} compares {} ({}) to {} ({}).\n\
+             Both sides have to be the same kind of value.\n\
+             Quill won't turn one into the other, so make them both text or both numbers.",
+            left.kind_name(),
+            left.written(),
+            right.kind_name(),
+            right.written()
+        )),
+    }
 }
 
 fn pop(stack: &mut Vec<Value>, span: Span) -> Result<Value, Diagnostic> {
@@ -148,6 +184,59 @@ mod tests {
             let err = output(&case).unwrap_err();
             assert!(err.message.contains("internal mistake"), "{}", err.message);
         }
+    }
+
+    #[test]
+    fn a_check_passes_quietly_when_both_sides_match() {
+        let chunk = chunk(
+            vec![
+                Op::Constant(0),
+                Op::Constant(1),
+                Op::Check { example: false },
+            ],
+            vec![Value::Text("Hi".to_string()), Value::Text("Hi".to_string())],
+            0,
+        );
+        assert_eq!(output(&chunk).unwrap(), "");
+    }
+
+    #[test]
+    fn a_failed_check_names_both_sides() {
+        let chunk = chunk(
+            vec![
+                Op::Constant(0),
+                Op::Constant(1),
+                Op::Check { example: false },
+            ],
+            vec![
+                Value::Text("Hi".to_string()),
+                Value::Text("Bye".to_string()),
+            ],
+            0,
+        );
+        let err = output(&chunk).unwrap_err();
+        assert!(err.message.contains("This check failed"));
+        assert!(err.message.contains("\"Hi\""));
+        assert!(err.message.contains("\"Bye\""));
+    }
+
+    #[test]
+    fn an_example_wont_compare_text_with_a_number() {
+        let chunk = chunk(
+            vec![
+                Op::Constant(0),
+                Op::Constant(1),
+                Op::Check { example: true },
+            ],
+            vec![
+                Value::Text("Hi".to_string()),
+                Value::Number("1".to_string()),
+            ],
+            0,
+        );
+        let err = output(&chunk).unwrap_err();
+        assert!(err.message.contains("This example compares text"));
+        assert!(err.message.contains("a number"));
     }
 
     #[test]

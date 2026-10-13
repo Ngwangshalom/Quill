@@ -47,12 +47,6 @@ fn runs_values_and_escapes() {
 }
 
 #[test]
-fn runs_the_example_in_the_project_root() {
-    let output = quill(&["run", "hello.ql"]);
-    assert!(output.status.success(), "stderr: {}", stderr(&output));
-}
-
-#[test]
 fn typo_gets_a_readme_style_error() {
     let output = quill(&["run", "tests/programs/typo.ql"]);
     assert_reported_problem(&output);
@@ -139,10 +133,106 @@ fn command_without_file_is_explained() {
 
 #[test]
 fn help_and_version() {
-    assert!(stdout(&quill(&["help"])).contains("quill run FILE.ql"));
+    let help = stdout(&quill(&["help"]));
+    assert!(help.contains("quill run FILE.ql"));
+    assert!(help.contains("quill test"));
+    assert!(help.contains("quill explain FILE.ql:N"));
+    assert!(help.contains("quill new NAME"));
+    assert!(help.contains("check greeting == \"Hello\""));
+    assert!(help.contains("--- example: greeting == \"Hello\""));
+    assert!(help.contains("quill run shop/hello.ql"));
     assert_eq!(
         stdout(&quill(&["--version"])),
         format!("quill {}\n", env!("CARGO_PKG_VERSION"))
     );
     assert_reported_problem(&quill(&[]));
+}
+
+#[test]
+fn test_runs_checks_and_examples() {
+    let output = quill(&["test"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    assert!(out.contains("tests/programs/checks.ql: 3 checks passed"));
+    assert!(out.contains("hello.ql: 10 checks passed"));
+    assert!(out.contains("13 checks passed."));
+}
+
+#[test]
+fn explain_describes_a_line() {
+    let output = quill(&["explain", "tests/programs/checks.ql:1"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    assert!(out.contains("Line 1:  greeting = \"Hello\""));
+    assert!(out.contains("a new value (can't change)"));
+    assert!(out.contains("Text"));
+}
+
+#[test]
+fn explain_needs_a_line() {
+    let output = quill(&["explain"]);
+    assert_reported_problem(&output);
+    assert!(stderr(&output).contains("file.ql:LINE"));
+    assert!(stderr(&output).contains("Did you mean:  quill explain hello.ql:1"));
+}
+
+#[test]
+fn a_missing_line_is_explained() {
+    let output = quill(&["explain", "tests/programs/hello.ql:9"]);
+    assert_reported_problem(&output);
+    assert!(stderr(&output).contains("isn't there"));
+}
+
+#[test]
+fn new_starts_a_project_that_runs_and_tests() {
+    let root = scratch("new-project");
+    let output = quill_in(&root, &["new", "shop"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&output).contains("Created shop/hello.ql."));
+
+    let output = quill_in(&root, &["run", "shop/hello.ql"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "Hello, World!\n");
+
+    let output = quill_in(&root, &["test"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert!(stdout(&output).contains("shop/hello.ql: 1 check passed"));
+}
+
+#[test]
+fn new_wont_replace_a_folder() {
+    let root = scratch("new-exists");
+    assert!(quill_in(&root, &["new", "shop"]).status.success());
+    let output = quill_in(&root, &["new", "shop"]);
+    assert_reported_problem(&output);
+    assert!(stderr(&output).contains("already exists"));
+}
+
+#[test]
+fn a_failed_check_fails_the_test_run() {
+    let root = scratch("failed-check");
+    let file = root.join("shop.ql");
+    std::fs::write(&file, "greeting = \"Hello\"\ncheck greeting == \"Hi\"\n").unwrap();
+    let output = quill_in(&root, &["test"]);
+    assert_reported_problem(&output);
+    let err = stderr(&output);
+    assert!(err.contains("This check failed"));
+    assert!(err.contains("\"Hello\""));
+    assert!(err.contains("\"Hi\""));
+    assert!(stdout(&output).contains("0 checks passed, 1 file failed."));
+}
+
+fn quill_in(dir: &std::path::Path, args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_quill"))
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("quill binary should start")
+}
+
+fn scratch(name: &str) -> std::path::PathBuf {
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+    let _ = std::fs::remove_dir_all(&path);
+    std::fs::create_dir_all(&path).unwrap();
+    path
 }

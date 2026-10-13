@@ -2,25 +2,56 @@ use std::env;
 use std::fmt::Write as _;
 use std::fs;
 use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use quill::compiler::Op;
 use quill::diagnostic::{closest_match, Diagnostic};
+use quill::explain;
 use quill::lexer;
 
 const USAGE: &str = "\
 Quill: write what you mean.
 
 Usage:
-  quill run FILE.ql      Run a program
-  quill check FILE.ql    Find problems without running anything
-  quill tokens FILE.ql   Show how Quill reads a file, token by token
-  quill help             Show this message
-  quill version          Show which version of Quill this is
+  quill run FILE.ql         Run a program
+  quill FILE.ql             Same thing: a file on its own runs
+  quill check FILE.ql       Find problems without running anything
+  quill test                Run every check and doc example in this folder
+  quill explain FILE.ql:N   Show how Quill read line N
+  quill new NAME            Create a folder NAME with hello.ql inside
+  quill tokens FILE.ql      Show how Quill reads a file, token by token
+  quill help                Show this message
+  quill version             Show which version of Quill this is
 
-A file on its own runs it:  quill hello.ql
+A program is one statement per line:
+
+  greeting = \"Hello\"
+  say greeting
+  check greeting == \"Hello\"
+  --- example: greeting == \"Hello\"
+
+say shows a value. name = value creates a value, and that name can't be used
+before it exists or created again. check and --- example: pass when both sides
+are the same value. quill test runs those. -- starts a comment.
+
+Examples:
+  quill new shop
+  quill run shop/hello.ql
+  quill explain shop/hello.ql:1
+  quill test
 ";
 
-const COMMANDS: [&str; 5] = ["run", "check", "tokens", "help", "version"];
+const COMMANDS: [&str; 8] = [
+    "run", "check", "tokens", "test", "explain", "new", "help", "version",
+];
+
+const STARTER: &str = "\
+greeting = \"Hello, World!\"
+say greeting
+
+check greeting == \"Hello, World!\"
+";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -44,6 +75,23 @@ fn main() -> ExitCode {
         ["run", path] => run(path),
         ["check", path] => check(path),
         ["tokens", path] => tokens(path),
+        ["test"] => test(),
+        ["explain", target] => explain_file(target),
+        ["new", name] => new_project(name),
+        ["test", ..] => fail(
+            "quill test looks through the project for checks and examples.\n\
+             It doesn't take a file. Run it from the project folder."
+                .to_string(),
+            Some("quill test".to_string()),
+        ),
+        ["explain"] => fail(
+            "quill explain needs a file and a line number, written as file.ql:LINE.".to_string(),
+            Some("quill explain hello.ql:1".to_string()),
+        ),
+        ["new"] => fail(
+            "quill new needs a name for the project.".to_string(),
+            Some("quill new hello".to_string()),
+        ),
         [command @ ("run" | "check" | "tokens")] => fail(
             format!("quill {command} needs a file to work on."),
             Some(format!("quill {command} hello.ql")),
@@ -91,6 +139,284 @@ fn check(path: &str) -> ExitCode {
         println!("No problems found in {path}.");
     }
     finish(path, &source, result)
+}
+
+fn test() -> ExitCode {
+    let root = match env::current_dir() {
+        Ok(root) => root,
+        Err(err) => {
+            return fail(
+                format!(
+                    "Quill couldn't see the current folder: {err}.\n\
+                     Run quill test from the project folder."
+                ),
+                None,
+            );
+        }
+    };
+    let mut files = Vec::new();
+    if let Err(message) = collect_tests(&root, &mut files) {
+        return fail(message, None);
+    }
+    files.sort();
+    if files.is_empty() {
+        println!("Quill found no checks or examples.");
+        println!("A check looks like:  check greeting == \"Hello\"");
+        println!("A doc example looks like:  --- example: greeting == \"Hello\"");
+        return ExitCode::SUCCESS;
+    }
+
+    let mut passed = 0;
+    let mut failed = 0;
+    for path in &files {
+        let shown = relative(path, &root);
+        let Some(source) = read(path.to_str().unwrap_or(&shown)) else {
+            failed += 1;
+            continue;
+        };
+        match quill::compile_source(&source) {
+            Err(problems) => {
+                eprintln!("{shown}");
+                report(&shown, &source, &problems);
+                failed += 1;
+            }
+            Ok(chunk) => {
+                let checks = chunk
+                    .code
+                    .iter()
+                    .filter(|op| matches!(op, Op::Check { .. }))
+                    .count();
+                let mut sink = Vec::new();
+                match quill::vm::run(&chunk, &mut sink) {
+                    Ok(()) => {
+                        let word = if checks == 1 { "check" } else { "checks" };
+                        println!("{shown}: {checks} {word} passed");
+                        passed += checks;
+                    }
+                    Err(problem) => {
+                        eprintln!("{shown}");
+                        report(&shown, &source, &[problem]);
+                        failed += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    println!();
+    if failed == 0 {
+        let word = if passed == 1 { "check" } else { "checks" };
+        println!("{passed} {word} passed.");
+        ExitCode::SUCCESS
+    } else {
+        let passed_word = if passed == 1 { "check" } else { "checks" };
+        let failed_word = if failed == 1 { "file" } else { "files" };
+        println!("{passed} {passed_word} passed, {failed} {failed_word} failed.");
+        ExitCode::FAILURE
+    }
+}
+
+fn explain_file(target: &str) -> ExitCode {
+    let Some((path, line_text)) = target.rsplit_once(':') else {
+        return fail(
+            "quill explain needs a file and a line number, written as file.ql:LINE.".to_string(),
+            Some(format!("quill explain {target}:1")),
+        );
+    };
+    if path.is_empty() {
+        return fail(
+            "quill explain needs a file before the line number.".to_string(),
+            Some("quill explain hello.ql:1".to_string()),
+        );
+    }
+    let Ok(line) = line_text.parse::<usize>() else {
+        return fail(
+            format!(
+                "{line_text} isn't a line number.\n\
+                 A line number is a whole number, like 1."
+            ),
+            Some(format!("quill explain {path}:1")),
+        );
+    };
+    if line == 0 {
+        return fail(
+            "Line numbers start at 1.\n\
+             There is no line 0."
+                .to_string(),
+            Some(format!("quill explain {path}:1")),
+        );
+    }
+    let Some(source) = read(path) else {
+        return ExitCode::FAILURE;
+    };
+    let count = if source.is_empty() {
+        0
+    } else {
+        source.lines().count()
+    };
+    if line > count {
+        let word = if count == 1 { "line" } else { "lines" };
+        return fail(
+            format!(
+                "{path} has {count} {word}, so line {line} isn't there.\n\
+                 Pick a line that exists."
+            ),
+            if count == 0 {
+                None
+            } else {
+                Some(format!("quill explain {path}:1"))
+            },
+        );
+    }
+    print!("{}", explain::explain(&source, line));
+    ExitCode::SUCCESS
+}
+
+fn new_project(name: &str) -> ExitCode {
+    if let Some((message, suggestion)) = invalid_project_name(name) {
+        return fail(message, suggestion);
+    }
+    let dir = Path::new(name);
+    if dir.exists() {
+        return fail(
+            format!(
+                "{name} already exists.\n\
+                 Quill won't replace it. Pick another name, or delete that folder if you mean to start over."
+            ),
+            None,
+        );
+    }
+    if let Err(err) = fs::create_dir(dir) {
+        return fail(
+            format!(
+                "Quill couldn't create {name}: {err}.\n\
+                 Check that you're allowed to create a folder here."
+            ),
+            None,
+        );
+    }
+    let file = dir.join("hello.ql");
+    if let Err(err) = fs::write(&file, STARTER) {
+        let _ = fs::remove_dir_all(dir);
+        return fail(
+            format!(
+                "Quill created {name} but couldn't write hello.ql: {err}.\n\
+                 Check that you're allowed to create files in that folder."
+            ),
+            None,
+        );
+    }
+    println!("Created {name}/hello.ql.");
+    println!("Run it with:  quill run {name}/hello.ql");
+    println!("Test it with:  quill test");
+    ExitCode::SUCCESS
+}
+
+fn invalid_project_name(name: &str) -> Option<(String, Option<String>)> {
+    if let Some(stem) = name.strip_suffix(".ql") {
+        return Some((
+            format!(
+                "{name} looks like a source file, and quill new starts a project folder.\n\
+                 The name is the folder, not a .ql file."
+            ),
+            Some(format!("quill new {stem}")),
+        ));
+    }
+    let ok = !name.is_empty()
+        && name
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '_')
+        && name
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '_' || c == '-');
+    if ok {
+        return None;
+    }
+    Some((
+        format!(
+            "{name} isn't a project name Quill can make a folder from.\n\
+             Use letters, digits, _ and -, and start with a letter."
+        ),
+        Some("quill new hello".to_string()),
+    ))
+}
+
+/// Files under `dir` that contain a `check` or a `--- example:` line.
+fn collect_tests(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = fs::read_dir(dir).map_err(|err| {
+        format!(
+            "Quill couldn't look through {}: {err}.\n\
+             Check that the folder exists and that you're allowed to read it.",
+            dir.display()
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|err| {
+            format!(
+                "Quill couldn't read an entry in {}: {err}.\n\
+                 Check that you're allowed to read that folder.",
+                dir.display()
+            )
+        })?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with('.') || name == "target" {
+            continue;
+        }
+        let path = entry.path();
+        let kind = entry
+            .file_type()
+            .map_err(|err| format!("Quill couldn't tell what {} is: {err}.", path.display()))?;
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
+            collect_tests(&path, files)?;
+        } else if name.ends_with(".ql") && file_has_tests(&path) {
+            files.push(path);
+        }
+    }
+    Ok(())
+}
+
+fn file_has_tests(path: &Path) -> bool {
+    let Ok(source) = fs::read_to_string(path) else {
+        return true;
+    };
+    source.lines().any(is_test_line)
+}
+
+fn is_test_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed == "check" || trimmed.starts_with("check ") || trimmed.starts_with("check\t") {
+        return true;
+    }
+    let Some(rest) = trimmed.strip_prefix("---") else {
+        return false;
+    };
+    rest.trim_start().starts_with("example:")
+}
+
+fn relative(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .display()
+        .to_string()
+}
+
+fn report(path: &str, source: &str, problems: &[Diagnostic]) {
+    let mut text = String::new();
+    for (i, problem) in problems.iter().enumerate() {
+        if i > 0 {
+            text.push('\n');
+        }
+        text.push_str(&problem.render(path, source));
+    }
+    if problems.len() > 1 {
+        let _ = write!(text, "\nQuill found {} problems.\n", problems.len());
+    }
+    eprint!("{text}");
 }
 
 fn tokens(path: &str) -> ExitCode {
