@@ -23,7 +23,8 @@ Usage:
   quill explain FILE.ql:N   Show how Quill read line N
   quill new NAME            Create a folder NAME with hello.ql inside
   quill tokens FILE.ql      Show how Quill reads a file, token by token
-  quill update              Update Quill to the latest version
+  quill update              Choose a version of Quill to install (also: upgrade)
+  quill update VERSION      Install that version, or latest
   quill help                Show this message
   quill version             Show which version of Quill this is
 
@@ -60,8 +61,8 @@ Examples:
   quill test
 ";
 
-const COMMANDS: [&str; 9] = [
-    "run", "check", "tokens", "test", "explain", "new", "update", "help", "version",
+const COMMANDS: [&str; 10] = [
+    "run", "check", "tokens", "test", "explain", "new", "update", "upgrade", "help", "version",
 ];
 
 const STARTER: &str = "\
@@ -77,7 +78,8 @@ fn main() -> ExitCode {
 
     match args.as_slice() {
         [update::CHECK_COMMAND] => return update::background_check(),
-        ["update"] => return update::update(),
+        ["update" | "upgrade"] => return update::update(None),
+        ["update" | "upgrade", version] => return update::update(Some(version)),
         _ => {}
     }
     let code = command(&args);

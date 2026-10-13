@@ -70,6 +70,7 @@ Delivery: 5
 | `quill explain FILE.ql:N` | show how Quill read line N |
 | `quill new NAME` | start a project |
 | `quill tokens FILE.ql` | show the pieces Quill read |
-| `quill update` | update Quill to the latest version |
+| `quill update` | choose a version of Quill to install (also `quill upgrade`) |
+| `quill update VERSION` | install that version, or `latest` |
 | `quill help` | show help |
 | `quill version` | show the version |
