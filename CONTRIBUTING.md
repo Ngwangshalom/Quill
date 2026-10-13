@@ -55,13 +55,13 @@ source (.ql) → lexer → parser → checker → compiler → VM
 
 ### Adding a feature: the usual path
 
-Most features touch several stages, in pipeline order. Say you are adding `+`:
+Most features touch several stages, in pipeline order. Say you are adding `**` for powers (`2 ** 3` is 8):
 
-1. **Lexer:** add a `Plus` variant to `TokenKind`, give it a `Display` arm, and recognise `'+'` in `Lexer::run`.
-2. **Parser:** add an expression kind for it (e.g. `ExprKind::Add`) and parse `a + b`.
-3. **Checker:** reject what doesn't make sense (adding text to a number), with a helpful error.
-4. **Compiler:** emit a new `Op::Add`.
-5. **VM:** execute `Op::Add`.
+1. **Lexer:** add a `StarStar` variant to `TokenKind`, give it a `Display` arm, and recognise `**` in `Lexer::run` (look at how `<=` is read).
+2. **Parser:** add `Arithmetic::Power` and parse `a ** b` in its own precedence level, tighter than `*`.
+3. **Checker:** both sides must be numbers; `Checker::arithmetic` already explains mistakes for the other operators.
+4. **Compiler:** emit a new `Op::Power`.
+5. **VM:** execute `Op::Power` with a new `Decimal` method that reports overflow instead of panicking.
 6. **Tests:** at every step (see below).
 
 You don't have to do it all in one pull request. A lexer-only PR with tests is a fine first step.
@@ -133,10 +133,10 @@ GitHub runs these automatically on every pull request.
 
 Look for the [`good first issue`](../../labels/good%20first%20issue) label. Some ideas that fit well:
 
-- **`var` and `set`:** mutable values, as described in the README. A good tour of every stage.
-- **Arithmetic:** `+`, `-`, `*`, `/` on numbers, with errors for text + number.
-- **Text interpolation:** `say "Hello, {name}"`.
-- **Number separators:** let `1_000_000` be written for readability.
+- **Number separators:** let `1_000_000` be written for readability (lexer only).
+- **Comparing text:** let `<` and `>` put text in alphabetical order (checker and VM).
+- **`when` as a value:** `label = when ...`, where every case gives a value and `else` is required.
+- **`for` loops:** `for i in 1..10`, as in the README's FizzBuzz example.
 - **Better suggestions:** find an error message that confused you and improve it.
 - **Example programs:** add small, well-commented `.ql` files.
 - **Editor support:** syntax highlighting for VS Code.

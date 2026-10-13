@@ -1,8 +1,8 @@
 //! `quill explain`: says how Quill read one line.
 
-use crate::checker;
+use crate::checker::{self, KnownValue};
 use crate::lexer;
-use crate::parser::{self, Expr, ExprKind, Program, Statement};
+use crate::parser::{self, Arm, Expr, ExprKind, Part, Program, Statement};
 
 /// Describes line `line` (1-based) of `source`.
 ///
@@ -40,21 +40,28 @@ pub fn explain(source: &str, line: usize) -> String {
         }
     };
 
-    let Some(statement) = program.statements.iter().find(|s| s.line() == line) else {
+    let Some(found) = find(&program.statements, line) else {
         let note = if line_text.trim().is_empty() {
             "  (blank)   an empty line, skipped\n".to_string()
         } else if let Some(note) = comment_note(line_text) {
             format!("{note}\n")
         } else {
             "  Quill didn't see a statement on this line.\n\
-             A line can start with say, check, or a name and =.\n"
+             A line can start with say, check, var, set, when, or a name and =.\n"
                 .to_string()
         };
         return format!("{header}\n{note}");
     };
 
-    let bindings = bindings_before(&program, line);
-    let rows = describe(statement, &bindings);
+    let known = checker::values_before(&program, line);
+    let describer = Describer {
+        program: &program,
+        known: &known,
+    };
+    let rows = match found {
+        Found::Statement(statement) => describer.statement(statement),
+        Found::Arm(arm) => describer.arm(arm),
+    };
     let mut body = header;
     body.push('\n');
     body.push_str(&format_rows(&rows));
@@ -67,97 +74,204 @@ pub fn explain(source: &str, line: usize) -> String {
     body
 }
 
-struct Binding {
-    name: String,
-    line: usize,
-    kind: String,
+/// What starts on the line being explained.
+enum Found<'a> {
+    Statement(&'a Statement),
+    /// A case of a `when`, which has its own line.
+    Arm(&'a Arm),
 }
 
-fn bindings_before(program: &Program, line: usize) -> Vec<Binding> {
-    let mut bindings = Vec::new();
-    for statement in &program.statements {
-        if statement.line() >= line {
-            break;
+fn find(statements: &[Statement], line: usize) -> Option<Found<'_>> {
+    for statement in statements {
+        if statement.line() == line {
+            return Some(Found::Statement(statement));
         }
-        let Statement::Let { name, value, .. } = statement else {
-            continue;
-        };
-        if bindings
-            .iter()
-            .any(|binding: &Binding| binding.name == *name)
-        {
-            continue;
-        }
-        bindings.push(Binding {
-            name: name.clone(),
-            line: statement.line(),
-            kind: kind_of(value, &bindings),
-        });
-    }
-    bindings
-}
-
-fn kind_of(expr: &Expr, bindings: &[Binding]) -> String {
-    match &expr.kind {
-        ExprKind::Text(_) => "Text".to_string(),
-        ExprKind::Number(_) => "Number".to_string(),
-        ExprKind::Name(name) => bindings
-            .iter()
-            .find(|binding| binding.name == *name)
-            .map(|binding| binding.kind.clone())
-            .unwrap_or_else(|| "a value".to_string()),
-    }
-}
-
-fn describe(statement: &Statement, bindings: &[Binding]) -> Vec<(String, String)> {
-    match statement {
-        Statement::Say { value, .. } => vec![
-            ("say".to_string(), "show a value".to_string()),
-            expr_row(value, bindings),
-        ],
-        Statement::Let { name, value, .. } => vec![
-            (name.clone(), "a new value (can't change)".to_string()),
-            (
-                "=".to_string(),
-                format!("store the value on the right in {name}"),
-            ),
-            expr_row(value, bindings),
-        ],
-        Statement::Check {
-            left,
-            right,
-            example,
-            ..
-        } => {
-            let head = if *example {
-                (
-                    "--- example".to_string(),
-                    "a doc example, run as a test".to_string(),
-                )
-            } else {
-                ("check".to_string(), "a test".to_string())
-            };
-            vec![
-                head,
-                expr_row(left, bindings),
-                ("==".to_string(), "compare the two sides".to_string()),
-                expr_row(right, bindings),
-            ]
+        if let Some(found) = find_in(statement, line) {
+            return Some(found);
         }
     }
+    None
 }
 
-fn expr_row(expr: &Expr, bindings: &[Binding]) -> (String, String) {
-    let label = expr.to_string();
-    let detail = match &expr.kind {
-        ExprKind::Text(_) => "Text".to_string(),
-        ExprKind::Number(_) => "Number".to_string(),
-        ExprKind::Name(name) => match bindings.iter().find(|binding| binding.name == *name) {
-            Some(binding) => format!("{}, created on line {}", binding.kind, binding.line),
-            None => format!("no value called {name}"),
-        },
+fn find_in(statement: &Statement, line: usize) -> Option<Found<'_>> {
+    let Statement::When { arms, .. } = statement else {
+        return None;
     };
-    (label, detail)
+    for arm in arms {
+        if arm.span.line == line {
+            return Some(Found::Arm(arm));
+        }
+        if let Some(found) = find_in(&arm.body, line) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+struct Describer<'a> {
+    program: &'a Program,
+    known: &'a [KnownValue],
+}
+
+impl Describer<'_> {
+    fn statement(&self, statement: &Statement) -> Vec<(String, String)> {
+        match statement {
+            Statement::Say { value, .. } => {
+                let mut rows = vec![("say".to_string(), "show a value".to_string())];
+                rows.extend(self.value(value));
+                rows
+            }
+            Statement::Let {
+                name,
+                value,
+                mutable,
+                ..
+            } => {
+                let (label, meaning) = if *mutable {
+                    (format!("var {name}"), "a new value (can change with set)")
+                } else {
+                    (name.clone(), "a new value (can't change)")
+                };
+                let mut rows = vec![
+                    (label, meaning.to_string()),
+                    (
+                        "=".to_string(),
+                        format!("store the value on the right in {name}"),
+                    ),
+                ];
+                rows.extend(self.value(value));
+                rows
+            }
+            Statement::Set { name, value, .. } => {
+                let meaning = match self.lookup(name) {
+                    Some(known) => format!("change {name}, created on line {}", known.span.line),
+                    None => format!("change {name}"),
+                };
+                let mut rows = vec![
+                    (format!("set {name}"), meaning),
+                    ("=".to_string(), format!("store the new value in {name}")),
+                ];
+                rows.extend(self.value(value));
+                rows
+            }
+            Statement::Check {
+                left,
+                op,
+                right,
+                example,
+                ..
+            } => {
+                let head = if *example {
+                    (
+                        "--- example".to_string(),
+                        "a doc example, run as a test".to_string(),
+                    )
+                } else {
+                    ("check".to_string(), "a test".to_string())
+                };
+                let mut rows = vec![head];
+                rows.extend(self.value(left));
+                rows.push((op.symbol().to_string(), "compare the two sides".to_string()));
+                rows.extend(self.value(right));
+                rows
+            }
+            Statement::When { arms, .. } => {
+                let cases = if arms.len() == 1 { "case" } else { "cases" };
+                vec![(
+                    "when".to_string(),
+                    format!(
+                        "run the first of the {} {cases} below whose condition is true",
+                        arms.len()
+                    ),
+                )]
+            }
+        }
+    }
+
+    fn arm(&self, arm: &Arm) -> Vec<(String, String)> {
+        let mut rows = match &arm.condition {
+            Some(condition) => {
+                let mut rows = self.value(condition);
+                rows.push(("->".to_string(), "when that is true, run:".to_string()));
+                rows
+            }
+            None => vec![
+                (
+                    "else".to_string(),
+                    "when none of the cases above are true".to_string(),
+                ),
+                ("->".to_string(), "run:".to_string()),
+            ],
+        };
+        rows.extend(self.statement(&arm.body));
+        rows
+    }
+
+    /// A row for a value, then a row for each name used inside it.
+    fn value(&self, expr: &Expr) -> Vec<(String, String)> {
+        let mut rows = vec![(expr.to_string(), self.meaning(expr))];
+        if !matches!(expr.kind, ExprKind::Name(_)) {
+            let mut names = Vec::new();
+            names_in(expr, &mut names);
+            for name in names {
+                rows.push((name.clone(), self.name_meaning(&name)));
+            }
+        }
+        rows
+    }
+
+    fn meaning(&self, expr: &Expr) -> String {
+        let kind = checker::kind_of(self.program, expr, self.known).name();
+        match &expr.kind {
+            ExprKind::Text(_) | ExprKind::Number(_) => kind.to_string(),
+            ExprKind::Bool(_) => "true/false".to_string(),
+            ExprKind::Name(name) => self.name_meaning(name),
+            ExprKind::Template(_) => "Text with values inside".to_string(),
+            ExprKind::Group(inner) => self.meaning(inner),
+            ExprKind::Arithmetic { .. } | ExprKind::Negate(_) => format!("a calculation, {kind}"),
+            ExprKind::Compare { .. } => format!("a comparison, {kind}"),
+            ExprKind::Logic { .. } | ExprKind::Not(_) => format!("a condition, {kind}"),
+        }
+    }
+
+    fn name_meaning(&self, name: &str) -> String {
+        match self.lookup(name) {
+            Some(known) => format!("{}, created on line {}", known.kind.name(), known.span.line),
+            None => format!("no value called {name}"),
+        }
+    }
+
+    fn lookup(&self, name: &str) -> Option<&KnownValue> {
+        self.known.iter().find(|known| known.name == name)
+    }
+}
+
+/// The distinct names used inside `expr`, in order.
+fn names_in(expr: &Expr, names: &mut Vec<String>) {
+    match &expr.kind {
+        ExprKind::Name(name) => {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+        ExprKind::Template(parts) => {
+            for part in parts {
+                if let Part::Value(value) = part {
+                    names_in(value, names);
+                }
+            }
+        }
+        ExprKind::Negate(inner) | ExprKind::Not(inner) | ExprKind::Group(inner) => {
+            names_in(inner, names)
+        }
+        ExprKind::Arithmetic { left, right, .. }
+        | ExprKind::Compare { left, right, .. }
+        | ExprKind::Logic { left, right, .. } => {
+            names_in(left, names);
+            names_in(right, names);
+        }
+        ExprKind::Text(_) | ExprKind::Number(_) | ExprKind::Bool(_) => {}
+    }
 }
 
 fn format_rows(rows: &[(String, String)]) -> String {
@@ -279,6 +393,54 @@ mod tests {
     fn an_earlier_problem_blocks_a_later_line() {
         let text = explain("say \"oops\nsay 1\n", 2);
         assert!(text.contains("problem on line 1"));
+        assert!(text.contains("Quill stopped here before running anything."));
+    }
+
+    #[test]
+    fn explains_a_calculation_and_the_names_in_it() {
+        assert_eq!(
+            explain("price = 10\ntotal = price * 3 + 1\n", 2),
+            "Line 2:  total = price * 3 + 1\n\n\
+             \x20 total           a new value (can't change)\n\
+             \x20 =               store the value on the right in total\n\
+             \x20 price * 3 + 1   a calculation, Number\n\
+             \x20 price           Number, created on line 1\n"
+        );
+    }
+
+    #[test]
+    fn explains_var_and_set() {
+        let text = explain("var visits = 0\nset visits = visits + 1\n", 1);
+        assert!(text.contains("var visits   a new value (can change with set)"));
+        let text = explain("var visits = 0\nset visits = visits + 1\n", 2);
+        assert!(text.contains("set visits   change visits, created on line 1"));
+        assert!(text.contains("visits + 1   a calculation, Number"));
+    }
+
+    #[test]
+    fn explains_a_when_and_its_cases() {
+        let source = "n = 4\nwhen\n  n % 2 == 0 -> say \"even\"\n  else -> say \"odd\"\n";
+        assert!(explain(source, 2).contains("run the first of the 2 cases below"));
+        let case = explain(source, 3);
+        assert!(case.contains("n % 2 == 0   a comparison, true/false"));
+        assert!(case.contains("when that is true, run:"));
+        assert!(case.contains("say          show a value"));
+        let other = explain(source, 4);
+        assert!(other.contains("else    when none of the cases above are true"));
+    }
+
+    #[test]
+    fn explains_values_inside_text() {
+        let text = explain("name = \"Amina\"\nsay \"Hi {name}\"\n", 2);
+        assert!(text.contains("\"Hi {name}\"   Text with values inside"));
+        assert!(text.contains("name          Text, created on line 1"));
+    }
+
+    #[test]
+    fn a_kind_mistake_stops_before_running() {
+        let text = explain("price = 100\ntotal = price + \"5\"\n", 2);
+        assert!(text.contains("You're adding Number (price) to Text (\"5\")."));
+        assert!(text.contains("Did you mean:  total = price + 5"));
         assert!(text.contains("Quill stopped here before running anything."));
     }
 }

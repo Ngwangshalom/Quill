@@ -138,8 +138,11 @@ fn help_and_version() {
     assert!(help.contains("quill test"));
     assert!(help.contains("quill explain FILE.ql:N"));
     assert!(help.contains("quill new NAME"));
-    assert!(help.contains("check greeting == \"Hello\""));
-    assert!(help.contains("--- example: greeting == \"Hello\""));
+    assert!(help.contains("check total == 38.50"));
+    assert!(help.contains("--- example: price > 10"));
+    assert!(help.contains("var total = price * 3"));
+    assert!(help.contains("say \"Total: {total}\""));
+    assert!(help.contains("total > 100 -> say \"Free delivery\""));
     assert!(help.contains("quill run shop/hello.ql"));
     assert!(help.contains("\"\"\"She said \"hi\".\"\"\""));
     assert_eq!(
@@ -155,8 +158,9 @@ fn test_runs_checks_and_examples() {
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("tests/programs/checks.ql: 3 checks passed"));
+    assert!(out.contains("tests/programs/receipt.ql: 3 checks passed"));
     assert!(out.contains("hello.ql: 10 checks passed"));
-    assert!(out.contains("13 checks passed."));
+    assert!(out.contains("16 checks passed."));
 }
 
 #[test]
@@ -221,6 +225,52 @@ fn a_failed_check_fails_the_test_run() {
     assert!(err.contains("\"Hello\""));
     assert!(err.contains("\"Hi\""));
     assert!(stdout(&output).contains("0 checks passed, 1 file failed."));
+}
+
+#[test]
+fn runs_arithmetic_text_values_var_set_and_when() {
+    let output = quill(&["run", "tests/programs/receipt.ql"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        "Items: 3 x 12.50\nTotal: 37.80\nVisits: 1\nDelivery: 5\n"
+    );
+}
+
+#[test]
+fn adding_text_to_a_number_matches_the_readme() {
+    let output = quill(&["run", "tests/programs/kind_mistake.ql"]);
+    assert_reported_problem(&output);
+    assert_eq!(stdout(&output), "");
+    assert_eq!(
+        stderr(&output),
+        "Problem on line 2 of tests/programs/kind_mistake.ql:\n\
+         \n    total = price + \"5\"\
+         \n                    ^^^\
+         \nYou're adding Number (price) to Text (\"5\").\
+         \nQuill won't guess which one you meant.\
+         \n\
+         \nDid you mean:  total = price + 5\n"
+    );
+}
+
+#[test]
+fn set_needs_var() {
+    let output = quill(&["check", "tests/programs/not_var.ql"]);
+    assert_reported_problem(&output);
+    let err = stderr(&output);
+    assert!(err.contains("name can't change, because it isn't marked var."));
+    assert!(err.contains("    var name = \"Amina\""));
+}
+
+#[test]
+fn dividing_by_zero_stops_the_program_with_an_explanation() {
+    let output = quill(&["run", "tests/programs/divide_by_zero.ql"]);
+    assert_reported_problem(&output);
+    assert_eq!(stdout(&output), "Before\n");
+    let err = stderr(&output);
+    assert!(err.contains("Problem on line 3"));
+    assert!(err.contains("This divides by zero, which has no answer."));
 }
 
 fn quill_in(dir: &std::path::Path, args: &[&str]) -> Output {
