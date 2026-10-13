@@ -21,13 +21,9 @@
         <meta name="theme-color" content="#f4efe6" media="(prefers-color-scheme: light)">
         <meta name="theme-color" content="#1b2430" media="(prefers-color-scheme: dark)">
 
-        {{#if favicon_svg}}
-        <link rel="icon" href="{{ resource "favicon.svg" }}">
-        {{/if}}
-        {{#if favicon_png}}
-        <link rel="icon" type="image/png" href="{{ resource "favicon.png" }}">
-        <link rel="apple-touch-icon" href="{{ resource "favicon.png" }}">
-        {{/if}}
+        <link rel="icon" href="{{ path_to_root }}favicon.ico" sizes="any">
+        <link rel="icon" type="image/png" href="{{ path_to_root }}favicon.png">
+        <link rel="apple-touch-icon" href="{{ path_to_root }}favicon.png">
         <link rel="stylesheet" href="{{ resource "css/variables.css" }}">
         <link rel="stylesheet" href="{{ resource "css/general.css" }}">
         <link rel="stylesheet" href="{{ resource "css/chrome.css" }}">
