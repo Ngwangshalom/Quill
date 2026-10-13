@@ -62,6 +62,10 @@ quill run hello/hello.ql
 
 Building from source needs [Rust](https://rustup.rs): `cargo install --git https://github.com/Ngwangshalom/Quill`
 
+## Learn Quill
+
+**[The Quill Programming Language](book/src/SUMMARY.md)** is a book that teaches Quill from the very beginning, for new and experienced programmers. It grows with the language, and every example in it is tested.
+
 ## A tour of Quill
 
 ### Hello, World

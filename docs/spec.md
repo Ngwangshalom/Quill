@@ -2,7 +2,7 @@
 
 **Version 0.1 draft**, describing Quill as implemented in release v0.2.0.
 
-This document says exactly what Quill programs mean. The [README](../README.md) shows where the language is going; this spec covers what works today, and marks planned features clearly in [§12](#12-planned-not-yet-implemented). When the implementation and this document disagree, that is a bug in one of them. Please [open an issue](https://github.com/Ngwangshalom/Quill/issues).
+This document says exactly what Quill programs mean. The [README](https://github.com/Ngwangshalom/Quill#readme) shows where the language is going; this spec covers what works today, and marks planned features clearly in [§12](#12-planned-not-yet-implemented). When the implementation and this document disagree, that is a bug in one of them. Please [open an issue](https://github.com/Ngwangshalom/Quill/issues).
 
 ## Contents
 
