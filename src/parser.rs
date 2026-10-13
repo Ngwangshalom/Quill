@@ -186,8 +186,7 @@ impl<'a> Parser<'a> {
                 )
                 .suggest(format!("say {value}")))
             }
-            // The main loop handles these before calling `statement`.
-            TokenKind::Newline | TokenKind::EndOfFile => Err(Diagnostic::new(
+            _ => Err(Diagnostic::new(
                 token.span(),
                 "Quill expected a statement here.",
             )),
@@ -406,6 +405,7 @@ fn describe(kind: &TokenKind) -> String {
         TokenKind::Example => "a doc example".to_string(),
         TokenKind::Newline => "the end of the line".to_string(),
         TokenKind::EndOfFile => "the end of the file".to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn statements_keep_positions() {
-        let program = parse_source("x = \"hi\"\n  say x").unwrap();
+        let program = parse_source("x = \"hi\"\nsay   x").unwrap();
         assert_eq!(
             program.statements,
             vec![
@@ -495,7 +495,7 @@ mod tests {
                         kind: ExprKind::Name("x".to_string()),
                         span: span(2, 7, 1),
                     },
-                    span: span(2, 3, 3),
+                    span: span(2, 1, 3),
                 },
             ]
         );
