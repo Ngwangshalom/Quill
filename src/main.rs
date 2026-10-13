@@ -26,14 +26,22 @@ Usage:
 
 A program is one statement per line:
 
-  greeting = \"Hello\"
-  say greeting
-  check greeting == \"Hello\"
-  --- example: greeting == \"Hello\"
+  price = 12.50                  a value that can't change
+  var total = price * 3          a value that can change
+  set total = total + 1          change it
+  say \"Total: {total}\"           show a value; {} puts a value inside text
+  check total == 38.50           a test; quill test runs these
+  --- example: price > 10        a doc example, also run by quill test
+  -- a comment
 
-say shows a value. name = value creates a value, and that name can't be used
-before it exists or created again. check and --- example: pass when both sides
-are the same value. quill test runs those. -- starts a comment.
+Numbers are exact decimals, so 0.1 + 0.2 is 0.3. Calculate with + - * / %,
+compare with == != < <= > >=, and combine conditions with and, or, not.
+
+when runs the first case whose condition is true:
+
+  when
+    total > 100 -> say \"Free delivery\"
+    else -> say \"Delivery: 5\"
 
 A quote inside text needs no backslash when the text uses three quotes:
 

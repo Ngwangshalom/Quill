@@ -18,7 +18,7 @@
 
 ---
 
-> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs only the first few features so far (`say`, values, `check` and doc examples). Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
+> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs the first features so far: `say`, values, `var` / `set`, exact arithmetic, `{values}` inside text, `when`, `check` and doc examples. Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
 
 ## Why Quill?
 
@@ -264,20 +264,22 @@ Being clear about scope is part of the design. Quill is **not** aimed at operati
 
 **Foundation**
 - [ ] Language specification (v0.1 draft)
-- [ ] Lexer and parser
-- [ ] `say`, values, `var` / `set`, expressions
-- [ ] `when`, loops and functions
+- [x] Lexer and parser
+- [x] `say`, values, `var` / `set`, expressions
+- [x] `when` with conditions
+- [ ] Loops and functions
 
 **Safety**
 - [ ] Type checker with friendly errors
 - [ ] `maybe` and exhaustive `when`
 - [ ] `fails`, `on` and `try`
-- [ ] `quill explain`
+- [x] `quill explain`
 
 **Running**
-- [ ] Bytecode compiler and virtual machine
-- [ ] `check` tests and executable doc examples
-- [ ] `Decimal` and `Money<CURRENCY>`
+- [x] Bytecode compiler and virtual machine
+- [x] `check` tests and executable doc examples
+- [x] Exact `Decimal` numbers
+- [ ] `Money<CURRENCY>`
 - [ ] Constrained types (`where`)
 - [ ] `require` / `ensure` contracts (runtime)
 
