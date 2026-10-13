@@ -1,7 +1,13 @@
 //! The lexer: turns Quill source text into a flat list of tokens.
 //!
-//! Supported so far: `say`, `check`, text literals, numbers, names, `=`, `==`,
-//! comments (`--` and `---`) and new lines.
+//! It reads keywords (`say`, `check`, `var`, `set`, `when`, `else`, `and`, `or`,
+//! `not`, `true`, `false`), text (with `{value}` inside), numbers, names,
+//! operators, comments (`--` and `---`) and new lines.
+//!
+//! Quill uses indentation for blocks, like the cases under `when`. The lexer
+//! turns indentation into `Indent` and `Dedent` tokens, so the parser can treat
+//! a block like a pair of brackets.
+//!
 //! Every token remembers the line and column it started on (both 1-based,
 //! counted in characters) so later stages can point at the exact spot.
 
@@ -13,18 +19,58 @@ use crate::diagnostic::{Diagnostic, Span};
 pub enum TokenKind {
     Say,
     Check,
+    Var,
+    Set,
+    When,
+    Else,
+    True,
+    False,
+    And,
+    Or,
+    Not,
     /// A text literal, with escapes already resolved.
     Text(String),
+    /// Text with values inside, like `"Hello, {name}"`.
+    Template(Vec<Piece>),
     /// A number exactly as written, so `Decimal` and `Money` can stay exact.
     Number(String),
     Identifier(String),
     Equals,
-    /// `==`, used by `check` and doc examples.
+    /// `==`, used by `check`, doc examples and `when`.
     EqualEqual,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    LeftParen,
+    RightParen,
+    /// `->`, between a `when` case and what to do.
+    Arrow,
     /// The `--- example:` marker. The comparison itself follows on the same line.
     Example,
+    /// The start of a more indented block.
+    Indent,
+    /// The end of an indented block.
+    Dedent,
     Newline,
     EndOfFile,
+}
+
+/// One part of a text with values inside.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Piece {
+    Text(String),
+    /// The code between `{` and `}`: as written, and as tokens ending with `EndOfFile`.
+    Code {
+        source: String,
+        tokens: Vec<Token>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,23 +94,62 @@ impl Token {
 
 impl fmt::Display for TokenKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            TokenKind::Say => write!(f, "say"),
-            TokenKind::Check => write!(f, "check"),
-            TokenKind::Text(text) => write!(f, "Text {text:?}"),
-            TokenKind::Number(number) => write!(f, "Number {number}"),
-            TokenKind::Identifier(name) => write!(f, "Identifier {name}"),
-            TokenKind::Equals => write!(f, "="),
-            TokenKind::EqualEqual => write!(f, "=="),
-            TokenKind::Example => write!(f, "example"),
-            TokenKind::Newline => write!(f, "Newline"),
-            TokenKind::EndOfFile => write!(f, "EndOfFile"),
-        }
+        let symbol = match self {
+            TokenKind::Text(text) => return write!(f, "Text {text:?}"),
+            TokenKind::Template(pieces) => {
+                write!(f, "Text \"")?;
+                for piece in pieces {
+                    match piece {
+                        Piece::Text(text) => {
+                            let escaped = format!("{text:?}");
+                            let inner = &escaped[1..escaped.len() - 1];
+                            write!(f, "{}", inner.replace('{', "\\{").replace('}', "\\}"))?;
+                        }
+                        Piece::Code { source, .. } => write!(f, "{{{source}}}")?,
+                    }
+                }
+                return write!(f, "\"");
+            }
+            TokenKind::Number(number) => return write!(f, "Number {number}"),
+            TokenKind::Identifier(name) => return write!(f, "Identifier {name}"),
+            TokenKind::Say => "say",
+            TokenKind::Check => "check",
+            TokenKind::Var => "var",
+            TokenKind::Set => "set",
+            TokenKind::When => "when",
+            TokenKind::Else => "else",
+            TokenKind::True => "true",
+            TokenKind::False => "false",
+            TokenKind::And => "and",
+            TokenKind::Or => "or",
+            TokenKind::Not => "not",
+            TokenKind::Equals => "=",
+            TokenKind::EqualEqual => "==",
+            TokenKind::NotEqual => "!=",
+            TokenKind::Less => "<",
+            TokenKind::LessEqual => "<=",
+            TokenKind::Greater => ">",
+            TokenKind::GreaterEqual => ">=",
+            TokenKind::Plus => "+",
+            TokenKind::Minus => "-",
+            TokenKind::Star => "*",
+            TokenKind::Slash => "/",
+            TokenKind::Percent => "%",
+            TokenKind::LeftParen => "(",
+            TokenKind::RightParen => ")",
+            TokenKind::Arrow => "->",
+            TokenKind::Example => "example",
+            TokenKind::Indent => "Indent",
+            TokenKind::Dedent => "Dedent",
+            TokenKind::Newline => "Newline",
+            TokenKind::EndOfFile => "EndOfFile",
+        };
+        write!(f, "{symbol}")
     }
 }
 
 pub fn lex(source: &str) -> Result<Vec<Token>, Diagnostic> {
-    Lexer::new(source).run()
+    Lexer::new(source.chars().collect(), 1, 1, false).run()
 }
 
 struct Lexer {
@@ -72,15 +157,23 @@ struct Lexer {
     pos: usize,
     line: usize,
     column: usize,
+    /// Widths of the open indented blocks. Starts with 0 for the top level.
+    indents: Vec<usize>,
+    at_line_start: bool,
+    /// Lexing the code inside `{}` in a text: no lines, no indentation.
+    in_code: bool,
 }
 
 impl Lexer {
-    fn new(source: &str) -> Self {
+    fn new(chars: Vec<char>, line: usize, column: usize, in_code: bool) -> Self {
         Lexer {
-            chars: source.chars().collect(),
+            chars,
             pos: 0,
-            line: 1,
-            column: 1,
+            line,
+            column,
+            indents: vec![0],
+            at_line_start: !in_code,
+            in_code,
         }
     }
 
@@ -112,6 +205,12 @@ impl Lexer {
         let mut tokens = Vec::new();
 
         while let Some(c) = self.peek() {
+            if self.at_line_start {
+                self.at_line_start = false;
+                self.indentation(&mut tokens)?;
+                continue;
+            }
+
             let line = self.line;
             let column = self.column;
 
@@ -124,25 +223,33 @@ impl Lexer {
                 '\r' if self.peek_next() == Some('\n') => {
                     self.advance();
                     self.advance();
+                    self.at_line_start = !self.in_code;
                     TokenKind::Newline
                 }
                 '\n' => {
                     self.advance();
+                    self.at_line_start = !self.in_code;
                     TokenKind::Newline
                 }
-                '=' => {
+                '=' => self.one_or_two('=', TokenKind::Equals, TokenKind::EqualEqual),
+                '<' => self.one_or_two('=', TokenKind::Less, TokenKind::LessEqual),
+                '>' => self.one_or_two('=', TokenKind::Greater, TokenKind::GreaterEqual),
+                '!' if self.peek_next() == Some('=') => {
                     self.advance();
-                    if self.peek() == Some('=') {
-                        self.advance();
-                        TokenKind::EqualEqual
-                    } else {
-                        TokenKind::Equals
-                    }
+                    self.advance();
+                    TokenKind::NotEqual
                 }
-                '-' => match self.comment(line, column)? {
+                '-' if self.peek_next() == Some('-') => match self.comment()? {
                     Some(kind) => kind,
                     None => continue,
                 },
+                '-' => self.one_or_two('>', TokenKind::Minus, TokenKind::Arrow),
+                '+' => self.single(TokenKind::Plus),
+                '*' => self.single(TokenKind::Star),
+                '/' => self.single(TokenKind::Slash),
+                '%' => self.single(TokenKind::Percent),
+                '(' => self.single(TokenKind::LeftParen),
+                ')' => self.single(TokenKind::RightParen),
                 '"' => self.text(line, column)?,
                 c if c.is_ascii_digit() => self.number(line, column)?,
                 c if c.is_alphabetic() || c == '_' => self.word(),
@@ -163,13 +270,115 @@ impl Lexer {
             });
         }
 
-        tokens.push(Token {
-            kind: TokenKind::EndOfFile,
+        // Close every block that is still open.
+        while self.indents.len() > 1 {
+            self.indents.pop();
+            tokens.push(self.marker(TokenKind::Dedent));
+        }
+        tokens.push(self.marker(TokenKind::EndOfFile));
+        Ok(tokens)
+    }
+
+    fn single(&mut self, kind: TokenKind) -> TokenKind {
+        self.advance();
+        kind
+    }
+
+    /// A one-character token, or a two-character one when `second` follows.
+    fn one_or_two(&mut self, second: char, one: TokenKind, two: TokenKind) -> TokenKind {
+        self.advance();
+        if self.peek() == Some(second) {
+            self.advance();
+            two
+        } else {
+            one
+        }
+    }
+
+    /// A zero-width token at the current position.
+    fn marker(&self, kind: TokenKind) -> Token {
+        Token {
+            kind,
             line: self.line,
             column: self.column,
             length: 0,
-        });
-        Ok(tokens)
+        }
+    }
+
+    /// Reads the indentation at the start of a line and opens or closes blocks.
+    /// Blank lines and comment lines don't change the indentation.
+    fn indentation(&mut self, tokens: &mut Vec<Token>) -> Result<(), Diagnostic> {
+        let line = self.line;
+        let mut width = 0;
+        let (mut tabs, mut spaces) = (false, false);
+        while let Some(c @ (' ' | '\t')) = self.peek() {
+            tabs |= c == '\t';
+            spaces |= c == ' ';
+            width += 1;
+            self.advance();
+        }
+        if self.rest_of_line_is_empty() {
+            return Ok(());
+        }
+        if tabs && spaces {
+            return Err(Diagnostic::new(
+                Span {
+                    line,
+                    column: 1,
+                    length: width,
+                },
+                "This line is indented with a mix of tabs and spaces.\n\
+                 Editors show tabs at different widths, so Quill can't tell how far in it is.\n\
+                 Indent with spaces only.",
+            ));
+        }
+
+        let current = self.indents.last().copied().unwrap_or(0);
+        if width > current {
+            self.indents.push(width);
+            tokens.push(self.marker(TokenKind::Indent));
+        } else if width < current {
+            while self.indents.last().is_some_and(|&open| open > width) {
+                self.indents.pop();
+                tokens.push(self.marker(TokenKind::Dedent));
+            }
+            if self.indents.last() != Some(&width) {
+                return Err(Diagnostic::new(
+                    Span {
+                        line,
+                        column: 1,
+                        length: width.max(1),
+                    },
+                    "This line's indentation doesn't line up with any line above it.\n\
+                     A line that ends a block must line up exactly with the lines before the block.",
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// True when the rest of this line is empty or only a comment.
+    fn rest_of_line_is_empty(&self) -> bool {
+        match self.peek() {
+            None | Some('\n') => true,
+            Some('\r') => self.peek_next() == Some('\n') || self.peek_next().is_none(),
+            Some('-') => self.starts_with("--") && !self.at_example(),
+            _ => false,
+        }
+    }
+
+    /// True at `--- example:` (with any spaces after the dashes).
+    fn at_example(&self) -> bool {
+        if !self.starts_with("---") {
+            return false;
+        }
+        let mut rest = self.chars[self.pos + 3..]
+            .iter()
+            .copied()
+            .skip_while(|c| *c == ' ' || *c == '\t');
+        "example:"
+            .chars()
+            .all(|expected| rest.next() == Some(expected))
     }
 
     fn text(&mut self, line: usize, column: usize) -> Result<TokenKind, Diagnostic> {
@@ -181,107 +390,168 @@ impl Lexer {
             self.advance();
             return self.plain_text(start, line, column);
         }
-        let mut value = String::new();
 
+        let mut builder = TextBuilder::default();
         loop {
             match self.peek() {
                 None | Some('\n') => {
-                    let raw: String = self.chars[start..self.pos].iter().collect();
-                    let raw = raw.trim_end_matches('\r');
-                    return Err(Diagnostic {
+                    return Err(self.unclosed_text(
+                        start,
                         line,
                         column,
-                        length: raw.chars().count(),
-                        message: "This text starts with a quote but never ends.\n\
-                                  Text must open and close with \" on the same line."
-                            .to_string(),
-                        suggestion: Some(format!("{raw}\"")),
-                    });
+                        "\"",
+                        "This text starts with a quote but never ends.\n\
+                         Text must open and close with \" on the same line.",
+                    ));
                 }
                 Some('"') => {
                     self.advance();
-                    return Ok(TokenKind::Text(value));
+                    return Ok(builder.finish());
                 }
                 Some('\\') => {
-                    let escape_column = self.column;
-                    self.advance();
-                    let resolved = match self.peek() {
-                        Some('n') => '\n',
-                        Some('t') => '\t',
-                        Some('"') => '"',
-                        Some('\\') => '\\',
-                        // Let the loop report the missing closing quote.
-                        None | Some('\n') | Some('\r') => continue,
-                        Some(other) => {
-                            return Err(Diagnostic {
-                                line: self.line,
-                                column: escape_column,
-                                length: 2,
-                                message: format!(
-                                    "`\\{other}` isn't an escape Quill knows.\n\
-                                     Inside text, a backslash must be followed by n (new line), \
-                                     t (tab), \" (a quote) or \\ (a backslash)."
-                                ),
-                                suggestion: Some(format!(
-                                    "\\\\{other}   (to write a backslash followed by {other})"
-                                )),
-                            });
-                        }
-                    };
-                    self.advance();
-                    value.push(resolved);
+                    if let Some(resolved) = self.escape()? {
+                        builder.push(resolved);
+                    }
                 }
+                Some('{') => builder.code(self.code_piece()?),
+                Some('}') => return Err(self.stray_close_brace()),
                 Some(c) => {
                     self.advance();
-                    value.push(c);
+                    builder.push(c);
                 }
             }
         }
     }
 
-    /// Text wrapped in `"""`. A `"` inside is a quote. `\n`, `\t` and `\\` still work.
+    /// Text wrapped in `"""`. A `"` inside is a quote. Escapes and `{value}` still work.
     fn plain_text(
         &mut self,
         start: usize,
         line: usize,
         column: usize,
     ) -> Result<TokenKind, Diagnostic> {
-        let mut value = String::new();
+        let mut builder = TextBuilder::default();
         loop {
-            if self.peek() == Some('"')
-                && self.peek_at(1) == Some('"')
-                && self.peek_at(2) == Some('"')
-            {
+            if self.starts_with("\"\"\"") {
                 self.advance();
                 self.advance();
                 self.advance();
-                return Ok(TokenKind::Text(value));
+                return Ok(builder.finish());
             }
             match self.peek() {
                 None | Some('\n') => {
-                    let raw: String = self.chars[start..self.pos].iter().collect();
-                    let raw = raw.trim_end_matches('\r');
-                    return Err(Diagnostic {
+                    return Err(self.unclosed_text(
+                        start,
                         line,
                         column,
-                        length: raw.chars().count(),
-                        message: "This text starts with three quotes but never ends.\n\
-                                  Write \"\"\" again after the text. A quote inside needs no backslash."
-                            .to_string(),
-                        suggestion: Some(format!("{raw}\"\"\"")),
-                    });
+                        "\"\"\"",
+                        "This text starts with three quotes but never ends.\n\
+                         Write \"\"\" again after the text. A quote inside needs no backslash.",
+                    ));
                 }
                 Some('\\') => {
                     if let Some(resolved) = self.escape()? {
-                        value.push(resolved);
+                        builder.push(resolved);
                     }
                 }
+                Some('{') => builder.code(self.code_piece()?),
+                Some('}') => return Err(self.stray_close_brace()),
                 Some(c) => {
                     self.advance();
-                    value.push(c);
+                    builder.push(c);
                 }
             }
         }
+    }
+
+    fn unclosed_text(
+        &self,
+        start: usize,
+        line: usize,
+        column: usize,
+        closing: &str,
+        message: &str,
+    ) -> Diagnostic {
+        let raw: String = self.chars[start..self.pos].iter().collect();
+        let raw = raw.trim_end_matches('\r');
+        Diagnostic {
+            line,
+            column,
+            length: raw.chars().count(),
+            message: message.to_string(),
+            suggestion: Some(format!("{raw}{closing}")),
+        }
+    }
+
+    /// A `{value}` inside text. The `{` has not been consumed yet.
+    fn code_piece(&mut self) -> Result<Piece, Diagnostic> {
+        let open = Span {
+            line: self.line,
+            column: self.column,
+            length: 1,
+        };
+        self.advance(); // {
+        let start = self.pos;
+        let code_column = self.column;
+        loop {
+            match self.peek() {
+                Some('}') => break,
+                // A quote here almost always means the } was forgotten.
+                None | Some('\n') | Some('\r') | Some('"') => {
+                    let inner: String = self.chars[start..self.pos].iter().collect();
+                    return Err(Diagnostic::new(
+                        open,
+                        "This { inside text is never closed.\n\
+                         A value inside text goes between { and }, and text can't go inside the braces.",
+                    )
+                    .suggest(format!("{{{}}}", inner.trim())));
+                }
+                Some('{') => {
+                    return Err(Diagnostic::new(
+                        Span {
+                            line: self.line,
+                            column: self.column,
+                            length: 1,
+                        },
+                        "This { is inside another {}.\n\
+                         A value inside text can't hold another {. To show a { itself, write \\{.",
+                    )
+                    .suggest("\\{"))
+                }
+                Some(_) => {
+                    self.advance();
+                }
+            }
+        }
+        let source: String = self.chars[start..self.pos].iter().collect();
+        self.advance(); // }
+        if source.trim().is_empty() {
+            return Err(Diagnostic::new(
+                Span { length: 2, ..open },
+                "These braces are empty.\n\
+                 Put the value to show between them, like {name}. To show { itself, write \\{.",
+            )
+            .suggest("{name}"));
+        }
+        let code = Lexer::new(source.chars().collect(), open.line, code_column, true);
+        let tokens = code.run()?;
+        Ok(Piece::Code {
+            source: source.trim().to_string(),
+            tokens,
+        })
+    }
+
+    fn stray_close_brace(&self) -> Diagnostic {
+        Diagnostic::new(
+            Span {
+                line: self.line,
+                column: self.column,
+                length: 1,
+            },
+            "This } doesn't close a {.\n\
+             Braces in text hold a value, like {name}. To show a } itself, write \\}.",
+        )
+        .suggest("\\}")
     }
 
     /// One escape after a backslash that has not been consumed yet.
@@ -294,6 +564,8 @@ impl Lexer {
             Some('t') => '\t',
             Some('"') => '"',
             Some('\\') => '\\',
+            Some('{') => '{',
+            Some('}') => '}',
             None | Some('\n') | Some('\r') => return Ok(None),
             Some(other) => {
                 return Err(Diagnostic {
@@ -303,7 +575,7 @@ impl Lexer {
                     message: format!(
                         "`\\{other}` isn't an escape Quill knows.\n\
                          Inside text, a backslash must be followed by n (new line), \
-                         t (tab), \" (a quote) or \\ (a backslash)."
+                         t (tab), \" (a quote), \\ (a backslash), or {{ or }} (a brace)."
                     ),
                     suggestion: Some(format!(
                         "\\\\{other}   (to write a backslash followed by {other})"
@@ -348,6 +620,15 @@ impl Lexer {
         match word.as_str() {
             "say" => TokenKind::Say,
             "check" => TokenKind::Check,
+            "var" => TokenKind::Var,
+            "set" => TokenKind::Set,
+            "when" => TokenKind::When,
+            "else" => TokenKind::Else,
+            "true" => TokenKind::True,
+            "false" => TokenKind::False,
+            "and" => TokenKind::And,
+            "or" => TokenKind::Or,
+            "not" => TokenKind::Not,
             _ => TokenKind::Identifier(word),
         }
     }
@@ -355,26 +636,21 @@ impl Lexer {
     /// `--` is a comment to the end of the line. `--- example:` is a doc example,
     /// and the comparison after it is tokenized normally. Anything else after
     /// `---` is a doc comment and is skipped.
-    fn comment(&mut self, line: usize, column: usize) -> Result<Option<TokenKind>, Diagnostic> {
-        self.advance(); // first '-'
-        if self.peek() != Some('-') {
-            return Err(unexpected('-', line, column));
-        }
-        self.advance(); // second '-'
-        if self.peek() == Some('-') {
-            self.advance();
+    fn comment(&mut self) -> Result<Option<TokenKind>, Diagnostic> {
+        if self.at_example() {
+            for _ in 0.."---".len() {
+                self.advance();
+            }
             while matches!(self.peek(), Some(' ' | '\t')) {
                 self.advance();
             }
-            if self.starts_with("example:") {
-                for _ in 0.."example:".len() {
-                    self.advance();
-                }
-                while matches!(self.peek(), Some(' ' | '\t')) {
-                    self.advance();
-                }
-                return Ok(Some(TokenKind::Example));
+            for _ in 0.."example:".len() {
+                self.advance();
             }
+            while matches!(self.peek(), Some(' ' | '\t')) {
+                self.advance();
+            }
+            return Ok(Some(TokenKind::Example));
         }
         while let Some(c) = self.peek() {
             if c == '\n' || c == '\r' {
@@ -406,40 +682,81 @@ impl Lexer {
     }
 }
 
+/// Collects the pieces of a text, so plain text stays a simple `Text` token.
+#[derive(Default)]
+struct TextBuilder {
+    pieces: Vec<Piece>,
+    current: String,
+}
+
+impl TextBuilder {
+    fn push(&mut self, c: char) {
+        self.current.push(c);
+    }
+
+    fn code(&mut self, piece: Piece) {
+        if !self.current.is_empty() {
+            self.pieces
+                .push(Piece::Text(std::mem::take(&mut self.current)));
+        }
+        self.pieces.push(piece);
+    }
+
+    fn finish(mut self) -> TokenKind {
+        if self.pieces.is_empty() {
+            return TokenKind::Text(self.current);
+        }
+        if !self.current.is_empty() {
+            self.pieces.push(Piece::Text(self.current));
+        }
+        TokenKind::Template(self.pieces)
+    }
+}
+
 fn unexpected(c: char, line: usize, column: usize) -> Diagnostic {
-    if c == '\'' {
-        return Diagnostic {
-            line,
-            column,
-            length: 1,
-            message: "Quill doesn't use single quotes.\nText is always written in double quotes."
-                .to_string(),
-            suggestion: Some("\"like this\"".to_string()),
-        };
-    }
-
-    if c == '-' {
-        return Diagnostic {
-            line,
-            column,
-            length: 1,
-            message: "Quill doesn't use a single - here.\n\
-                      A comment starts with --, and a doc comment starts with ---."
-                .to_string(),
-            suggestion: Some("--".to_string()),
-        };
-    }
-
-    Diagnostic {
+    let span = Span {
         line,
         column,
         length: 1,
-        message: format!(
-            "Quill doesn't understand the character {c:?} here.\n\
-             So far Quill reads say, check, text in \"quotes\", numbers, names, \
-             =, ==, comments starting with -- and new lines."
+    };
+    match c {
+        '\'' => Diagnostic::new(
+            span,
+            "Quill doesn't use single quotes.\nText is always written in double quotes.",
+        )
+        .suggest("\"like this\""),
+        '!' => Diagnostic::new(
+            span,
+            "Quill writes not instead of !.\n\
+             Words read more clearly than symbols, so use not, or != for \"is not equal to\".",
+        )
+        .suggest("not"),
+        '&' => Diagnostic::new(
+            span,
+            "Quill writes and instead of &.\nUse and between two conditions that must both be true.",
+        )
+        .suggest("and"),
+        '|' => Diagnostic::new(
+            span,
+            "Quill writes or instead of |.\nUse or between two conditions when either one is enough.",
+        )
+        .suggest("or"),
+        ';' => Diagnostic::new(
+            span,
+            "Quill doesn't use semicolons.\nEach statement goes on its own line instead.",
         ),
-        suggestion: None,
+        '{' | '}' => Diagnostic::new(
+            span,
+            "Braces are only used inside text, to show a value: \"Hello, {name}\".\n\
+             Quill marks blocks with indentation instead.",
+        ),
+        _ => Diagnostic::new(
+            span,
+            format!(
+                "Quill doesn't understand the character {c:?} here.\n\
+                 It isn't part of any Quill word, number or symbol."
+            ),
+        ),
     }
 }
 
@@ -555,11 +872,85 @@ mod tests {
     }
 
     #[test]
-    fn a_single_dash_is_not_a_comment() {
-        let err = lex("say -").unwrap_err();
-        assert_eq!((err.line, err.column), (1, 5));
-        assert!(err.message.contains("single -"));
-        assert_eq!(err.suggestion.as_deref(), Some("--"));
+    fn one_dash_is_minus_two_are_a_comment() {
+        assert_eq!(
+            tokens("-5 -> x --note"),
+            vec![
+                (Minus, 1, 1),
+                (number("5"), 1, 2),
+                (Arrow, 1, 4),
+                (ident("x"), 1, 7),
+                (EndOfFile, 1, 15),
+            ]
+        );
+    }
+
+    #[test]
+    fn operators() {
+        let kinds: Vec<TokenKind> = tokens("+ - * / % ( ) < <= > >= == != = ->")
+            .into_iter()
+            .map(|(kind, _, _)| kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                Plus,
+                Minus,
+                Star,
+                Slash,
+                Percent,
+                LeftParen,
+                RightParen,
+                Less,
+                LessEqual,
+                Greater,
+                GreaterEqual,
+                EqualEqual,
+                NotEqual,
+                Equals,
+                Arrow,
+                EndOfFile,
+            ]
+        );
+    }
+
+    #[test]
+    fn keywords() {
+        let kinds: Vec<TokenKind> = tokens("var set when else true false and or not variable")
+            .into_iter()
+            .map(|(kind, _, _)| kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                Var,
+                Set,
+                When,
+                Else,
+                True,
+                False,
+                And,
+                Or,
+                Not,
+                ident("variable"),
+                EndOfFile
+            ]
+        );
+    }
+
+    #[test]
+    fn symbols_from_other_languages_suggest_the_quill_word() {
+        assert_eq!(
+            lex("x = !y").unwrap_err().suggestion.as_deref(),
+            Some("not")
+        );
+        assert_eq!(lex("a & b").unwrap_err().suggestion.as_deref(), Some("and"));
+        assert_eq!(lex("a | b").unwrap_err().suggestion.as_deref(), Some("or"));
+        assert!(lex("say 1;").unwrap_err().message.contains("semicolons"));
+        assert!(lex("x = {")
+            .unwrap_err()
+            .message
+            .contains("only used inside text"));
     }
 
     #[test]
@@ -668,13 +1059,155 @@ mod tests {
         assert_eq!(
             tokens("\tsay x\n\n"),
             vec![
+                (Indent, 1, 2),
                 (Say, 1, 2),
                 (ident("x"), 1, 6),
                 (Newline, 1, 7),
                 (Newline, 2, 1),
+                (Dedent, 3, 1),
                 (EndOfFile, 3, 1),
             ]
         );
+    }
+
+    #[test]
+    fn indentation_opens_and_closes_blocks() {
+        assert_eq!(
+            tokens("when\n  a -> b\n  c\nsay 1"),
+            vec![
+                (When, 1, 1),
+                (Newline, 1, 5),
+                (Indent, 2, 3),
+                (ident("a"), 2, 3),
+                (Arrow, 2, 5),
+                (ident("b"), 2, 8),
+                (Newline, 2, 9),
+                (ident("c"), 3, 3),
+                (Newline, 3, 4),
+                (Dedent, 4, 1),
+                (Say, 4, 1),
+                (number("1"), 4, 5),
+                (EndOfFile, 4, 6),
+            ]
+        );
+    }
+
+    #[test]
+    fn several_blocks_can_close_at_once() {
+        let kinds: Vec<TokenKind> = tokens("a\n  b\n    c\nd")
+            .into_iter()
+            .map(|(kind, _, _)| kind)
+            .filter(|kind| matches!(kind, Indent | Dedent))
+            .collect();
+        assert_eq!(kinds, vec![Indent, Indent, Dedent, Dedent]);
+    }
+
+    #[test]
+    fn blank_and_comment_lines_dont_change_indentation() {
+        let kinds: Vec<TokenKind> = tokens("a\n  b\n\n-- note\n     \n  c\n")
+            .into_iter()
+            .map(|(kind, _, _)| kind)
+            .filter(|kind| matches!(kind, Indent | Dedent))
+            .collect();
+        assert_eq!(kinds, vec![Indent, Dedent]);
+    }
+
+    #[test]
+    fn an_indented_example_is_a_statement_line() {
+        let kinds: Vec<TokenKind> = tokens("a\n  --- example: x == 1\n")
+            .into_iter()
+            .map(|(kind, _, _)| kind)
+            .collect();
+        assert_eq!(kinds[2], Indent);
+        assert_eq!(kinds[3], Example);
+    }
+
+    #[test]
+    fn indentation_must_line_up() {
+        let err = lex("when\n    a\n  b").unwrap_err();
+        assert_eq!((err.line, err.column), (3, 1));
+        assert!(err.message.contains("doesn't line up"));
+    }
+
+    #[test]
+    fn tabs_and_spaces_cannot_mix_in_one_indent() {
+        let err = lex("when\n \ta").unwrap_err();
+        assert_eq!((err.line, err.column, err.length), (2, 1, 2));
+        assert!(err.message.contains("mix of tabs and spaces"));
+    }
+
+    #[test]
+    fn values_inside_text() {
+        let found = lex("say \"Hi, {name}!\"").unwrap();
+        assert_eq!(
+            found[1].kind,
+            Template(vec![
+                Piece::Text("Hi, ".to_string()),
+                Piece::Code {
+                    source: "name".to_string(),
+                    tokens: vec![
+                        Token {
+                            kind: ident("name"),
+                            line: 1,
+                            column: 11,
+                            length: 4
+                        },
+                        Token {
+                            kind: EndOfFile,
+                            line: 1,
+                            column: 15,
+                            length: 0
+                        },
+                    ],
+                },
+                Piece::Text("!".to_string()),
+            ])
+        );
+        assert_eq!((found[1].column, found[1].length), (5, 13));
+    }
+
+    #[test]
+    fn calculations_inside_text_show_as_written() {
+        let found = lex("\"Total: { price * 2 }\"").unwrap();
+        assert_eq!(found[0].kind.to_string(), "Text \"Total: {price * 2}\"");
+        assert!(matches!(found[0].kind, Template(_)));
+    }
+
+    #[test]
+    fn escaped_braces_are_plain_text() {
+        assert_eq!(tokens(r#""\{x\}""#)[0].0, text("{x}"));
+        assert_eq!(
+            tokens("\"\"\"a {b}\"\"\"")[0].0.to_string(),
+            "Text \"a {b}\""
+        );
+    }
+
+    #[test]
+    fn braces_in_text_must_close() {
+        let err = lex("say \"Hi {name\"").unwrap_err();
+        assert_eq!((err.line, err.column), (1, 9));
+        assert!(err.message.contains("never closed"));
+        assert_eq!(err.suggestion.as_deref(), Some("{name}"));
+    }
+
+    #[test]
+    fn braces_in_text_cannot_be_empty() {
+        let err = lex("\"a {} b\"").unwrap_err();
+        assert_eq!((err.column, err.length), (4, 2));
+        assert!(err.message.contains("empty"));
+    }
+
+    #[test]
+    fn a_lone_closing_brace_needs_a_backslash() {
+        let err = lex("\"a } b\"").unwrap_err();
+        assert_eq!(err.column, 4);
+        assert_eq!(err.suggestion.as_deref(), Some("\\}"));
+    }
+
+    #[test]
+    fn mistakes_inside_braces_point_at_the_right_column() {
+        let err = lex("say \"{price @ 2}\"").unwrap_err();
+        assert_eq!((err.line, err.column), (1, 13));
     }
 
     #[test]
@@ -707,9 +1240,9 @@ mod tests {
 
     #[test]
     fn unexpected_character_is_reported_with_position() {
-        let err = lex("x = 5 + 1").unwrap_err();
+        let err = lex("x = 5 @ 1").unwrap_err();
         assert_eq!((err.line, err.column), (1, 7));
-        assert!(err.message.contains("'+'"));
+        assert!(err.message.contains("'@'"));
     }
 
     #[test]

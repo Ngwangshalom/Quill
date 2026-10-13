@@ -56,19 +56,19 @@ impl Decimal {
         self.units == 0
     }
 
-    pub fn add(self, other: Decimal) -> Result<Decimal, MathError> {
+    pub fn checked_add(self, other: Decimal) -> Result<Decimal, MathError> {
         let (a, b, scale) = align(self, other)?;
         let units = a.checked_add(b).ok_or(MathError::TooLarge)?;
         Ok(Decimal { units, scale })
     }
 
-    pub fn subtract(self, other: Decimal) -> Result<Decimal, MathError> {
+    pub fn checked_sub(self, other: Decimal) -> Result<Decimal, MathError> {
         let (a, b, scale) = align(self, other)?;
         let units = a.checked_sub(b).ok_or(MathError::TooLarge)?;
         Ok(Decimal { units, scale })
     }
 
-    pub fn multiply(self, other: Decimal) -> Result<Decimal, MathError> {
+    pub fn checked_mul(self, other: Decimal) -> Result<Decimal, MathError> {
         let (a, b) = (self.trimmed(), other.trimmed());
         let units = a.units.checked_mul(b.units).ok_or(MathError::TooLarge)?;
         let scale = a.scale + b.scale;
@@ -77,7 +77,7 @@ impl Decimal {
         Decimal { units, scale }.with_scale_at_least(wanted)
     }
 
-    pub fn divide(self, other: Decimal) -> Result<Decimal, MathError> {
+    pub fn checked_div(self, other: Decimal) -> Result<Decimal, MathError> {
         if other.is_zero() {
             return Err(MathError::DivideByZero);
         }
@@ -105,7 +105,7 @@ impl Decimal {
     }
 
     /// What is left over after dividing, with the sign of `self` (like `7 % 3` is 1).
-    pub fn remainder(self, other: Decimal) -> Result<Decimal, MathError> {
+    pub fn checked_rem(self, other: Decimal) -> Result<Decimal, MathError> {
         if other.is_zero() {
             return Err(MathError::DivideByZero);
         }
@@ -116,7 +116,7 @@ impl Decimal {
         })
     }
 
-    pub fn negate(self) -> Result<Decimal, MathError> {
+    pub fn checked_neg(self) -> Result<Decimal, MathError> {
         let units = self.units.checked_neg().ok_or(MathError::TooLarge)?;
         Ok(Decimal {
             units,
@@ -242,7 +242,7 @@ mod tests {
 
     fn d(written: &str) -> Decimal {
         if let Some(positive) = written.strip_prefix('-') {
-            return Decimal::parse(positive).unwrap().negate().unwrap();
+            return Decimal::parse(positive).unwrap().checked_neg().unwrap();
         }
         Decimal::parse(written).unwrap()
     }
@@ -267,34 +267,34 @@ mod tests {
 
     #[test]
     fn point_one_plus_point_two_is_point_three() {
-        assert_eq!(show(d("0.1").add(d("0.2"))), "0.3");
-        assert_eq!(d("0.1").add(d("0.2")).unwrap(), d("0.3"));
+        assert_eq!(show(d("0.1").checked_add(d("0.2"))), "0.3");
+        assert_eq!(d("0.1").checked_add(d("0.2")).unwrap(), d("0.3"));
     }
 
     #[test]
     fn adding_keeps_the_most_digits() {
-        assert_eq!(show(d("0.10").add(d("0.2"))), "0.30");
-        assert_eq!(show(d("100").add(d("50"))), "150");
-        assert_eq!(show(d("5").subtract(d("7.5"))), "-2.5");
+        assert_eq!(show(d("0.10").checked_add(d("0.2"))), "0.30");
+        assert_eq!(show(d("100").checked_add(d("50"))), "150");
+        assert_eq!(show(d("5").checked_sub(d("7.5"))), "-2.5");
     }
 
     #[test]
     fn multiplying_is_exact() {
-        assert_eq!(show(d("0.10").multiply(d("3"))), "0.30");
-        assert_eq!(show(d("1.5").multiply(d("1.5"))), "2.25");
-        assert_eq!(show(d("100").multiply(d("1.05"))), "105.00");
-        assert_eq!(show(d("-2").multiply(d("3"))), "-6");
+        assert_eq!(show(d("0.10").checked_mul(d("3"))), "0.30");
+        assert_eq!(show(d("1.5").checked_mul(d("1.5"))), "2.25");
+        assert_eq!(show(d("100").checked_mul(d("1.05"))), "105.00");
+        assert_eq!(show(d("-2").checked_mul(d("3"))), "-6");
     }
 
     #[test]
     fn dividing() {
-        assert_eq!(show(d("10").divide(d("4"))), "2.5");
-        assert_eq!(show(d("10").divide(d("2"))), "5");
-        assert_eq!(show(d("1.00").divide(d("4"))), "0.25");
-        assert_eq!(show(d("1").divide(d("3"))), "0.33333333333333333333");
-        assert_eq!(show(d("2").divide(d("3"))), "0.66666666666666666667");
-        assert_eq!(show(d("-1").divide(d("8"))), "-0.125");
-        assert_eq!(show(d("9.00").divide(d("3"))), "3.00");
+        assert_eq!(show(d("10").checked_div(d("4"))), "2.5");
+        assert_eq!(show(d("10").checked_div(d("2"))), "5");
+        assert_eq!(show(d("1.00").checked_div(d("4"))), "0.25");
+        assert_eq!(show(d("1").checked_div(d("3"))), "0.33333333333333333333");
+        assert_eq!(show(d("2").checked_div(d("3"))), "0.66666666666666666667");
+        assert_eq!(show(d("-1").checked_div(d("8"))), "-0.125");
+        assert_eq!(show(d("9.00").checked_div(d("3"))), "3.00");
     }
 
     #[test]
@@ -307,26 +307,35 @@ mod tests {
     }
 
     #[test]
-    fn remainder() {
-        assert_eq!(show(d("7").remainder(d("3"))), "1");
-        assert_eq!(show(d("15").remainder(d("5"))), "0");
-        assert_eq!(show(d("7.5").remainder(d("2"))), "1.5");
-        assert_eq!(show(d("-7").remainder(d("3"))), "-1");
+    fn checked_rem() {
+        assert_eq!(show(d("7").checked_rem(d("3"))), "1");
+        assert_eq!(show(d("15").checked_rem(d("5"))), "0");
+        assert_eq!(show(d("7.5").checked_rem(d("2"))), "1.5");
+        assert_eq!(show(d("-7").checked_rem(d("3"))), "-1");
     }
 
     #[test]
     fn dividing_by_zero_is_an_error() {
-        assert_eq!(d("1").divide(d("0")).unwrap_err(), MathError::DivideByZero);
-        assert_eq!(d("1").remainder(d("0.0")).unwrap_err(), MathError::DivideByZero);
+        assert_eq!(
+            d("1").checked_div(d("0")).unwrap_err(),
+            MathError::DivideByZero
+        );
+        assert_eq!(
+            d("1").checked_rem(d("0.0")).unwrap_err(),
+            MathError::DivideByZero
+        );
     }
 
     #[test]
     fn overflow_is_an_error_not_a_panic() {
         let big = Decimal::from_int(i128::MAX);
-        assert_eq!(big.add(d("1")).unwrap_err(), MathError::TooLarge);
-        assert_eq!(big.multiply(d("2")).unwrap_err(), MathError::TooLarge);
-        assert_eq!(Decimal::from_int(i128::MIN).negate().unwrap_err(), MathError::TooLarge);
-        assert!(big.divide(d("0.0000001")).is_err());
+        assert_eq!(big.checked_add(d("1")).unwrap_err(), MathError::TooLarge);
+        assert_eq!(big.checked_mul(d("2")).unwrap_err(), MathError::TooLarge);
+        assert_eq!(
+            Decimal::from_int(i128::MIN).checked_neg().unwrap_err(),
+            MathError::TooLarge
+        );
+        assert!(big.checked_div(d("0.0000001")).is_err());
     }
 
     #[test]
