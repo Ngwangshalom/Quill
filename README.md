@@ -14,7 +14,7 @@
 
 ---
 
-> ⚠️ **Quill is in early development.** The design is being written down and the interpreter does not run yet. Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
+> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs only the first few features so far (`say`, values, `check` and doc examples). Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
 
 ## Why Quill?
 
