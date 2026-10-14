@@ -7,6 +7,7 @@ What changed in each version of Quill. The newest version is at the top.
 Changes that are finished but not yet in a release.
 
 - Money examples use dollars. `100 USD + 50 USD` is `150 USD`.
+- Quill's public description is this: intent is clear, failures are explicit, and correctness is part of the code. It is for backend engineering, financial software, automation, reliable business applications, and AI and machine learning. Asking a model and training one are part of that. Operating systems, device drivers, and 3D games stay with Rust and C++.
 
 ## v0.3.1 (14 October 2026)
 

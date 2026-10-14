@@ -9,7 +9,7 @@ Add a new dated entry when something here changes. Do not fill a blank with a gu
 |---|---|
 | Name | Quill |
 | Line | Write what you mean. |
-| What it is | A programming language for backends and AI-powered apps. |
+| What it is | A programming language where intent is clear, failures are explicit, and correctness is part of the code. For backend engineering, financial software, automation, reliable business applications, and AI and machine learning. |
 | Implementation | Rust, edition 2021. One stage per module: lexer, parser, checker, bytecode compiler, virtual machine. |
 | Source files | `.ql` |
 | Package | `quill` 0.1.0 |
@@ -26,6 +26,7 @@ All times are +04:00.
 | `Cargo.toml` and `hello.ql` created | 13 October 2026, 11:47:33 |
 | `src` created | 13 October 2026, 11:49:02 |
 | First commit | 13 October 2026, 12:22:15 |
+| Positioning set | 14 October 2026. Intent clear, failures explicit, correctness part of the code. |
 
 The first commit is `655004822514b39b96e3c64985403d6c7236d952` on branch `main`.
 Its message is `Run Quill programs: parser, checker, compiler and VM`.
