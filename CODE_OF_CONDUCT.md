@@ -28,7 +28,7 @@ This applies in every Quill space: the repository, issues, pull requests, Discus
 
 ## Reporting
 
-If you see or experience unacceptable behaviour, report it privately to the maintainers at **[CONTACT EMAIL]**. Every report will be reviewed promptly and kept confidential.
+If you see or experience unacceptable behaviour, report it privately to the maintainers at **quillspace@gmail.com**. Every report will be reviewed promptly and kept confidential.
 
 Maintainers may remove comments, code or other contributions that break this code, and may temporarily or permanently ban anyone whose behaviour is harmful.
 
