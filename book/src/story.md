@@ -30,6 +30,7 @@ He chose a short name that would be easy to remember: Quill. The feather in the 
 | 13 October 2026 | **v0.2.0** adds arithmetic with exact decimals, values inside text, `var` and `set`, and `when`. |
 | 13 October 2026 | The Quill book and the language specification are published, and every change to Quill is documented in them from now on. |
 | 13 October 2026 | **v0.3.0** adds `quill update`, to choose and install any version from a menu, and a notice when a new version is out. |
+| 14 October 2026 | **v0.3.1** adds lists, records, loops, functions, exact money, maybe, and failures. |
 
 ## Where Quill is going
 
