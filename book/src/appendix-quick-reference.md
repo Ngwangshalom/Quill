@@ -83,9 +83,9 @@ Blocks (`when`, `for`, `fn`, `record`) are indented by exactly 2 spaces.
 
 `say` `check` `var` `set` `when` `else` `for` `in` `list` `record` `of` `at` `fn` `return` `maybe` `found` `missing` `fails` `fail` `on` `try` `true` `false` `and` `or` `not`
 
-`fn double(n: number) -> number` names a calculation. `return n * 2` is the value the call becomes, and `double(21)` calls it. Leave off `->` when the function only does work, and call it on its own line. Each parameter has its own kind (`text`, `number`, `true/false`, a currency such as `AED`, `maybe` one of those, or `list of` one of those). The kind after `->` is the only kind `return` may give back.
+`fn double(n: number) -> number` names a calculation. `return n * 2` is the value the call becomes, and `double(21)` calls it. Leave off `->` when the function only does work, and call it on its own line. Each parameter has its own kind (`text`, `number`, `true/false`, a currency such as `USD`, `maybe` one of those, or `list of` one of those). The kind after `->` is the only kind `return` may give back.
 
-`100 AED + 50 AED` is money. Two currencies cannot be added. `-> maybe number` might be `found` or `missing`, and `when` has to handle both. `fails Declined` names a failure, `fail Declined` leaves with it, and the caller writes `on Declined` or `try`.
+`100 USD + 50 USD` is money. Two currencies cannot be added. `-> maybe number` might be `found` or `missing`, and `when` has to handle both. `fails Declined` names a failure, `fail Declined` leaves with it, and the caller writes `on Declined` or `try`.
 
 `at` picks one list item: `hobbies at 1` reads the first, and `set hobbies at 2 = "writing"` changes that one item. `of` is required only for an empty list: `list of text`, `list of number`, or `list of true/false`. A list that already has items leaves `of` out.
 

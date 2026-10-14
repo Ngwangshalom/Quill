@@ -1,50 +1,50 @@
 -- Halllight closes one night of talent bookings in Bamenda.
 -- Prices live in fee_for. Tonight's requests are records.
--- A fee of 0 XAF is declined. An act with no price is not on the roster.
+-- A fee of 0 USD is declined. An act with no price is not on the roster.
 -- The till is only money actually taken. The checks at the end have to pass.
 
-fn fee_for(act: text) -> maybe XAF
+fn fee_for(act: text) -> maybe USD
   when
-    act == "Nchang Sisters" -> return found 80000 XAF
-    act == "Bamenda Brass" -> return found 150000 XAF
-    act == "Hilltop Duo" -> return found 65000 XAF
-    act == "Market Drums" -> return found 40000 XAF
-    act == "Quiet Hour" -> return found 0 XAF
+    act == "Nchang Sisters" -> return found 80000 USD
+    act == "Bamenda Brass" -> return found 150000 USD
+    act == "Hilltop Duo" -> return found 65000 USD
+    act == "Market Drums" -> return found 40000 USD
+    act == "Quiet Hour" -> return found 0 USD
     else -> return missing
 
-fn charge(amount: XAF) -> text
+fn charge(amount: USD) -> text
   fails Declined
   when
-    amount <= 0 XAF -> fail Declined
+    amount <= 0 USD -> fail Declined
     else -> return "paid"
 
-fn collect(fee: XAF) -> XAF
+fn collect(fee: USD) -> USD
   var receipt = charge(fee)
-    on Declined -> return 0 XAF
+    on Declined -> return 0 USD
   when
     receipt == "paid" -> return fee
-    else -> return 0 XAF
+    else -> return 0 USD
 
-fn post(place: text, act: text, fee: XAF) -> XAF
+fn post(place: text, act: text, fee: USD) -> USD
   var paid = collect(fee)
   when
-    paid == 0 XAF -> say "  {place}  ·  {act}  ·  declined"
+    paid == 0 USD -> say "  {place}  ·  {act}  ·  declined"
     else -> say "  {place}  ·  {act}  ·  {fee}  ·  confirmed"
   return paid
 
-fn absent(place: text, act: text) -> XAF
+fn absent(place: text, act: text) -> USD
   say "  {place}  ·  {act}  ·  not on the roster"
-  return 0 XAF
+  return 0 USD
 
-fn close_one(place: text, act: text) -> XAF
+fn close_one(place: text, act: text) -> USD
   when fee_for(act)
     found fee -> return post(place, act, fee)
     missing -> return absent(place, act)
 
 -- The same rule as charge, used only to count. It does not take money.
-fn decision(fee: XAF) -> text
+fn decision(fee: USD) -> text
   when
-    fee <= 0 XAF -> return "declined"
+    fee <= 0 USD -> return "declined"
     else -> return "confirmed"
 
 fn mark(act: text) -> text
@@ -80,7 +80,7 @@ late = record place = "Late Call", act = "Sunday Choir"
 tonight = list avenue, station, yard, market, town, late
 requests = 6
 
-var till = 0 XAF
+var till = 0 USD
 var booked = 0
 var refused = 0
 var unknown = 0
@@ -106,4 +106,4 @@ check booked == 4
 check refused == 1
 check unknown == 1
 check booked + refused + unknown == requests
-check till == 335000 XAF
+check till == 335000 USD

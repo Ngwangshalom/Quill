@@ -23,7 +23,6 @@ All times are +04:00.
 | Moment | When |
 |---|---|
 | Project folder created | Tuesday 13 October 2026, 11:44:51 |
-| First project file, `CLAUDE.md` | 13 October 2026, 11:46:08 |
 | `Cargo.toml` and `hello.ql` created | 13 October 2026, 11:47:33 |
 | `src` created | 13 October 2026, 11:49:02 |
 | First commit | 13 October 2026, 12:22:15 |

@@ -15,7 +15,7 @@ pub enum Value {
     List(Vec<Value>),
     /// Named fields. Order on the page doesn't change which field is which.
     Record(Vec<(String, Value)>),
-    /// An amount in one currency, such as `100 AED`.
+    /// An amount in one currency, such as `100 USD`.
     Money {
         amount: Decimal,
         currency: String,

@@ -79,7 +79,7 @@ gives that value back. With no ->, call the function on its own line:
     say \"Hello, {name}\"
   greet(\"Amina\")
 
-Money names its currency. 100 AED + 50 AED is 150 AED. 100 AED + 20 USD
+Money names its currency. 100 USD + 50 USD is 150 USD. 100 USD + 20 EUR
 is a mistake. maybe means the answer might be missing:
 
   fn find_price(name: text) -> maybe number
@@ -89,12 +89,12 @@ is a mistake. maybe means the answer might be missing:
 
 A function can fail, and the caller has to handle it:
 
-  fn charge(amount: AED) -> text
+  fn charge(amount: USD) -> text
     fails Declined
     when
-      amount <= 0 AED -> fail Declined
+      amount <= 0 USD -> fail Declined
       else -> return \"paid\"
-  var receipt = charge(250 AED)
+  var receipt = charge(250 USD)
     on Declined -> say \"Card declined\"
 
 A quote inside text needs no backslash when the text uses three quotes:

@@ -6,13 +6,13 @@ What changed in each version of Quill. The newest version is at the top.
 
 Changes that are finished but not yet in a release.
 
-- *Nothing yet.*
+- Money examples use dollars. `100 USD + 50 USD` is `150 USD`.
 
 ## v0.3.1 (14 October 2026)
 
 - **Indentation is exact.** A block moves in by 2 spaces. A tab, or any other width, is a mistake.
 - A range is two dots. `18...25` is a mistake, and Quill tells you to write `18..25`. `->` belongs inside a when, so `say` takes the text directly.
-- **Money.** `100 AED + 50 AED` is `150 AED`. Two currencies cannot be added. A function writes the currency as the kind: `price: AED`.
+- **Money.** `100 USD + 50 USD` is `150 USD`. Two currencies cannot be added. A function writes the currency as the kind: `price: USD`.
 - **Maybe.** `-> maybe number` means the answer might be missing. `return found 2.50` or `return missing`. `when` opens it with `found` and `missing`, and both are required. `maybe`, `found`, and `missing` are peach.
 - **Failures.** `fails Declined` names how a function can fail. `fail Declined` leaves with that failure. The caller writes `on Declined` under the call, or `try` inside a function that fails the same way. `fails`, `fail`, `on`, and `try` are red.
 - **Functions.** `fn double(n: number) -> number` names a calculation, and `return` gives the value back. A call is `double(21)`. A function with no `->` does work and gives nothing back. `fn` and `return` are pink.

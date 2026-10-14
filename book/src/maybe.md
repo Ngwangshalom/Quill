@@ -44,7 +44,7 @@ Did you mean:  missing -> say "none"
 
 `say find_price("bread")` is a mistake too. `say` would hide the gap. Open the maybe with `when` first.
 
-The kind after `maybe` can be `text`, `number`, `true/false`, a currency such as `AED`, or a list of one of those.
+The kind after `maybe` can be `text`, `number`, `true/false`, a currency such as `USD`, or a list of one of those.
 
 ## Try it
 

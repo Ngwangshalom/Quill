@@ -23,7 +23,7 @@ pub enum Kind {
     List(Box<Kind>),
     /// Named fields. The order here is the order they were written.
     Record(Vec<FieldKind>),
-    /// Money in one currency. The text is the code, such as `AED`.
+    /// Money in one currency. The text is the code, such as `USD`.
     Money(String),
     /// A value that might be missing.
     Maybe(Box<Kind>),
@@ -704,13 +704,13 @@ impl<'a> Checker<'a> {
                 right_code.unwrap_or_default()
             )
         } else if matches!(op, Arithmetic::Add | Arithmetic::Subtract) {
-            "Add or subtract two amounts in the same currency, like 100 AED + 50 AED.".to_string()
+            "Add or subtract two amounts in the same currency, like 100 USD + 50 USD.".to_string()
         } else if op == Arithmetic::Divide {
-            "Divide money by a number, as in 100 AED / 2.".to_string()
+            "Divide money by a number, as in 100 USD / 2.".to_string()
         } else if op == Arithmetic::Remainder {
             "A remainder needs two numbers. Money can be added, subtracted, multiplied by a number, or divided by a number.".to_string()
         } else {
-            "Multiply money by a number, as in 100 AED * 0.90.".to_string()
+            "Multiply money by a number, as in 100 USD * 0.90.".to_string()
         };
         self.problems.push(Diagnostic::new(
             expr.span,

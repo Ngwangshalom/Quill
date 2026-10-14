@@ -18,7 +18,7 @@
 
 ---
 
-> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs the first features so far: `say`, values, `var` / `set`, exact arithmetic, `{values}` inside text, `when`, `for` loops, lists, records, `check` and doc examples, functions (`fn`, `return`), money (`100 AED`), `maybe`, and failures (`fails`, `on`, `try`). Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
+> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs the first features so far: `say`, values, `var` / `set`, exact arithmetic, `{values}` inside text, `when`, `for` loops, lists, records, `check` and doc examples, functions (`fn`, `return`), money (`100 USD`), `maybe`, and failures (`fails`, `on`, `try`). Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
 
 ## Why Quill?
 
@@ -29,7 +29,7 @@ Today Quill can run those rules on their own. It cannot yet be the server around
 What works now:
 
 - **Code reads like what it means.** Indentation-based, no semicolons, no braces.
-- **Money is exact.** `100 AED + 50 AED` is `150 AED`. `0.1 + 0.2` is `0.3`. Dirhams and dollars cannot be added.
+- **Money is exact.** `100 USD + 50 USD` is `150 USD`. `0.1 + 0.2` is `0.3`. Dollars and euros cannot be added.
 - **Nothing is missing by surprise.** There is no `null`. A `maybe` says the value might be missing, and both cases have to be handled.
 - **Failures are part of the function.** `fails Declined` names the failure, `fail Declined` leaves with it, and the caller handles it with `on` or passes it on with `try`.
 - **Errors teach.** Every error explains what went wrong, why, and how to fix it. `quill explain` shows how Quill read the code.
@@ -131,10 +131,10 @@ Forget the `missing` branch and Quill refuses to run. Named types such as `User`
 ### Failures you can't ignore
 
 ```quill
-fn charge(amount: AED) -> text
+fn charge(amount: USD) -> text
   fails Declined, NetworkDown
 
-var receipt = charge(250 AED)
+var receipt = charge(250 USD)
   on Declined -> say "Card declined"
   on NetworkDown -> say "Try again"
 ```
@@ -142,7 +142,7 @@ var receipt = charge(250 AED)
 Inside a function that declares the same failures, `try` passes them upward explicitly:
 
 ```quill
-fn checkout(amount: AED) -> text
+fn checkout(amount: USD) -> text
   fails Declined, NetworkDown
   return try charge(amount)
 ```
@@ -152,19 +152,19 @@ fn checkout(amount: AED) -> text
 ### Constrained types and exact money
 
 ```quill
-total = 100 AED + 50 AED
+total = 100 USD + 50 USD
 ```
 
-That is `150 AED`. `100 AED + 20 USD` is a mistake: Quill will not mix currencies. Named types such as `Money<AED>` and `where` arrive later. Today the currency itself is the kind: `amount: AED`.
+That is `150 USD`. `100 USD + 20 EUR` is a mistake: Quill will not mix currencies. Named types such as `Money<USD>` and `where` arrive later. Today the currency itself is the kind: `amount: USD`.
 
 ### Contracts
 
 Functions can state what they require and what they guarantee. Quill checks these at runtime today and proves them before running wherever it can.
 
 ```quill
-fn withdraw(account: Account, amount: Money<AED>) -> Account
-  require amount > 0 AED
-  ensure result.balance >= 0 AED
+fn withdraw(account: Account, amount: Money<USD>) -> Account
+  require amount > 0 USD
+  ensure result.balance >= 0 USD
   fails InsufficientFunds
 ```
 
@@ -185,8 +185,8 @@ Examples in doc comments are real tests, so documentation can't drift out of dat
 
 ```quill
 --- Adds 5% VAT to a price.
---- example: with_vat(100 AED) == 105 AED
-fn with_vat(price: Money<AED>) -> Money<AED>
+--- example: with_vat(100 USD) == 105 USD
+fn with_vat(price: Money<USD>) -> Money<USD>
   return price * 1.05
 ```
 
@@ -221,10 +221,10 @@ Problem on line 4 of shop.ql:
 
     total = price + "5"
                     ^^^
-You're adding Money<AED> (price) to Text ("5").
+You're adding Money<USD> (price) to Text ("5").
 Quill won't guess which one you meant.
 
-Did you mean:  total = price + 5 AED
+Did you mean:  total = price + 5 USD
 ```
 
 And when you want to see how Quill understood your code:
@@ -235,9 +235,9 @@ $ quill explain shop.ql:4
 Line 4:  total = price + "5"
 
   total   a new value (can't change; not marked var)
-  price   Money<AED>, declared on line 2
+  price   Money<USD>, declared on line 2
   "5"     Text
-  +       Money<AED> + Text is not defined
+  +       Money<USD> + Text is not defined
 
 Quill stopped here before running anything.
 ```
@@ -293,7 +293,7 @@ Being clear about scope is part of the design. Quill is **not** aimed at operati
 - [x] Bytecode compiler and virtual machine
 - [x] `check` tests and executable doc examples
 - [x] Exact `Decimal` numbers
-- [x] Money (`100 AED + 50 AED`; mixed currencies are a mistake)
+- [x] Money (`100 USD + 50 USD`; mixed currencies are a mistake)
 - [ ] Constrained types (`where`)
 - [ ] `require` / `ensure` contracts (runtime)
 

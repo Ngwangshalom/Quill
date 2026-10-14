@@ -986,7 +986,7 @@ say address";
 
     #[test]
     fn money_maybe_and_failures() {
-        assert_eq!(run_source("say 100 AED + 50 AED").unwrap(), "150 AED\n");
+        assert_eq!(run_source("say 100 USD + 50 USD").unwrap(), "150 USD\n");
         assert_eq!(
             run_source(
                 "fn find_price(name: text) -> maybe number\n  when\n    name == \"bread\" -> return found 2.50\n    else -> return missing\nwhen find_price(\"cake\")\n  found price -> say price\n  missing -> say \"none\""
@@ -996,7 +996,7 @@ say address";
         );
         assert_eq!(
             run_source(
-                "fn charge(amount: AED) -> text\n  fails Declined\n  when\n    amount <= 0 AED -> fail Declined\n    else -> return \"paid\"\nvar receipt = charge(0 AED)\n  on Declined -> say \"Card declined\"\nsay \"after\""
+                "fn charge(amount: USD) -> text\n  fails Declined\n  when\n    amount <= 0 USD -> fail Declined\n    else -> return \"paid\"\nvar receipt = charge(0 USD)\n  on Declined -> say \"Card declined\"\nsay \"after\""
             )
             .unwrap(),
             "Card declined\n"
