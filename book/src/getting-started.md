@@ -38,8 +38,9 @@ Quill shows every version you can install. Move with the ↑ and ↓ keys, press
 
 ```text
 Which version of Quill do you want? (↑ ↓ to move, Enter to install, Esc to cancel):
-> 0.3.0     13 Oct 2026  latest
-  0.2.0     13 Oct 2026  installed
+> 0.3.1     14 Oct 2026  latest
+  0.3.0     13 Oct 2026  installed
+  0.2.0     13 Oct 2026
   0.1.0     13 Oct 2026
 ```
 
@@ -57,7 +58,7 @@ Choosing an older version is how you go back if a new release causes a problem. 
 You don't have to remember to check. At most once a day, Quill quietly asks whether a new version is out, and if one is, it tells you after your command finishes:
 
 ```text
-Quill 0.3.0 is available (you have 0.2.0). Run quill update to get it.
+Quill 0.3.1 is available (you have 0.3.0). Run quill update to get it.
 ```
 
 Quill never updates itself without asking, so a program that works today won't change behaviour tomorrow unless you choose to update. The check runs in the background and never slows Quill down. If you'd rather Quill didn't check at all, set `QUILL_NO_UPDATE_CHECK=1` in your environment.
