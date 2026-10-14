@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Write what you mean.</strong><br>
-  A readable, safe language for backends and AI development.
+  Intent is clear, failures are explicit, and correctness is part of the code.
 </p>
 
 <p align="center">
@@ -22,9 +22,11 @@
 
 ## Why Quill?
 
-Quill is for two kinds of work. One is backends: the services behind a product, such as an account lookup, an order, a charge, or a job that can fail. The other is AI development: calling a model, handling a missing answer, and handling a call that failed. The code should read like those rules, and a beginner should be able to learn it. Banks and payments are one place the rules matter. A shop, a school, a clinic, and an AI product are others.
+Quill is a programming language where intent is clear, failures are explicit, and correctness is part of the code. It is for backend engineering, financial software, automation, reliable business applications, and AI and machine learning. A beginner should be able to read it. The same care applies when a program asks a model: the answer may be missing, and the call may fail.
 
-Today Quill can run those rules on their own. It cannot yet be the server around them, and it cannot yet call a model. There is no web server, no database, and no network. `permit`, HTTP, database access, and the AI module are designed and not built. That is the path to a backend you can deploy, and to AI calls the checker can read.
+The syntax stays human-readable. `when`, `found`, `missing`, `fails`, `on`, and `check` are the words that give Quill its voice.
+
+Today Quill can run those rules on their own. It cannot yet be the server around them, and it cannot yet call a model. There is no web server, no database, and no network. `permit`, HTTP, database access, and a basic model call are designed and not built. That is the path to a service you can deploy.
 
 What works now:
 
@@ -35,7 +37,7 @@ What works now:
 - **Errors teach.** Every error explains what went wrong, why, and how to fix it. `quill explain` shows how Quill read the code.
 - **Tests live with the code.** `check` lines are tests, and examples in doc comments run as tests too.
 
-None of these ideas is new on its own. Quill's goal is to make them work together, in one language that a beginner can read and a backend or AI team can trust.
+None of these ideas is new on its own. Quill's goal is to make them work together, in one language a person can read and a team can trust.
 
 ## Install
 
@@ -270,7 +272,7 @@ The checker is where Quill earns its keep: type mismatches, unhandled cases, mis
 
 ## What Quill is not
 
-Being clear about scope is part of the design. Quill is **not** aimed at operating systems, device drivers, 3D games or training machine-learning models. Rust, C++ and Python serve those well. Quill is for backends, APIs, scripts, automation and AI-powered applications, where clarity and correctness matter more than squeezing out the last nanosecond.
+Quill is for backend engineering, financial software, automation, reliable business applications, and AI and machine learning. That includes asking a model and training one. Operating systems, device drivers, and 3D games stay with Rust and C++.
 
 ## Roadmap
 

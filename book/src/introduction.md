@@ -2,9 +2,11 @@
 
 Welcome to **The Quill Programming Language**, a book for learning Quill from the very beginning.
 
-Quill is a programming language for backends and for AI development. A backend is the service behind a product: an order, a lookup that might find nothing, a charge that can be declined, a price in dollars. AI development is the same kind of care around a model: the answer might be missing, and the call might fail. When something is wrong, Quill explains the problem as patiently as a good teacher would. The short form of that idea is **write what you mean**.
+Quill is a programming language where intent is clear, failures are explicit, and correctness is part of the code. It is for backend engineering, financial software, automation, reliable business applications, and AI and machine learning. The short form of that idea is **write what you mean**.
 
-Banks and payments are one kind of backend. A shop, a school, and a clinic are backends too. An AI product is both: a backend, and calls to a model. Today Quill runs the rules on their own. It does not yet serve requests, store rows in a database, or call a model. Those are the next steps.
+The words stay close to English. `when` chooses a path. `found` and `missing` both have to be handled. `fails` and `on` name a failure and what to do about it. `check` is a test written next to the code. Those words are Quill's voice.
+
+A bank withdrawal is one kind of service. An account, a booking, an order, a school record, and a job that can fail are others. Asking a model is the same kind of care: the answer may be missing, and the call may fail. Today Quill runs the rules on their own. It does not yet serve requests, store rows in a database, or call a model. Those are the next steps.
 
 ```quill
 price = 12.50

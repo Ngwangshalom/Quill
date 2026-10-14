@@ -4,7 +4,7 @@
 
 Building a backend today means stitching together a framework, a database library, a validation library, a test runner and a pile of dependencies. Then production goes down anyway, because of a `null` nobody checked, a failure nobody handled, or a price that rounded wrong.
 
-Quill was started to make that everyday work dramatically less painful: a language where code reads like what it means, mistakes are caught before anything runs, and every error explains itself.
+Quill was started to make that everyday work dramatically less painful: a language where intent is clear, failures are explicit, and correctness is part of the code.
 
 ## The founder
 
