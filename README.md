@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Write what you mean.</strong><br>
-  A readable, safe programming language for backends and AI-powered apps.
+  A readable, safe language for backends and AI development.
 </p>
 
 <p align="center">
@@ -18,26 +18,24 @@
 
 ---
 
-> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs the first features so far: `say`, values, `var` / `set`, exact arithmetic, `{values}` inside text, `when`, `check` and doc examples. Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
+> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs the first features so far: `say`, values, `var` / `set`, exact arithmetic, `{values}` inside text, `when`, `for` loops, lists, records, `check` and doc examples, functions (`fn`, `return`), money (`100 AED`), `maybe`, and failures (`fails`, `on`, `try`). Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
 
 ## Why Quill?
 
-Quill is not trying to invent a new way of programming. It's trying to make the programming people already do **dramatically less painful**.
+Quill is for two kinds of work. One is backends: the services behind a product, such as an account lookup, an order, a charge, or a job that can fail. The other is AI development: calling a model, handling a missing answer, and handling a call that failed. The code should read like those rules, and a beginner should be able to learn it. Banks and payments are one place the rules matter. A shop, a school, a clinic, and an AI product are others.
 
-Today, building a backend means stitching together a framework, an ORM, a validation library, a test runner and a pile of dependencies. Then production goes down anyway, because of a `null` nobody checked, a failure nobody handled, or a price that rounded wrong.
+Today Quill can run those rules on their own. It cannot yet be the server around them, and it cannot yet call a model. There is no web server, no database, and no network. `permit`, HTTP, database access, and the AI module are designed and not built. That is the path to a backend you can deploy, and to AI calls the checker can read.
 
-Quill's answer is a language where:
+What works now:
 
 - **Code reads like what it means.** Indentation-based, no semicolons, no braces.
-- **Nothing is missing by surprise.** There is no `null`. Values that might not exist say so, and the checker makes you handle them.
-- **Failures are part of the signature.** A function declares how it can fail, and callers must deal with it.
-- **Money is exact.** `Money<AED>` and `Decimal` are built in. `0.1 + 0.2` is always `0.3`, and you can't add dirhams to dollars by accident.
-- **Programs only touch what they're allowed to.** Network, file and system access must be granted with `permit`.
-- **Errors teach.** Every error explains what went wrong, why, and how to fix it. `quill explain` shows exactly how the compiler read your code.
-- **Tests and docs live with the code.** `check` lines are tests, and examples in doc comments run as tests too.
-- **Batteries are included.** HTTP, database access, JSON and validation ship with the language.
+- **Money is exact.** `100 AED + 50 AED` is `150 AED`. `0.1 + 0.2` is `0.3`. Dirhams and dollars cannot be added.
+- **Nothing is missing by surprise.** There is no `null`. A `maybe` says the value might be missing, and both cases have to be handled.
+- **Failures are part of the function.** `fails Declined` names the failure, `fail Declined` leaves with it, and the caller handles it with `on` or passes it on with `try`.
+- **Errors teach.** Every error explains what went wrong, why, and how to fix it. `quill explain` shows how Quill read the code.
+- **Tests live with the code.** `check` lines are tests, and examples in doc comments run as tests too.
 
-None of these ideas is new on its own. Quill's goal is to make them all work together, consistently, in one language that a beginner can read and a team can trust.
+None of these ideas is new on its own. Quill's goal is to make them work together, in one language that a beginner can read and a backend or AI team can trust.
 
 ## Install
 
@@ -67,6 +65,8 @@ Building from source needs [Rust](https://rustup.rs): `cargo install --git https
 ## Learn Quill
 
 **[The Quill Programming Language](book/src/SUMMARY.md)** is a book that teaches Quill from the very beginning, for new and experienced programmers. It grows with the language, and every example in it is tested.
+
+The first time you run Quill, Cursor and VS Code get Quill's own colors, the feather on every `.ql` file, and underlines for mistakes. The feather is pale on a dark editor and deep blue on a light one. Each kind of word has its own color: `say` is nib orange `#F0A35E`, `when` is feather blue `#7EAEF5`, and `true` is green `#5ECA8C`. Vim, Emacs, and Sublime detect `.ql` files from [`editors`](editors). `quill lsp` sends the same mistakes to any editor. Set `QUILL_NO_EDITOR_SETUP=1` to leave Cursor and VS Code alone.
 
 ## A tour of Quill
 
@@ -98,64 +98,64 @@ quoted = """She said "hi"."""
 ### Functions, `when` and tests
 
 ```quill
-fn fizzbuzz(n: Int) -> Text
-  when
-    n % 15 == 0 -> "FizzBuzz"
-    n % 3 == 0  -> "Fizz"
-    n % 5 == 0  -> "Buzz"
-    else        -> text(n)
+fn double(n: number) -> number
+  return n * 2
 
-for i in 1..15
-  say fizzbuzz(i)
+say double(21)
 
-check fizzbuzz(9)  == "Fizz"
-check fizzbuzz(15) == "FizzBuzz"
+fn greet(name: text)
+  say "Hello, {name}"
+
+greet("Amina")
 ```
+
+A parameter's kind is `text`, `number`, `true/false`, or `list of` one of those. Kind names such as `Int` and `Text`, and a `when` that gives a value back, come later.
 
 `when` follows one simple rule: matching on a fixed set of cases (like `maybe` or failures) must cover every case, and matching on numbers or text must end with `else`.
 
 ### No null: `maybe`
 
 ```quill
-fn find_user(id: Int) -> maybe User
+fn find_price(name: text) -> maybe number
+  when
+    name == "bread" -> return found 2.50
+    else -> return missing
 
-when find_user(42)
-  found user -> say "Hello, {user.name}"
-  missing    -> say "No such user"
+when find_price("bread")
+  found price -> say price
+  missing -> say "none"
 ```
 
-Forget the `missing` branch and Quill refuses to run.
+Forget the `missing` branch and Quill refuses to run. Named types such as `User` arrive later.
 
 ### Failures you can't ignore
 
 ```quill
-fn charge(card: Card, amount: Money<AED>) -> Receipt
+fn charge(amount: AED) -> text
   fails Declined, NetworkDown
 
-receipt = charge(card, 250 AED)
-  on Declined    -> respond 402, "Card declined"
-  on NetworkDown -> respond 503, "Payments are unavailable, try again"
+var receipt = charge(250 AED)
+  on Declined -> say "Card declined"
+  on NetworkDown -> say "Try again"
 ```
 
 Inside a function that declares the same failures, `try` passes them upward explicitly:
 
 ```quill
-fn checkout(cart: Cart) -> Receipt
+fn checkout(amount: AED) -> text
   fails Declined, NetworkDown
-  return try charge(cart.card, cart.total)
+  return try charge(amount)
 ```
+
+`respond` arrives with the web module. Today the `on` line is a statement, such as `say`.
 
 ### Constrained types and exact money
 
 ```quill
-type Booking
-  venue: Text
-  guests: Int where 1..500
-  deposit: Money<AED>
-
-total = 100 AED + 50 AED     -- 150 AED
-mixed = 100 AED + 20 USD     -- error: can't add AED and USD without converting
+total = 100 AED + 50 AED
 ```
+
+That is `150 AED`. `100 AED + 20 USD` is a mistake: Quill will not mix currencies. Named types such as `Money<AED>` and `where` arrive later. Today the currency itself is the kind: `amount: AED`.
 
 ### Contracts
 
@@ -248,6 +248,7 @@ Quill stopped here before running anything.
 |---|---|
 | `quill run file.ql` | Run a program |
 | `quill check file.ql` | Find errors without running anything |
+| `quill lsp` | Underline those errors in an editor |
 | `quill test` | Run every `check` and doc example in the project |
 | `quill explain file.ql:LINE` | Show how the compiler read a line |
 | `quill new NAME` | Start a new project |
@@ -278,19 +279,21 @@ Being clear about scope is part of the design. Quill is **not** aimed at operati
 - [x] Lexer and parser
 - [x] `say`, values, `var` / `set`, expressions
 - [x] `when` with conditions
-- [ ] Loops and functions
+- [x] Loops (`for i in 1..3`, and `for hobby in hobbies`)
+- [x] Lists and records
+- [x] Functions (`fn double(n: number) -> number`, `return`, and calls)
 
 **Safety**
 - [ ] Type checker with friendly errors
-- [ ] `maybe` and exhaustive `when`
-- [ ] `fails`, `on` and `try`
+- [x] `maybe`, `found`, `missing`, and exhaustive `when`
+- [x] `fails`, `fail`, `on` and `try`
 - [x] `quill explain`
 
 **Running**
 - [x] Bytecode compiler and virtual machine
 - [x] `check` tests and executable doc examples
 - [x] Exact `Decimal` numbers
-- [ ] `Money<CURRENCY>`
+- [x] Money (`100 AED + 50 AED`; mixed currencies are a mistake)
 - [ ] Constrained types (`where`)
 - [ ] `require` / `ensure` contracts (runtime)
 
@@ -299,6 +302,7 @@ Being clear about scope is part of the design. Quill is **not** aimed at operati
 - [ ] `web` module: HTTP server and routing
 - [ ] `db` module: PostgreSQL and SQLite
 - [ ] AI module: type-checked model calls
+- [x] Syntax highlighting for VS Code and Cursor ([editors/vscode](editors/vscode))
 - [ ] Browser playground (WebAssembly)
 - [ ] Package manager
 

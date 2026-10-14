@@ -13,7 +13,7 @@ This document says exactly what Quill programs mean. The [README](https://github
 5. [Writing values](#5-writing-values)
 6. [Calculations and conditions](#6-calculations-and-conditions)
 7. [Statements](#7-statements)
-8. [`when`](#8-when)
+8. [`when` and `for`](#8-when)
 9. [Tests: `check` and doc examples](#9-tests-check-and-doc-examples)
 10. [When Quill finds mistakes](#10-when-quill-finds-mistakes)
 11. [The `quill` tool](#11-the-quill-tool)
@@ -43,11 +43,12 @@ Blank lines are ignored.
 
 ### 2.2 Indentation
 
-Indentation marks a block: lines that belong to the line above them. Today, only the cases of a `when` (§8) are indented.
+Indentation marks a block: lines that belong to the line above them. Today, the cases of a `when`, the body of a `for` (§8), and the fields of a `record` (§5.5) are indented.
 
-- A line that is indented further than the line above it starts a block. It is only allowed where a block is expected.
-- A block ends when a line returns to an earlier indentation. That line must line up exactly with an earlier level.
-- Indent with spaces. A line whose indentation mixes tabs and spaces is a mistake, because editors show tabs at different widths.
+- A block moves in by **exactly 2 spaces** from the line above it. One space, four spaces, or any other width is a mistake.
+- A deeper block moves in by another 2 spaces: 2, then 4, then 6.
+- A block ends when a line returns to an earlier level. That line must land on a level of 2 spaces, in the same column as the line that opened the block.
+- Indent with spaces. A tab is a mistake, because editors show tabs at different widths.
 - Blank lines and comment lines never start or end a block.
 
 ```quill
@@ -82,18 +83,20 @@ A name can't start with a digit: `2x` is a mistake.
 These words have a meaning in Quill and can't be used as names:
 
 ```
-say  check  var  set  when  else  true  false  and  or  not
+say  check  var  set  when  else  for  in  list  record  of  at  fn  return  maybe  found  missing  fails  fail  on  try  true  false  and  or  not
 ```
 
 ## 4. Kinds of values
 
-Every value has one of three kinds. The checker knows the kind of every value before the program runs, so it can catch mistakes like adding text to a number.
+Every value has a kind. The checker knows the kind of every value before the program runs, so it can catch mistakes like adding text to a number.
 
 | Kind | Examples | What it's for |
 |---|---|---|
 | **Text** | `"Amina"`, `"Total: {total}"` | words and sentences |
 | **Number** | `42`, `0.10`, `-3.5` | exact decimal numbers |
 | **true/false** | `true`, `false`, `total > 10` | conditions |
+| **list** | `list "coding", "reading"`, `list of text` | values in order, all one kind |
+| **record** | `record city = "Anytown"` | named fields kept together |
 
 A name keeps the kind of the value it was created with for the whole program (§7.4).
 
@@ -135,6 +138,8 @@ Comparing ignores trailing zeros: `0.10 == 0.1` is `true`.
 - Text: its characters, without quotes.
 - Number: as described in §4.2.
 - true/false: the word `true` or `false`.
+- list: the items separated by commas, or `an empty list` when there are none. `list "coding", "reading"` is shown as `coding, reading`.
+- record: one field per line, as `name: value`.
 
 ## 5. Writing values
 
@@ -181,12 +186,51 @@ say "Hi {name}, that's {qty * 2} items"     -- Hi Amina, that's 6 items
 A number is written as digits, with an optional decimal point followed by more digits: `42`, `0.10`, `3.14159`.
 
 - There must be a digit before the point: `.5` is not a number. Write `0.5`.
-- A point must be followed by a digit: `3.` is a mistake.
+- A point with no digit after it is a field dot (§5.5), not part of the number. `3.` with no field name is a mistake. Write `3.0` for a number.
 - Negative numbers are written with `-` in front (§6.1).
 
 ### 5.4 true and false
 
 `true` and `false` are the two true/false values. Comparisons (§6.2) also produce them.
+
+### 5.5 Lists and records
+
+A **list** is values in order, all of one kind. The first item is at position 1.
+
+```quill
+hobbies = list "coding", "reading", "traveling"
+say hobbies at 1
+```
+
+- Items are separated by commas. A comma with nothing after it is a mistake.
+- Every item has the same kind. `list "coding", 2` is a mistake.
+- An empty list names its kind: `list of text`, `list of number`, or `list of true/false`.
+- `VALUE at POSITION` reads one item. `POSITION` is a whole number, and `1` is the first item. `0` and numbers that aren't whole are mistakes. A position past the end is found while running, unless both the list and the position are written out, in which case it is found before running.
+- Square brackets are a mistake. The word is `list`.
+
+A **record** is named fields.
+
+```quill
+address = record
+  street = "123 Main St"
+  city = "Anytown"
+```
+
+- On its own line, `record` is followed by an indented block. Each field is `NAME = value`, indented by exactly 2 spaces (§2.2).
+- A short record can be written on one line: `record city = "Anytown", state = "CA"`.
+- A record has at least one field. The same field name twice is a mistake.
+- `VALUE.NAME` reads one field. A field that isn't there is a mistake, and Quill names the fields the record does have.
+- Two records are the same kind when they have the same field names and each matching field has the same kind. The order of the fields does not change the kind.
+- Braces are a mistake here. The word is `record`. Braces inside text still show a value (§5.2).
+
+`set` can replace one item or one field when the list or record was created with `var`:
+
+```quill
+set hobbies at 2 = "writing"
+set address.city = "Springfield"
+```
+
+The new value must match the item's or the field's kind. `for NAME in LIST` walks a list (§8.5).
 
 ## 6. Calculations and conditions
 
@@ -278,6 +322,7 @@ Changes a value created with `var`.
 
 - The name must already exist, and it must have been created with `var`. Changing a value that isn't marked `var` is a mistake. This makes every change visible when you read the code.
 - The new value must be the same kind as the old one. A Number stays a Number.
+- `set NAME.FIELD = value` and `set NAME at POSITION = value` change one field or one item. The list or record itself must be marked `var`. The new value must match that field or item.
 - `name = ...` on a name that already exists is a mistake, even for a `var`. Use `set` to change it.
 
 ### 7.5 `check` and `--- example:`
@@ -351,8 +396,116 @@ say label
 ### 8.4 Rules
 
 - A `when` must have at least one case.
-- `when` stands on its own line: its cases can't be written on the same line.
+- A `when` whose cases are conditions stands on its own line. `when VALUE` on one line opens a maybe (§8.8).
 - A case that comes after `else` can never run, so it is a mistake.
+
+### 8.5 `for`
+
+`for` repeats the lines under it for each number from the start through the end, including both:
+
+```quill
+for i in 1..3
+  say i
+```
+
+This shows `1`, then `2`, then `3`.
+
+```
+for NAME in START .. END
+  STATEMENT
+```
+
+- `START` and `END` are numbers. They are worked out once, before the first pass.
+- The range is two dots. Three dots (`1...3`) is a mistake; write `1..3`.
+- `NAME` holds the number for this pass. It exists only on the lines under the `for`. After the loop, the name is gone, unless a value with that name already existed. In that case the loop uses the name while it runs, and the earlier value is unchanged afterwards. The range sees the earlier value: `for i in i..12` when `i` is `10` counts from 10 through 12.
+- The loop moves `NAME` to the next number by adding 1. `set` on that name is a mistake. To keep a total, create a `var` before the loop and change it with `set`.
+- A line under `for` can't create a value (`name = ...` or `var name = ...`).
+- If `START` is greater than `END`, the body never runs. `for i in 5..5` runs once.
+- The body is indented further than `for`, and `for` stands on its own line.
+
+`for` also walks a list, once for each item:
+
+```quill
+for hobby in hobbies
+  say hobby
+```
+
+- `hobbies` is a list. It is worked out once, before the first pass.
+- `hobby` holds the item for this pass. It exists only on the lines under the `for`, and `set` on that name is a mistake.
+- The first pass takes the item at position 1. An empty list runs the body zero times.
+- `for i in 1` with no `..` and no list is a mistake. A range needs `..`.
+
+### 8.6 Functions
+
+A function names a piece of work. A call runs it.
+
+```quill
+fn double(n: number) -> number
+  return n * 2
+
+say double(21)
+```
+
+This shows `42`.
+
+```
+fn NAME "(" [ parameter { "," parameter } ] ")" [ "->" kind ]
+  STATEMENT
+
+parameter = NAME ":" kind
+kind      = "text" | "number" | "true/false" | "list" "of" kind
+```
+
+- The body is indented further than `fn`, and `fn` stands on its own line.
+- `-> kind` means the function gives a value of that kind back. Every path through the body has to reach `return VALUE`, and that value has to be the named kind. Parameters may each have their own kind. The kind after `->` is the only kind `return` may give back. Quill does not convert one kind into another.
+- With no `-> kind`, the function gives nothing back. Call it on its own line. `return` on its own leaves the function early. A value after `return` is a mistake until the function names a kind after `->`.
+- A parameter exists only inside the function. It is not a `var`. Names created in the body exist only inside the function, and they are created again on every call.
+- A function does not see values created outside it. Pass them in as parameters.
+- A function can call itself, and it can call a function written above it.
+- `return` outside a function is a mistake.
+- Kind names such as `Int` and `Text` are not part of this version. A parameter's kind is `text`, `number`, `true/false`, a currency such as `AED`, `maybe` one of those, or `list of` one of those.
+- The first line of the body may be `fails NAME { "," NAME }`. A failure name starts with a capital letter. `fail NAME` leaves the function with that failure, and the name has to be in the list.
+
+### 8.7 Money
+
+An amount is a number, a space, and a currency of three capital letters.
+
+```quill
+say 100 AED + 50 AED
+```
+
+This shows `150 AED`.
+
+- `+` and `-` need two amounts in the same currency. Different currencies are a mistake.
+- `*` and `/` can combine an amount with a plain number: `100 AED * 0.90`, `100 AED / 2`. A number can also come first in a multiplication.
+- The currency is the kind in a function: `price: AED`.
+- A currency written in lowercase, such as `aed`, is a mistake. Write `AED`.
+
+### 8.8 Maybe
+
+`-> maybe KIND` means the function gives back that kind, or gives back nothing.
+
+- `return found VALUE` gives the value back. The value's kind is `KIND`.
+- `return missing` gives nothing back. It is allowed when the function's result is a maybe.
+- `when VALUE` opens a maybe. The cases are `found NAME -> STATEMENT` and `missing -> STATEMENT`. Both are required. `NAME` exists only on the `found` line.
+- Using a maybe with `say`, or as a number, is a mistake. Open it with `when` first.
+
+### 8.9 Failures
+
+A function names the failures it can leave with. The caller handles each one, or passes them on.
+
+```quill
+fn charge(amount: AED) -> text
+  fails Declined
+  when
+    amount <= 0 AED -> fail Declined
+    else -> return "paid"
+```
+
+- `fails` is the first line under `fn`.
+- `var name = charge(...)`, then indented `on NAME -> STATEMENT` for every declared failure. On success the variable is set and the program continues. On failure the `on` line runs and the program stops, so later lines cannot use a value the call never gave back.
+- `try call` is an expression inside a function whose `fails` list includes every failure of that call. It passes those failures upward.
+- A call that can fail, with no `on` and no `try`, is a mistake.
 
 ## 9. Tests: `check` and doc examples
 
@@ -397,6 +550,8 @@ Quill reads the whole program and checks it before running anything. If there ar
 - operations on the wrong kinds of values, like `price + "5"`
 - division by a written `0`
 - `when` conditions that aren't true/false
+- a `for` range whose ends aren't numbers, a `for` that doesn't walk a list, or `set` on the loop's own name
+- a list whose items aren't the same kind, a list position that isn't a whole number from 1, or a record field that isn't there
 
 ### 10.2 While running
 
@@ -405,6 +560,7 @@ A few mistakes can only be found while running. When one happens, the program st
 - dividing by a value that turns out to be zero
 - a calculation whose result is too big for a number (§4.1)
 - a `check` or `--- example:` that is false
+- a list position past the end, or a position in an empty list
 
 ### 10.3 How mistakes are reported
 
@@ -430,6 +586,7 @@ Quill never crashes on a mistake in a program. If it ever does, that is a bug in
 | `quill run FILE.ql` | Check the program, then run it |
 | `quill FILE.ql` | Same as `quill run` |
 | `quill check FILE.ql` | Check for mistakes without running anything |
+| `quill lsp` | Speak the Language Server Protocol on standard input and output. Report the same mistakes as `quill check`, so an editor can underline them. Do not run the program. |
 | `quill test` | Run every `.ql` file in this folder and its subfolders that contains a `check` or `--- example:`, and report how many passed. Folders starting with `.`, and `target`, are skipped. |
 | `quill explain FILE.ql:N` | Show how Quill read line N: what each part means, its kind, and where names were created |
 | `quill new NAME` | Create a folder `NAME` holding a starter `hello.ql` |
@@ -448,13 +605,10 @@ The README describes these features. They are part of Quill's design but not of 
 
 | Feature | README section |
 |---|---|
-| `for` loops and ranges (`1..15`) | Functions, `when` and tests |
-| Functions (`fn`) and `return` | Functions, `when` and tests |
-| `when` as a value, and `when` on a subject (`when find_user(42)`) | No null: `maybe` |
-| `maybe`, `found` and `missing` | No null: `maybe` |
-| Failures: `fails`, `on` and `try` | Failures you can't ignore |
+| `when` as a value | No null: `maybe` |
+| Parameter kinds written as `Int` or `Text` | Functions, `when` and tests |
+| Named types such as `User`, and `Money<AED>` as a type | Constrained types and exact money |
 | Types (`type`), fields and `where` constraints | Constrained types and exact money |
-| `Money<CURRENCY>` | Constrained types and exact money |
 | Contracts: `require` and `ensure` | Contracts |
 | Permissions: `permit` | Permissions |
 | Modules: `use`, `web`, `db`, `route`, `respond` | A small web API |
@@ -466,14 +620,26 @@ This grammar describes the shape of programs. The rules above add the meaning an
 ```
 program     = { statement | NEWLINE } ;
 
-statement   = say | create | change | check | when ;
+statement   = say | create | change | check | when | match | for | function | return | call | fail ;
 say         = "say" value ;
 create      = [ "var" ] NAME "=" value ;
-change      = "set" NAME "=" value ;
+change      = "set" NAME { "." NAME | "at" sum } "=" value ;
 check       = ( "check" | "--- example:" ) sum COMPARE sum ;
 when        = "when" NEWLINE INDENT case { case } DEDENT ;
 case        = ( value | "else" ) "->" case_body NEWLINE ;
-case_body   = say | change | check | when ;
+case_body   = say | change | check | when | for ;
+for         = "for" NAME "in" ( value ".." value | value ) NEWLINE INDENT { for_body } DEDENT ;
+for_body    = say | change | check | when | for | return ;
+function    = "fn" NAME "(" [ parameter { "," parameter } ] ")" [ "->" kind ] NEWLINE INDENT { fn_body } DEDENT ;
+parameter   = NAME ":" kind ;
+kind        = "text" | "number" | "true/false" | CURRENCY | "maybe" kind | "list" "of" kind ;
+match       = "when" value NEWLINE INDENT catch { catch } DEDENT ;
+catch       = ( "found" NAME | "missing" ) "->" statement ;
+fail        = "fail" NAME ;
+CURRENCY    = three capital letters ;
+fn_body     = say | create | change | check | when | for | return ;
+return      = "return" [ value ] ;
+call        = NAME "(" [ value { "," value } ] ")" ;
 
 value       = or ;
 or          = and { "or" and } ;
@@ -482,8 +648,11 @@ not         = "not" not | comparison ;
 comparison  = sum [ COMPARE sum ] ;
 sum         = product { ( "+" | "-" ) product } ;
 product     = negative { ( "*" | "/" | "%" ) negative } ;
-negative    = "-" negative | simple ;
-simple      = TEXT | NUMBER | "true" | "false" | NAME | "(" value ")" ;
+negative    = "-" negative | atom { "." NAME | "at" sum } ;
+atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record ;
+list        = "list" ( "of" ( "text" | "number" | "true/false" ) | sum { "," sum } ) ;
+record      = "record" ( NEWLINE INDENT field { field } DEDENT | field { "," field } ) ;
+field       = NAME "=" value ;
 
 COMPARE     = "==" | "!=" | "<" | "<=" | ">" | ">=" ;
 TEXT        = '"' { character | escape | "{" value "}" } '"'

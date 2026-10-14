@@ -1,12 +1,12 @@
 //! The lexer: turns Quill source text into a flat list of tokens.
 //!
-//! It reads keywords (`say`, `check`, `var`, `set`, `when`, `else`, `and`, `or`,
-//! `not`, `true`, `false`), text (with `{value}` inside), numbers, names,
+//! It reads keywords (`say`, `check`, `var`, `set`, `when`, `else`, `for`, `in`,
+//! `and`, `or`, `not`, `true`, `false`), text (with `{value}` inside), numbers, names,
 //! operators, comments (`--` and `---`) and new lines.
 //!
-//! Quill uses indentation for blocks, like the cases under `when`. The lexer
-//! turns indentation into `Indent` and `Dedent` tokens, so the parser can treat
-//! a block like a pair of brackets.
+//! Quill uses indentation for blocks, like the cases under `when`. Each block
+//! moves in by exactly 2 spaces. The lexer turns that indentation into `Indent`
+//! and `Dedent` tokens, so the parser can treat a block like a pair of brackets.
 //!
 //! Every token remembers the line and column it started on (both 1-based,
 //! counted in characters) so later stages can point at the exact spot.
@@ -23,6 +23,30 @@ pub enum TokenKind {
     Set,
     When,
     Else,
+    For,
+    In,
+    List,
+    Record,
+    Of,
+    At,
+    /// `fn`, a function.
+    Fn,
+    /// `return`, the value a function gives back.
+    Return,
+    /// `maybe`, a value that might be missing.
+    Maybe,
+    /// `found`, the value inside a maybe.
+    Found,
+    /// `missing`, a maybe with no value.
+    Missing,
+    /// `fails`, the failures a function declares.
+    Fails,
+    /// `fail`, leaving a function with one of those failures.
+    Fail,
+    /// `on`, what to do when a call fails.
+    On,
+    /// `try`, passing a call's failures up to the function that declared them.
+    Try,
     True,
     False,
     And,
@@ -50,8 +74,16 @@ pub enum TokenKind {
     Percent,
     LeftParen,
     RightParen,
-    /// `->`, between a `when` case and what to do.
+    /// `:`, between a parameter and its kind.
+    Colon,
+    /// `->`, between a `when` case and what to do, or a function and the kind it gives back.
     Arrow,
+    /// `..`, the range in `for i in 1..3`.
+    DotDot,
+    /// `.`, the field of a record: `address.city`.
+    Dot,
+    /// `,`, between the items of a list or the fields of a one-line record.
+    Comma,
     /// The `--- example:` marker. The comparison itself follows on the same line.
     Example,
     /// The start of a more indented block.
@@ -118,6 +150,21 @@ impl fmt::Display for TokenKind {
             TokenKind::Set => "set",
             TokenKind::When => "when",
             TokenKind::Else => "else",
+            TokenKind::For => "for",
+            TokenKind::In => "in",
+            TokenKind::List => "list",
+            TokenKind::Record => "record",
+            TokenKind::Of => "of",
+            TokenKind::At => "at",
+            TokenKind::Fn => "fn",
+            TokenKind::Return => "return",
+            TokenKind::Maybe => "maybe",
+            TokenKind::Found => "found",
+            TokenKind::Missing => "missing",
+            TokenKind::Fails => "fails",
+            TokenKind::Fail => "fail",
+            TokenKind::On => "on",
+            TokenKind::Try => "try",
             TokenKind::True => "true",
             TokenKind::False => "false",
             TokenKind::And => "and",
@@ -137,7 +184,11 @@ impl fmt::Display for TokenKind {
             TokenKind::Percent => "%",
             TokenKind::LeftParen => "(",
             TokenKind::RightParen => ")",
+            TokenKind::Colon => ":",
             TokenKind::Arrow => "->",
+            TokenKind::DotDot => "..",
+            TokenKind::Dot => ".",
+            TokenKind::Comma => ",",
             TokenKind::Example => "example",
             TokenKind::Indent => "Indent",
             TokenKind::Dedent => "Dedent",
@@ -244,12 +295,24 @@ impl Lexer {
                     None => continue,
                 },
                 '-' => self.one_or_two('>', TokenKind::Minus, TokenKind::Arrow),
+                '.' if self.peek_next() == Some('.') => {
+                    self.advance();
+                    self.advance();
+                    if self.peek() == Some('.') {
+                        self.advance();
+                        return Err(three_dots(line, column, &tokens, &mut self));
+                    }
+                    TokenKind::DotDot
+                }
+                '.' => self.single(TokenKind::Dot),
+                ',' => self.single(TokenKind::Comma),
                 '+' => self.single(TokenKind::Plus),
                 '*' => self.single(TokenKind::Star),
                 '/' => self.single(TokenKind::Slash),
                 '%' => self.single(TokenKind::Percent),
                 '(' => self.single(TokenKind::LeftParen),
                 ')' => self.single(TokenKind::RightParen),
+                ':' => self.single(TokenKind::Colon),
                 '"' => self.text(line, column)?,
                 c if c.is_ascii_digit() => self.number(line, column)?,
                 c if c.is_alphabetic() || c == '_' => self.word(),
@@ -320,21 +383,44 @@ impl Lexer {
         if self.rest_of_line_is_empty() {
             return Ok(());
         }
-        if tabs && spaces {
+        if tabs {
+            let message = if spaces {
+                "This line is indented with a mix of tabs and spaces.\n\
+                 A block moves in by exactly 2 spaces. Tabs are wider in some editors than others, \
+                 so Quill doesn't use them."
+            } else {
+                "This line is indented with a tab.\n\
+                 A block moves in by exactly 2 spaces. Tabs are wider in some editors than others, \
+                 so Quill doesn't use them."
+            };
             return Err(Diagnostic::new(
                 Span {
                     line,
                     column: 1,
                     length: width,
                 },
-                "This line is indented with a mix of tabs and spaces.\n\
-                 Editors show tabs at different widths, so Quill can't tell how far in it is.\n\
-                 Indent with spaces only.",
+                message,
             ));
         }
 
         let current = self.indents.last().copied().unwrap_or(0);
         if width > current {
+            if width != current + 2 {
+                let unit = if width == 1 { "space" } else { "spaces" };
+                return Err(Diagnostic::new(
+                    Span {
+                        line,
+                        column: 1,
+                        length: width,
+                    },
+                    format!(
+                        "This line is indented by {width} {unit}.\n\
+                         A block moves in by exactly 2 spaces from the line above it, \
+                         so this line should be indented by {} spaces.",
+                        current + 2
+                    ),
+                ));
+            }
             self.indents.push(width);
             tokens.push(self.marker(TokenKind::Indent));
         } else if width < current {
@@ -350,7 +436,8 @@ impl Lexer {
                         length: width.max(1),
                     },
                     "This line's indentation doesn't line up with any line above it.\n\
-                     A line that ends a block must line up exactly with the lines before the block.",
+                     A line that ends a block comes back by 2 spaces at a time, \
+                     to the same column as the line that opened the block.",
                 ));
             }
         }
@@ -591,7 +678,7 @@ impl Lexer {
         let mut number = self.take_while(|c| c.is_ascii_digit());
 
         // Only treat `.` as a decimal point when a digit follows, so `1..15`
-        // stays available for ranges later.
+        // is a range, not a number.
         if self.peek() == Some('.') && self.peek_next().is_some_and(|c| c.is_ascii_digit()) {
             self.advance();
             number.push('.');
@@ -624,6 +711,21 @@ impl Lexer {
             "set" => TokenKind::Set,
             "when" => TokenKind::When,
             "else" => TokenKind::Else,
+            "for" => TokenKind::For,
+            "in" => TokenKind::In,
+            "list" => TokenKind::List,
+            "record" => TokenKind::Record,
+            "of" => TokenKind::Of,
+            "at" => TokenKind::At,
+            "fn" => TokenKind::Fn,
+            "return" => TokenKind::Return,
+            "maybe" => TokenKind::Maybe,
+            "found" => TokenKind::Found,
+            "missing" => TokenKind::Missing,
+            "fails" => TokenKind::Fails,
+            "fail" => TokenKind::Fail,
+            "on" => TokenKind::On,
+            "try" => TokenKind::Try,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "and" => TokenKind::And,
@@ -713,6 +815,35 @@ impl TextBuilder {
     }
 }
 
+/// `18...25` is a common way to write a range. Quill's range is two dots.
+fn three_dots(line: usize, column: usize, tokens: &[Token], lexer: &mut Lexer) -> Diagnostic {
+    let end = lexer.take_while(|c| c.is_ascii_digit());
+    let start = match tokens.last() {
+        Some(Token {
+            kind: TokenKind::Number(number),
+            ..
+        }) => number.clone(),
+        _ => String::new(),
+    };
+    let suggestion = if !start.is_empty() && !end.is_empty() {
+        format!("{start}..{end}")
+    } else {
+        "1..3".to_string()
+    };
+    Diagnostic::new(
+        Span {
+            line,
+            column,
+            length: 3,
+        },
+        format!(
+            "A range uses two dots, not three, as in {suggestion}.\n\
+             {suggestion} counts from the first number through the last, including both ends."
+        ),
+    )
+    .suggest(suggestion)
+}
+
 fn unexpected(c: char, line: usize, column: usize) -> Diagnostic {
     let span = Span {
         line,
@@ -745,11 +876,19 @@ fn unexpected(c: char, line: usize, column: usize) -> Diagnostic {
             span,
             "Quill doesn't use semicolons.\nEach statement goes on its own line instead.",
         ),
+        '[' | ']' => Diagnostic::new(
+            span,
+            "Quill writes a list with the word list, not with square brackets.\n\
+             A list is values of one kind, in order: list \"coding\", \"reading\".",
+        )
+        .suggest("list \"coding\", \"reading\""),
         '{' | '}' => Diagnostic::new(
             span,
-            "Braces are only used inside text, to show a value: \"Hello, {name}\".\n\
-             Quill marks blocks with indentation instead.",
-        ),
+            "Quill writes a record with the word record, not with braces.\n\
+             A record keeps named fields together. Put the fields on the following lines, indented by 2 spaces.\n\
+             Braces inside text still show a value: \"Hello, {name}\".",
+        )
+        .suggest("record\n  city = \"Anytown\""),
         _ => Diagnostic::new(
             span,
             format!(
@@ -916,10 +1055,12 @@ mod tests {
 
     #[test]
     fn keywords() {
-        let kinds: Vec<TokenKind> = tokens("var set when else true false and or not variable")
-            .into_iter()
-            .map(|(kind, _, _)| kind)
-            .collect();
+        let kinds: Vec<TokenKind> = tokens(
+            "var set when else for in list record of at fn return maybe found missing fails fail on try true false and or not variable",
+        )
+        .into_iter()
+        .map(|(kind, _, _)| kind)
+        .collect();
         assert_eq!(
             kinds,
             vec![
@@ -927,6 +1068,21 @@ mod tests {
                 Set,
                 When,
                 Else,
+                For,
+                In,
+                List,
+                Record,
+                Of,
+                At,
+                Fn,
+                Return,
+                Maybe,
+                Found,
+                Missing,
+                Fails,
+                Fail,
+                On,
+                Try,
                 True,
                 False,
                 And,
@@ -947,10 +1103,8 @@ mod tests {
         assert_eq!(lex("a & b").unwrap_err().suggestion.as_deref(), Some("and"));
         assert_eq!(lex("a | b").unwrap_err().suggestion.as_deref(), Some("or"));
         assert!(lex("say 1;").unwrap_err().message.contains("semicolons"));
-        assert!(lex("x = {")
-            .unwrap_err()
-            .message
-            .contains("only used inside text"));
+        assert!(lex("x = {").unwrap_err().message.contains("word record"));
+        assert!(lex("x = [").unwrap_err().message.contains("word list"));
     }
 
     #[test]
@@ -994,9 +1148,41 @@ mod tests {
     }
 
     #[test]
-    fn dot_without_following_digit_is_not_part_of_the_number() {
-        let err = lex("x = 3.").unwrap_err();
-        assert_eq!((err.line, err.column), (1, 6));
+    fn two_dots_are_a_range() {
+        assert_eq!(
+            tokens("for i in 1..15"),
+            vec![
+                (For, 1, 1),
+                (ident("i"), 1, 5),
+                (In, 1, 7),
+                (number("1"), 1, 10),
+                (DotDot, 1, 11),
+                (number("15"), 1, 13),
+                (EndOfFile, 1, 15),
+            ]
+        );
+    }
+
+    #[test]
+    fn three_dots_are_not_a_range() {
+        let err = lex("for age in 18...25").unwrap_err();
+        assert_eq!((err.line, err.column, err.length), (1, 14, 3));
+        assert_eq!(err.suggestion.as_deref(), Some("18..25"));
+        assert!(err.message.contains("two dots"));
+    }
+
+    #[test]
+    fn dot_without_following_digit_is_a_field_dot() {
+        assert_eq!(
+            tokens("x = 3."),
+            vec![
+                (ident("x"), 1, 1),
+                (Equals, 1, 3),
+                (number("3"), 1, 5),
+                (Dot, 1, 6),
+                (EndOfFile, 1, 7),
+            ]
+        );
     }
 
     #[test]
@@ -1055,19 +1241,42 @@ mod tests {
     }
 
     #[test]
-    fn tabs_and_blank_lines() {
+    fn blank_lines_dont_end_a_block() {
         assert_eq!(
-            tokens("\tsay x\n\n"),
+            tokens("  say x\n\n"),
             vec![
-                (Indent, 1, 2),
-                (Say, 1, 2),
-                (ident("x"), 1, 6),
-                (Newline, 1, 7),
+                (Indent, 1, 3),
+                (Say, 1, 3),
+                (ident("x"), 1, 7),
+                (Newline, 1, 8),
                 (Newline, 2, 1),
                 (Dedent, 3, 1),
                 (EndOfFile, 3, 1),
             ]
         );
+    }
+
+    #[test]
+    fn a_block_moves_in_by_exactly_two_spaces() {
+        let err = lex("when\n    ready -> say 1").unwrap_err();
+        assert_eq!((err.line, err.column), (2, 1));
+        assert!(err.message.contains("indented by 4 spaces"));
+        assert!(err.message.contains("exactly 2 spaces"));
+
+        let err = lex("when\n ready -> say 1").unwrap_err();
+        assert!(err.message.contains("indented by 1 space"));
+
+        let err = lex("when\n  ready -> say 1\n      say 2").unwrap_err();
+        assert_eq!(err.line, 3);
+        assert!(err.message.contains("indented by 4 spaces"));
+    }
+
+    #[test]
+    fn a_tab_is_not_an_indent() {
+        let err = lex("when\n\tready -> say 1").unwrap_err();
+        assert_eq!((err.line, err.column, err.length), (2, 1, 1));
+        assert!(err.message.contains("indented with a tab"));
+        assert!(err.message.contains("exactly 2 spaces"));
     }
 
     #[test]
@@ -1124,9 +1333,10 @@ mod tests {
 
     #[test]
     fn indentation_must_line_up() {
-        let err = lex("when\n    a\n  b").unwrap_err();
+        let err = lex("when\n  a\n b").unwrap_err();
         assert_eq!((err.line, err.column), (3, 1));
         assert!(err.message.contains("doesn't line up"));
+        assert!(err.message.contains("2 spaces"));
     }
 
     #[test]

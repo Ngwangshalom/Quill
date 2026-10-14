@@ -56,6 +56,7 @@ fn every_example_in_the_book_works() {
             let run = Command::new(env!("CARGO_BIN_EXE_quill"))
                 .args(["run", &example.file_name])
                 .current_dir(&dir)
+                .env("QUILL_NO_EDITOR_SETUP", "1")
                 .output()
                 .expect("quill should start");
             let printed = format!(

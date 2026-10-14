@@ -1,0 +1,44 @@
+{
+  "name": "quill",
+  "displayName": "Quill",
+  "description": "Quill colors, the feather icon, and mistake underlines for .ql files.",
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:quill"],
+  "version": "0.1.0",
+  "publisher": "quill",
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "configurationDefaults": {
+      "[quill]": {
+        "editor.tabSize": 2,
+        "editor.insertSpaces": true,
+        "editor.detectIndentation": false
+      }
+    },
+    "languages": [
+      {
+        "id": "quill",
+        "aliases": ["Quill", "quill"],
+        "extensions": [".ql"],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icons/quill-light.png",
+          "dark": "./icons/quill-dark.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "quill",
+        "scopeName": "source.quill",
+        "path": "./syntaxes/quill.tmLanguage.json"
+      }
+    ]
+  }
+}

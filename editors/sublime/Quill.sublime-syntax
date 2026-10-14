@@ -1,0 +1,71 @@
+%YAML 1.2
+---
+name: Quill
+file_extensions:
+  - ql
+scope: source.quill
+contexts:
+  main:
+    - match: '---[ \t]+example:'
+      scope: keyword.control.example.quill
+    - match: '--.*$'
+      scope: comment.line.double-dash.quill
+    - match: '"""'
+      push: triple
+    - match: '"'
+      push: string
+    - match: '\b(say)\b'
+      scope: keyword.other.say.quill
+    - match: '\b(when|else)\b'
+      scope: keyword.control.conditional.quill
+    - match: '\b(var|set)\b'
+      scope: keyword.other.bind.quill
+    - match: '\b(check)\b'
+      scope: keyword.other.check.quill
+    - match: '\b(and|or|not)\b'
+      scope: keyword.operator.logical.quill
+    - match: '\b(for|in)\b'
+      scope: keyword.control.loop.quill
+    - match: '\b(list)\b'
+      scope: keyword.other.list.quill
+    - match: '\b(record)\b'
+      scope: keyword.other.record.quill
+    - match: '\b(of)\b'
+      scope: keyword.other.of.quill
+    - match: '\b(at)\b'
+      scope: keyword.other.at.quill
+    - match: '\b(fn|return)\b'
+      scope: keyword.other.function.quill
+    - match: '\b(maybe|found|missing)\b'
+      scope: keyword.other.maybe.quill
+    - match: '\b(fails|fail|on|try)\b'
+      scope: keyword.other.failure.quill
+    - match: '\b(true|false)\b'
+      scope: constant.language.quill
+    - match: '\b\d+(\.\d+)?'
+      scope: constant.numeric.quill
+    - match: '->|==|!=|<=|>=|[=+\-*/%<>]'
+      scope: keyword.operator.quill
+    - match: '\b[A-Za-z_][A-Za-z0-9_]*\b'
+      scope: variable.other.quill
+  string:
+    - meta_scope: string.quoted.double.quill
+    - match: '\\.'
+      scope: constant.character.escape.quill
+    - match: '\{'
+      push: interpolation
+    - match: '"'
+      pop: true
+  triple:
+    - meta_scope: string.quoted.triple.quill
+    - match: '\\.'
+      scope: constant.character.escape.quill
+    - match: '\{'
+      push: interpolation
+    - match: '"""'
+      pop: true
+  interpolation:
+    - meta_scope: meta.interpolation.quill
+    - match: '\}'
+      pop: true
+    - include: main

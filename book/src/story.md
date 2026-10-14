@@ -1,10 +1,5 @@
 # The Story of Quill
 
-<!--
-  FOUNDER: replace each "To be written" note below with your own words,
-  then delete this comment. Keep the facts in "Timeline" up to date.
--->
-
 ## Why Quill exists
 
 Building a backend today means stitching together a framework, a database library, a validation library, a test runner and a pile of dependencies. Then production goes down anyway, because of a `null` nobody checked, a failure nobody handled, or a price that rounded wrong.
@@ -13,15 +8,17 @@ Quill was started to make that everyday work dramatically less painful: a langua
 
 ## The founder
 
-> **To be written by the founder:** who you are, where you're from, and what you were working on when you decided to create a programming language.
+Ngwang Shalom Tamnjong, also known as Json, is from Bamenda, in the Northwest Region of Cameroon. In October 2026 he was building a talent-booking application, the full stack: the part people use, and the service behind it. That work is where Quill began.
 
 ## How it started
 
-> **To be written by the founder:** the moment or the problem that made you start Quill, and why you chose to build a new language rather than use an existing one.
+He wanted a language a beginner could start with, and one powerful enough for backend applications and AI-powered systems. A simple language for the next generation.
+
+The talent-booking application made the problem plain. Languages already in use were hard to learn. A backend meant installing many pieces and combining them before the real work could run, and the learning curve was steep. On 13 October 2026 he started Quill, so that beginning would stay simple, and so the same language could carry serious backend and AI work. The first program, `say "Hello, World!"`, ran the same day.
 
 ## The name
 
-> **To be written by the founder:** why "Quill", and what the feather in the logo stands for.
+He chose a short name that would be easy to remember: Quill. The feather in the logo carries the same meaning. The language should feel light: easy to get started, easy to learn, easy to adopt, and still very powerful.
 
 ## Timeline
 
@@ -36,7 +33,9 @@ Quill was started to make that everyday work dramatically less painful: a langua
 
 ## Where Quill is going
 
-> **To be written by the founder:** your hopes for Quill. Who should use it, and what would success look like in a few years?
+From the start, Quill has been for everyone who builds software: developers, system engineers, script engineers, and AI developers.
+
+His hope for the years ahead is that Quill stands among the most adopted languages, with a large community, and that it is used in production mobile applications.
 
 ## Join in
 

@@ -47,7 +47,7 @@ pub fn explain(source: &str, line: usize) -> String {
             format!("{note}\n")
         } else {
             "  Quill didn't see a statement on this line.\n\
-             A line can start with say, check, var, set, when, or a name and =.\n"
+             A line can start with say, check, var, set, when, for, or a name and =.\n"
                 .to_string()
         };
         return format!("{header}\n{note}");
@@ -94,18 +94,42 @@ fn find(statements: &[Statement], line: usize) -> Option<Found<'_>> {
 }
 
 fn find_in(statement: &Statement, line: usize) -> Option<Found<'_>> {
-    let Statement::When { arms, .. } = statement else {
-        return None;
-    };
-    for arm in arms {
-        if arm.span.line == line {
-            return Some(Found::Arm(arm));
+    match statement {
+        Statement::When { arms, .. } => {
+            for arm in arms {
+                if arm.span.line == line {
+                    return Some(Found::Arm(arm));
+                }
+                if let Some(found) = find_in(&arm.body, line) {
+                    return Some(found);
+                }
+            }
+            None
         }
-        if let Some(found) = find_in(&arm.body, line) {
-            return Some(found);
+        Statement::Function { body, .. } => {
+            for statement in body {
+                if statement.line() == line {
+                    return Some(Found::Statement(statement));
+                }
+                if let Some(found) = find_in(statement, line) {
+                    return Some(found);
+                }
+            }
+            None
         }
+        Statement::For { body, .. } => {
+            for statement in body {
+                if statement.line() == line {
+                    return Some(Found::Statement(statement));
+                }
+                if let Some(found) = find_in(statement, line) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        _ => None,
     }
-    None
 }
 
 struct Describer<'a> {
@@ -185,6 +209,111 @@ impl Describer<'_> {
                     ),
                 )]
             }
+            Statement::Function {
+                name,
+                params,
+                result,
+                ..
+            } => {
+                let gives = match result {
+                    Some(kind) => format!("gives back {}", kind.written()),
+                    None => "does its work and gives nothing back".to_string(),
+                };
+                let mut rows = vec![(format!("fn {name}"), format!("a function that {gives}"))];
+                for param in params {
+                    rows.push((
+                        format!("{}: {}", param.name, param.kind.written()),
+                        "a parameter".to_string(),
+                    ));
+                }
+                rows
+            }
+            Statement::Return { value, .. } => {
+                let mut rows = vec![(
+                    "return".to_string(),
+                    "leave the function, giving a value back".to_string(),
+                )];
+                if let Some(value) = value {
+                    rows.extend(self.value(value));
+                }
+                rows
+            }
+            Statement::Match { subject, arms, .. } => {
+                let mut rows = vec![(
+                    "when".to_string(),
+                    "open a maybe, then handle found and missing".to_string(),
+                )];
+                rows.extend(self.value(subject));
+                for arm in arms {
+                    rows.extend(self.statement(&arm.body));
+                }
+                rows
+            }
+            Statement::Fail { name, .. } => {
+                vec![(
+                    format!("fail {name}"),
+                    "leave the function with this failure".to_string(),
+                )]
+            }
+            Statement::Call { name, args, .. } => {
+                let mut rows = vec![(
+                    format!("{name}()"),
+                    "call the function, which gives nothing back".to_string(),
+                )];
+                for arg in args {
+                    rows.extend(self.value(arg));
+                }
+                rows
+            }
+            Statement::For {
+                name,
+                start,
+                end,
+                body,
+                ..
+            } => {
+                let lines = if body.len() == 1 { "line" } else { "lines" };
+                match end {
+                    Some(end) => {
+                        let mut rows = vec![
+                            (
+                                "for".to_string(),
+                                format!(
+                                    "repeat the {} {lines} below, once for each number",
+                                    body.len()
+                                ),
+                            ),
+                            (
+                                name.clone(),
+                                format!("the number this pass, from {start} through {end}"),
+                            ),
+                            ("in".to_string(), "counts through this range".to_string()),
+                        ];
+                        rows.extend(self.value(start));
+                        rows.push((
+                            "..".to_string(),
+                            "through, including the first number and the last".to_string(),
+                        ));
+                        rows.extend(self.value(end));
+                        rows
+                    }
+                    None => {
+                        let mut rows = vec![
+                            (
+                                "for".to_string(),
+                                format!(
+                                    "repeat the {} {lines} below, once for each item",
+                                    body.len()
+                                ),
+                            ),
+                            (name.clone(), "the item this pass".to_string()),
+                            ("in".to_string(), "walks this list".to_string()),
+                        ];
+                        rows.extend(self.value(start));
+                        rows
+                    }
+                }
+            }
         }
     }
 
@@ -231,6 +360,15 @@ impl Describer<'_> {
             ExprKind::Arithmetic { .. } | ExprKind::Negate(_) => format!("a calculation, {kind}"),
             ExprKind::Compare { .. } => format!("a comparison, {kind}"),
             ExprKind::Logic { .. } | ExprKind::Not(_) => format!("a condition, {kind}"),
+            ExprKind::List { .. } => kind,
+            ExprKind::Record { .. } => kind,
+            ExprKind::At { .. } => format!("an item from a list, {kind}"),
+            ExprKind::Field { .. } => format!("a field of a record, {kind}"),
+            ExprKind::Call { name, .. } => format!("a call of {name}, {kind}"),
+            ExprKind::Money { .. } => kind,
+            ExprKind::Found(_) => format!("a maybe that holds a value, {kind}"),
+            ExprKind::Missing => "a maybe that holds nothing".to_string(),
+            ExprKind::Try(inner) => format!("{}, passing failures upward", self.meaning(inner)),
         }
     }
 
@@ -270,7 +408,32 @@ fn names_in(expr: &Expr, names: &mut Vec<String>) {
             names_in(left, names);
             names_in(right, names);
         }
-        ExprKind::Text(_) | ExprKind::Number(_) | ExprKind::Bool(_) => {}
+        ExprKind::List { items, .. } => {
+            for item in items {
+                names_in(item, names);
+            }
+        }
+        ExprKind::Record { fields } => {
+            for field in fields {
+                names_in(&field.value, names);
+            }
+        }
+        ExprKind::At { list, index, .. } => {
+            names_in(list, names);
+            names_in(index, names);
+        }
+        ExprKind::Field { record, .. } => names_in(record, names),
+        ExprKind::Call { args, .. } => {
+            for arg in args {
+                names_in(arg, names);
+            }
+        }
+        ExprKind::Found(inner) | ExprKind::Try(inner) => names_in(inner, names),
+        ExprKind::Text(_)
+        | ExprKind::Number(_)
+        | ExprKind::Money { .. }
+        | ExprKind::Bool(_)
+        | ExprKind::Missing => {}
     }
 }
 
@@ -442,5 +605,15 @@ mod tests {
         assert!(text.contains("You're adding Number (price) to Text (\"5\")."));
         assert!(text.contains("Did you mean:  total = price + 5"));
         assert!(text.contains("Quill stopped here before running anything."));
+    }
+
+    #[test]
+    fn explains_a_for_loop() {
+        let text = explain("for i in 1..3\n  say i\n", 1);
+        assert!(text.contains("repeat the 1 line below"));
+        assert!(text.contains("the number this pass, from 1 through 3"));
+        assert!(text.contains("including the first number and the last"));
+        let body = explain("for i in 1..3\n  say i\n", 2);
+        assert!(body.contains("Number, created on line 1"));
     }
 }

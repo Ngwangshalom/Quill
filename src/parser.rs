@@ -41,13 +41,20 @@ pub enum Statement {
         name_span: Span,
         value: Expr,
         mutable: bool,
+        /// `on Declined -> ...` when `value` is a call that can fail.
+        handlers: Vec<Handler>,
     },
-    /// `set name = value`. `span` covers the `set` keyword.
+    /// `set name = value`, or `set name.field = value`, or `set name at 1 = value`.
+    /// `span` covers the `set` keyword.
     Set {
         name: String,
         name_span: Span,
+        /// Steps after the name: a field, or an item at a position.
+        steps: Vec<Access>,
         value: Expr,
         span: Span,
+        /// `on Declined -> ...` when `value` is a call that can fail.
+        handlers: Vec<Handler>,
     },
     /// `check left == right`, or a doc example that means the same thing.
     Check {
@@ -61,6 +68,174 @@ pub enum Statement {
     },
     /// `when` with its cases. `span` covers the `when` keyword.
     When { arms: Vec<Arm>, span: Span },
+    /// `for name in start..end`, or `for name in list`.
+    /// `end` is absent when `start` is the list to walk.
+    /// `span` covers the `for` keyword.
+    For {
+        name: String,
+        name_span: Span,
+        start: Expr,
+        end: Option<Expr>,
+        body: Vec<Statement>,
+        span: Span,
+    },
+    /// `fn name(n: number) -> number`, then the indented lines.
+    /// `result` is absent when the function gives nothing back.
+    Function {
+        name: String,
+        name_span: Span,
+        params: Vec<Param>,
+        result: Option<SigKind>,
+        /// Failures this function can leave with, written `fails Declined, NetworkDown`.
+        fails: Vec<(String, Span)>,
+        body: Vec<Statement>,
+        span: Span,
+    },
+    /// `return value`, or `return` when the function gives nothing back.
+    Return { value: Option<Expr>, span: Span },
+    /// `greet("Amina")` on its own line, for a function that gives nothing back.
+    Call {
+        name: String,
+        name_span: Span,
+        args: Vec<Expr>,
+        span: Span,
+        /// `on Declined -> ...` under a call that can fail.
+        handlers: Vec<Handler>,
+    },
+    /// `when value`, then `found name` and `missing`.
+    Match {
+        subject: Expr,
+        arms: Vec<Catch>,
+        span: Span,
+    },
+    /// `fail Declined`, leaving the function with a declared failure.
+    Fail { name: String, span: Span },
+}
+
+/// A function parameter: `n: number`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Param {
+    pub name: String,
+    pub name_span: Span,
+    pub kind: SigKind,
+    pub kind_span: Span,
+}
+
+/// The kind written in a function: `text`, `number`, `true/false`, or `list of` one of those.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SigKind {
+    Text,
+    Number,
+    Bool,
+    List(Box<SigKind>),
+    /// Money in one currency, written `AED`.
+    Money(String),
+    /// A value that might be missing, written `maybe number`.
+    Maybe(Box<SigKind>),
+}
+
+impl SigKind {
+    /// The kind as it is written in a function.
+    pub fn written(&self) -> String {
+        match self {
+            SigKind::Text => "text".to_string(),
+            SigKind::Number => "number".to_string(),
+            SigKind::Bool => "true/false".to_string(),
+            SigKind::List(item) => format!("list of {}", item.written()),
+            SigKind::Money(code) => code.clone(),
+            SigKind::Maybe(inner) => format!("maybe {}", inner.written()),
+        }
+    }
+}
+
+/// One case under `when value`: `found name` or `missing`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Catch {
+    /// The name bound by `found`. Absent for `missing`.
+    pub found: Option<(String, Span)>,
+    pub body: Box<Statement>,
+    pub span: Span,
+}
+
+/// `on Declined -> say "Card declined"`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Handler {
+    pub name: String,
+    pub name_span: Span,
+    pub body: Box<Statement>,
+    pub span: Span,
+}
+
+/// A currency code is three capital letters, as in `AED`.
+pub fn is_currency(name: &str) -> bool {
+    name.len() == 3 && name.chars().all(|c| c.is_ascii_uppercase())
+}
+
+/// Three letters that would be a currency if they were capitals.
+fn currency_letters(name: &str) -> bool {
+    name.len() == 3 && name.chars().all(|c| c.is_ascii_alphabetic()) && !is_currency(name)
+}
+
+fn capitalize(name: &str) -> String {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(first) => first.to_ascii_uppercase().to_string() + chars.as_str(),
+        None => name.to_string(),
+    }
+}
+
+fn attach_handlers(statement: Statement, handlers: Vec<Handler>) -> Statement {
+    match statement {
+        Statement::Let {
+            name,
+            name_span,
+            value,
+            mutable,
+            ..
+        } => Statement::Let {
+            name,
+            name_span,
+            value,
+            mutable,
+            handlers,
+        },
+        Statement::Set {
+            name,
+            name_span,
+            steps,
+            value,
+            span,
+            ..
+        } => Statement::Set {
+            name,
+            name_span,
+            steps,
+            value,
+            span,
+            handlers,
+        },
+        Statement::Call {
+            name,
+            name_span,
+            args,
+            span,
+            ..
+        } => Statement::Call {
+            name,
+            name_span,
+            args,
+            span,
+            handlers,
+        },
+        other => other,
+    }
+}
+
+/// One step into a list or a record: `name.field` or `name at 1`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Access {
+    Field { name: String, span: Span },
+    At { index: Expr, span: Span },
 }
 
 /// One case of a `when`: `condition -> body`, or `else -> body`.
@@ -82,6 +257,11 @@ impl Statement {
             Statement::Set { span, .. } => span.line,
             Statement::Check { span, .. } => span.line,
             Statement::When { span, .. } => span.line,
+            Statement::For { span, .. } => span.line,
+            Statement::Function { span, .. } => span.line,
+            Statement::Return { span, .. } => span.line,
+            Statement::Call { span, .. } => span.line,
+            Statement::Match { span, .. } | Statement::Fail { span, .. } => span.line,
         }
     }
 }
@@ -185,6 +365,11 @@ pub enum ExprKind {
     /// Text with values inside: `"Hello, {name}"`.
     Template(Vec<Part>),
     Number(String),
+    /// `100 AED`.
+    Money {
+        amount: String,
+        currency: String,
+    },
     Bool(bool),
     Name(String),
     /// `-value`
@@ -212,6 +397,47 @@ pub enum ExprKind {
     },
     /// `(value)`, kept so values are written back the way they were typed.
     Group(Box<Expr>),
+    /// `list "coding", "reading"`, or `list of text` when `empty` is set.
+    List {
+        items: Vec<Expr>,
+        empty: Option<SigKind>,
+    },
+    /// `record` with `name = value` fields.
+    Record {
+        fields: Vec<Field>,
+    },
+    /// `found 2.50`, a maybe that holds a value.
+    Found(Box<Expr>),
+    /// `missing`, a maybe that holds nothing.
+    Missing,
+    /// `try charge(amount)`, passing failures upward.
+    Try(Box<Expr>),
+    /// `double(4)`.
+    Call {
+        name: String,
+        name_span: Span,
+        args: Vec<Expr>,
+    },
+    /// `hobbies at 1`. Position 1 is the first item.
+    At {
+        list: Box<Expr>,
+        index: Box<Expr>,
+        at_span: Span,
+    },
+    /// `address.city`.
+    Field {
+        record: Box<Expr>,
+        name: String,
+        name_span: Span,
+    },
+}
+
+/// One field of a record: `city = "Anytown"`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Field {
+    pub name: String,
+    pub name_span: Span,
+    pub value: Expr,
 }
 
 /// One part of a text with values inside.
@@ -247,6 +473,7 @@ impl fmt::Display for Expr {
                 write!(f, "\"")
             }
             ExprKind::Number(number) => write!(f, "{number}"),
+            ExprKind::Money { amount, currency } => write!(f, "{amount} {currency}"),
             ExprKind::Bool(value) => write!(f, "{value}"),
             ExprKind::Name(name) => write!(f, "{name}"),
             ExprKind::Negate(inner) => write!(f, "-{inner}"),
@@ -261,6 +488,44 @@ impl fmt::Display for Expr {
                 op, left, right, ..
             } => write!(f, "{left} {} {right}", op.word()),
             ExprKind::Group(inner) => write!(f, "({inner})"),
+            ExprKind::List { items, empty } => {
+                write!(f, "list")?;
+                if let Some(kind) = empty {
+                    write!(f, " of {}", kind.written())?;
+                }
+                for (index, item) in items.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, " {item}")?;
+                }
+                Ok(())
+            }
+            ExprKind::Record { fields } => {
+                write!(f, "record")?;
+                for (index, field) in fields.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ",")?;
+                    }
+                    write!(f, " {} = {}", field.name, field.value)?;
+                }
+                Ok(())
+            }
+            ExprKind::Found(value) => write!(f, "found {value}"),
+            ExprKind::Missing => write!(f, "missing"),
+            ExprKind::Try(inner) => write!(f, "try {inner}"),
+            ExprKind::Call { name, args, .. } => {
+                write!(f, "{name}(")?;
+                for (index, arg) in args.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            }
+            ExprKind::At { list, index, .. } => write!(f, "{list} at {index}"),
+            ExprKind::Field { record, name, .. } => write!(f, "{record}.{name}"),
         }
     }
 }
@@ -298,7 +563,13 @@ impl fmt::Display for Statement {
                     write!(f, "{name} = {value}")
                 }
             }
-            Statement::Set { name, value, .. } => write!(f, "set {name} = {value}"),
+            Statement::Set {
+                name, steps, value, ..
+            } => {
+                write!(f, "set {name}")?;
+                write_steps(f, steps)?;
+                write!(f, " = {value}")
+            }
             Statement::Check {
                 left,
                 op,
@@ -310,6 +581,47 @@ impl fmt::Display for Statement {
                 write!(f, "{keyword} {left} {} {right}", op.symbol())
             }
             Statement::When { .. } => write!(f, "when"),
+            Statement::For {
+                name, start, end, ..
+            } => match end {
+                Some(end) => write!(f, "for {name} in {start}..{end}"),
+                None => write!(f, "for {name} in {start}"),
+            },
+            Statement::Function {
+                name,
+                params,
+                result,
+                ..
+            } => {
+                write!(f, "fn {name}(")?;
+                for (index, param) in params.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}: {}", param.name, param.kind.written())?;
+                }
+                write!(f, ")")?;
+                if let Some(result) = result {
+                    write!(f, " -> {}", result.written())?;
+                }
+                Ok(())
+            }
+            Statement::Return { value, .. } => match value {
+                Some(value) => write!(f, "return {value}"),
+                None => write!(f, "return"),
+            },
+            Statement::Call { name, args, .. } => {
+                write!(f, "{name}(")?;
+                for (index, arg) in args.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
+            }
+            Statement::Match { .. } => write!(f, "when"),
+            Statement::Fail { name, .. } => write!(f, "fail {name}"),
         }
     }
 }
@@ -320,7 +632,11 @@ pub fn parse(tokens: &[Token]) -> Result<Program, Diagnostic> {
         return Ok(Program { statements });
     }
 
-    let mut parser = Parser { tokens, pos: 0 };
+    let mut parser = Parser {
+        tokens,
+        pos: 0,
+        in_function: false,
+    };
     loop {
         match parser.peek().kind {
             TokenKind::EndOfFile => break,
@@ -336,6 +652,8 @@ pub fn parse(tokens: &[Token]) -> Result<Program, Diagnostic> {
 struct Parser<'a> {
     tokens: &'a [Token],
     pos: usize,
+    /// `true` while reading the lines under a `fn`.
+    in_function: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -359,10 +677,18 @@ impl<'a> Parser<'a> {
 
     /// A statement and the end of its line.
     fn full_statement(&mut self) -> Result<Statement, Diagnostic> {
-        let statement = self.statement()?;
+        let mut statement = self.statement()?;
         // A `when` ends with its indented block, so its line has already ended.
-        if !matches!(statement, Statement::When { .. }) {
+        if !matches!(
+            statement,
+            Statement::When { .. }
+                | Statement::Match { .. }
+                | Statement::For { .. }
+                | Statement::Function { .. }
+        ) && !contains_record(&statement)
+        {
             self.end_of_line(&statement)?;
+            statement = self.maybe_handlers(statement)?;
         }
         Ok(statement)
     }
@@ -376,6 +702,36 @@ impl<'a> Parser<'a> {
             TokenKind::Var => self.var_statement(),
             TokenKind::Set => self.set_statement(),
             TokenKind::When => self.when_statement(),
+            TokenKind::For => self.for_statement(),
+            TokenKind::Fn => self.function_statement(),
+            TokenKind::Return => self.return_statement(),
+            TokenKind::Fail => self.fail_statement(),
+            TokenKind::Fails => Err(Diagnostic::new(
+                token.span(),
+                "fails names how a function can fail, on the first line under fn.\n\
+                 fn charge(amount: AED) -> text, then fails Declined.",
+            )
+            .suggest("fails Declined")),
+            TokenKind::On => Err(Diagnostic::new(
+                token.span(),
+                "on handles one failure of the call above it.\n\
+                 Indent it under the call: on Declined -> say \"Card declined\".",
+            )),
+            TokenKind::Found | TokenKind::Missing => Err(Diagnostic::new(
+                token.span(),
+                "found and missing go under when, to open a maybe.\n\
+                 when find_price(\"bread\"), then found price -> say price, and missing -> say \"none\".",
+            )),
+            TokenKind::Maybe => Err(Diagnostic::new(
+                token.span(),
+                "maybe names a kind that might be missing.\n\
+                 It goes after ->, as in -> maybe number.",
+            )
+            .suggest("-> maybe number")),
+            TokenKind::Identifier(name) if self.peek_at(1).kind == TokenKind::LeftParen => {
+                let name = name.clone();
+                self.call_statement(name)
+            }
             TokenKind::Identifier(name) if self.peek_at(1).kind == TokenKind::Equals => {
                 self.let_statement(name, false)
             }
@@ -390,7 +746,9 @@ impl<'a> Parser<'a> {
                 Err(Diagnostic::new(
                     first.span(),
                     "This line is indented, but nothing above it starts a block.\n\
-                     Only the cases under a when are indented, so move this line back to the left.",
+                     Only the cases under a when, the lines under a for, the lines under a function, \
+                     and the fields of a record are indented, by exactly 2 spaces. \
+                     Move this line back to the left.",
                 ))
             }
             TokenKind::EqualEqual => Err(Diagnostic::new(
@@ -413,7 +771,8 @@ impl<'a> Parser<'a> {
                 token.span(),
                 format!(
                     "A line can't start with {}.\n\
-                     A line can start with say, check, var, set, when, or a name and =.",
+                     A line can start with say, check, var, set, when, for, fn, return, \
+                     a call, or a name and =.",
                     describe(other)
                 ),
             )),
@@ -480,6 +839,23 @@ impl<'a> Parser<'a> {
             )
             .suggest("say \"Hello, World!\""));
         }
+        if self.peek().kind == TokenKind::Arrow {
+            let arrow = self.advance().clone();
+            let suggestion = if starts_value(&self.peek().kind) {
+                match self.expression() {
+                    Ok(value) => format!("say {value}"),
+                    Err(_) => "say \"Hello, World!\"".to_string(),
+                }
+            } else {
+                "say \"Hello, World!\"".to_string()
+            };
+            return Err(Diagnostic::new(
+                arrow.span(),
+                "-> belongs inside a when, between a condition and what to do.\n\
+                 say shows a value, so write that value right after say.",
+            )
+            .suggest(suggestion));
+        }
         let value = self.expression()?;
         Ok(Statement::Say {
             value,
@@ -511,6 +887,7 @@ impl<'a> Parser<'a> {
             name_span: name_token.span(),
             value,
             mutable,
+            handlers: Vec::new(),
         })
     }
 
@@ -522,8 +899,30 @@ impl<'a> Parser<'a> {
 
     fn set_statement(&mut self) -> Result<Statement, Diagnostic> {
         let set = self.advance();
-        let (name, name_span) = self.assignment_target(set, "set", "count", "count + 1")?;
-        self.advance(); // name
+        let name_token = self.peek().clone();
+        let TokenKind::Identifier(name) = name_token.kind.clone() else {
+            return Err(self
+                .assignment_target(set, "set", "count", "count + 1")
+                .unwrap_err());
+        };
+        let name_span = name_token.span();
+        self.advance();
+        let steps = self.access_steps()?;
+        if self.peek().kind != TokenKind::Equals {
+            let place = write_steps_string(&steps);
+            return Err(Diagnostic::new(
+                name_span,
+                format!(
+                    "set {name}{place} needs = and a value after it.\n\
+                     set changes a value that was created with var."
+                ),
+            )
+            .suggest(if steps.is_empty() {
+                format!("set {name} = {name} + 1")
+            } else {
+                format!("set {name}{place} = {name}{place}")
+            }));
+        }
         let equals = self.advance();
         if self.at_end_of_line() {
             return Err(Diagnostic::new(
@@ -539,9 +938,60 @@ impl<'a> Parser<'a> {
         Ok(Statement::Set {
             name,
             name_span,
+            steps,
             value,
             span: set.span(),
+            handlers: Vec::new(),
         })
+    }
+
+    /// `.field` and `at index` steps, stopping before `=`.
+    fn access_steps(&mut self) -> Result<Vec<Access>, Diagnostic> {
+        let mut steps = Vec::new();
+        loop {
+            match self.peek().kind {
+                TokenKind::Dot => {
+                    let dot = self.advance().clone();
+                    let field = self.peek().clone();
+                    let TokenKind::Identifier(name) = field.kind.clone() else {
+                        return Err(Diagnostic::new(
+                            dot.span(),
+                            format!(
+                                "A dot needs the field's name after it, but found {}.\n\
+                                 A record's fields have names: address.city.",
+                                describe(&field.kind)
+                            ),
+                        )
+                        .suggest("address.city"));
+                    };
+                    self.advance();
+                    steps.push(Access::Field {
+                        name,
+                        span: field.span(),
+                    });
+                }
+                TokenKind::At => {
+                    let at = self.advance().clone();
+                    if !starts_value(&self.peek().kind) {
+                        return Err(Diagnostic::new(
+                            at.span(),
+                            format!(
+                                "at needs a position after it, but found {}.\n\
+                                 Lists count from 1: hobbies at 1 is the first hobby.",
+                                describe(&self.peek().kind)
+                            ),
+                        )
+                        .suggest("hobbies at 1"));
+                    }
+                    let index = self.sum()?;
+                    steps.push(Access::At {
+                        index,
+                        span: at.span(),
+                    });
+                }
+                _ => return Ok(steps),
+            }
+        }
     }
 
     /// Checks that `NAME =` follows `var` or `set`, without consuming it.
@@ -594,16 +1044,11 @@ impl<'a> Parser<'a> {
     }
 
     fn when_statement(&mut self) -> Result<Statement, Diagnostic> {
-        let when = self.advance();
+        let when = self.advance().clone();
         // Lined up under "Did you mean:  when", with the cases indented.
         let example = "when\n                 count > 10 -> say \"big\"\n                 else -> say \"small\"";
         if !self.at_end_of_line() {
-            return Err(Diagnostic::new(
-                cover(when.span(), self.peek().span()),
-                "The cases of a when go on the lines below it, one per line, indented.\n\
-                 Each case is a condition, then ->, then what to do.",
-            )
-            .suggest(example));
+            return self.match_maybe(when.span());
         }
         while self.peek().kind == TokenKind::Newline {
             self.advance();
@@ -648,6 +1093,547 @@ impl<'a> Parser<'a> {
             arms,
             span: when.span(),
         })
+    }
+
+    /// `for name in start..end`, then the indented lines to repeat.
+    fn for_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance();
+        let suggest = "for i in 1..3\n  say i";
+        let name_token = self.peek().clone();
+        let name = match &name_token.kind {
+            TokenKind::Identifier(name) => name.clone(),
+            _ => {
+                return Err(Diagnostic::new(
+                    name_token.span(),
+                    "for needs a name after it, then in, then a range.\n\
+                     The name holds the number for this pass: for i in 1..3.",
+                )
+                .suggest(suggest));
+            }
+        };
+        self.advance();
+        if self.peek().kind != TokenKind::In {
+            let found = self.peek();
+            return Err(Diagnostic::new(
+                found.span(),
+                format!(
+                    "for needs in after {name}, but found {}.\n\
+                     Write the name, then in, then the first number, .., and the last.",
+                    describe(&found.kind)
+                ),
+            )
+            .suggest(format!("for {name} in 1..3")));
+        }
+        self.advance();
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "for needs a range after in: the first number, .., then the last.\n\
+                 for i in 1..3 counts 1, then 2, then 3.",
+            )
+            .suggest(suggest));
+        }
+        let start = self.expression()?;
+        let end = if self.peek().kind == TokenKind::DotDot {
+            let dots = self.advance();
+            if self.at_end_of_line() {
+                return Err(Diagnostic::new(
+                    dots.span(),
+                    "This range is missing the last number, after ..\n\
+                     for i in 1..3 counts from 1 through 3, including both ends.",
+                )
+                .suggest(format!("for {name} in {start}..{start}")));
+            }
+            Some(self.expression()?)
+        } else if self.at_end_of_line() {
+            None
+        } else {
+            let found = self.peek();
+            return Err(Diagnostic::new(
+                found.span(),
+                format!(
+                    "A for range needs .. between the first number and the last, but found {}.\n\
+                     for i in 1..3 counts from 1 through 3. for hobby in hobbies walks a list.",
+                    describe(&found.kind)
+                ),
+            )
+            .suggest(format!("for {name} in {start}..{start}")));
+        };
+        let end_shown = match &end {
+            Some(end) => format!("{start}..{end}"),
+            None => start.to_string(),
+        };
+        if !self.at_end_of_line() {
+            let found = self.peek();
+            return Err(Diagnostic::new(
+                found.span(),
+                "The lines a for repeats go below it, indented, one statement per line.\n\
+                 Finish the range, then put the work on the next lines.",
+            )
+            .suggest(format!("for {name} in {end_shown}\n  say {name}")));
+        }
+        while self.peek().kind == TokenKind::Newline {
+            self.advance();
+        }
+        if self.peek().kind != TokenKind::Indent {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "This for has nothing to repeat.\n\
+                 The lines it repeats go below it, indented further than the for.",
+            )
+            .suggest(format!("for {name} in {end_shown}\n  say {name}")));
+        }
+        self.advance();
+
+        let mut body = Vec::new();
+        loop {
+            match &self.peek().kind {
+                TokenKind::Newline => {
+                    self.advance();
+                    continue;
+                }
+                TokenKind::Dedent => {
+                    self.advance();
+                    break;
+                }
+                TokenKind::EndOfFile => break,
+                TokenKind::Var => {
+                    let var = self.advance().clone();
+                    return Err(self.value_created_in_loop(&var));
+                }
+                TokenKind::Identifier(_) if self.peek_at(1).kind == TokenKind::Equals => {
+                    let found = self.peek().clone();
+                    return Err(self.value_created_in_loop(&found));
+                }
+                _ => body.push(self.full_statement()?),
+            }
+        }
+        if body.is_empty() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "This for has nothing to repeat.\n\
+                 The lines it repeats go below it, indented further than the for.",
+            )
+            .suggest(format!("for {name} in {end_shown}\n  say {name}")));
+        }
+        Ok(Statement::For {
+            name,
+            name_span: name_token.span(),
+            start,
+            end,
+            body,
+            span: keyword.span(),
+        })
+    }
+
+    /// `fn name(n: number) -> number`, then the indented lines.
+    fn function_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        if self.in_function {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "A function can't contain another function.\n\
+                 Write each function on its own, at the left edge.",
+            ));
+        }
+        let name_token = self.peek().clone();
+        let TokenKind::Identifier(name) = name_token.kind.clone() else {
+            return Err(Diagnostic::new(
+                name_token.span(),
+                "fn needs a name after it, then the parameters in parentheses.\n\
+                 fn double(n: number) -> number doubles a number.",
+            )
+            .suggest("fn double(n: number) -> number\n  return n * 2"));
+        };
+        self.advance();
+        if self.peek().kind != TokenKind::LeftParen {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "fn {name} needs parentheses after the name, even when it takes nothing.\n\
+                     The parameters go inside: fn {name}(n: number)."
+                ),
+            )
+            .suggest(format!("fn {name}(n: number) -> number")));
+        }
+        self.advance();
+        let mut params = Vec::new();
+        if self.peek().kind != TokenKind::RightParen {
+            loop {
+                params.push(self.parameter()?);
+                if self.peek().kind == TokenKind::Comma {
+                    let comma = self.advance().clone();
+                    if self.peek().kind == TokenKind::RightParen {
+                        return Err(Diagnostic::new(
+                            comma.span(),
+                            "This comma has no parameter after it.\n\
+                             Write the next parameter, or remove the comma.",
+                        ));
+                    }
+                    continue;
+                }
+                break;
+            }
+        }
+        if self.peek().kind != TokenKind::RightParen {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "fn {name} needs ) after its parameters, but found {}.",
+                    describe(&self.peek().kind)
+                ),
+            ));
+        }
+        self.advance();
+        let mut names = Vec::new();
+        for param in &params {
+            if param.name == name {
+                return Err(Diagnostic::new(
+                    param.name_span,
+                    format!(
+                        "The parameter {name} has the same name as the function.\n\
+                         Give the parameter its own name."
+                    ),
+                ));
+            }
+            if names.contains(&param.name) {
+                return Err(Diagnostic::new(
+                    param.name_span,
+                    format!(
+                        "{name} takes {} twice.\n\
+                         Each parameter needs its own name.",
+                        param.name
+                    ),
+                ));
+            }
+            names.push(param.name.clone());
+        }
+        let result = if self.peek().kind == TokenKind::Arrow {
+            self.advance();
+            if self.at_end_of_line() {
+                return Err(Diagnostic::new(
+                    self.peek().span(),
+                    format!(
+                        "fn {name} needs the kind it gives back, after ->.\n\
+                         A kind is text, number, true/false, or list of one of those."
+                    ),
+                )
+                .suggest(format!("fn {name}() -> number")));
+            }
+            Some(self.signature_kind()?)
+        } else {
+            None
+        };
+        if !self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                "The lines of a function go below it, indented, one statement per line.\n\
+                 Finish the first line, then put the work underneath.",
+            )
+            .suggest(format!("fn {name}() -> number\n  return 1")));
+        }
+        while self.peek().kind == TokenKind::Newline {
+            self.advance();
+        }
+        if self.peek().kind != TokenKind::Indent {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                format!(
+                    "fn {name} has nothing to do.\n\
+                     The lines it runs go below it, indented further than the fn."
+                ),
+            )
+            .suggest(format!("fn {name}() -> number\n  return 1")));
+        }
+        self.advance();
+        let fails = if self.peek().kind == TokenKind::Fails {
+            self.failure_list()?
+        } else {
+            Vec::new()
+        };
+        self.in_function = true;
+        let mut body = Vec::new();
+        let body_result = self.function_body(&mut body);
+        self.in_function = false;
+        body_result?;
+        if body.is_empty() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                format!(
+                    "fn {name} has nothing to do.\n\
+                     The lines it runs go below it, indented further than the fn."
+                ),
+            )
+            .suggest(format!("fn {name}() -> number\n  return 1")));
+        }
+        Ok(Statement::Function {
+            name,
+            name_span: name_token.span(),
+            params,
+            result,
+            fails,
+            body,
+            span: keyword.span(),
+        })
+    }
+
+    fn function_body(&mut self, body: &mut Vec<Statement>) -> Result<(), Diagnostic> {
+        loop {
+            match &self.peek().kind {
+                TokenKind::Newline => {
+                    self.advance();
+                }
+                TokenKind::Dedent => {
+                    self.advance();
+                    break;
+                }
+                TokenKind::EndOfFile => break,
+                _ => body.push(self.full_statement()?),
+            }
+        }
+        Ok(())
+    }
+
+    /// `n: number` inside a function's parentheses.
+    fn parameter(&mut self) -> Result<Param, Diagnostic> {
+        let name_token = self.peek().clone();
+        let TokenKind::Identifier(name) = name_token.kind.clone() else {
+            return Err(Diagnostic::new(
+                name_token.span(),
+                "A parameter is a name, then :, then its kind.\n\
+                 fn double(n: number) -> number takes one number.",
+            )
+            .suggest("n: number"));
+        };
+        self.advance();
+        if self.peek().kind != TokenKind::Colon {
+            return Err(Diagnostic::new(
+                name_token.span(),
+                format!(
+                    "The parameter {name} needs a kind after it.\n\
+                     Write {name}: text, {name}: number, {name}: true/false, \
+                     or {name}: list of one of those."
+                ),
+            )
+            .suggest(format!("{name}: number")));
+        }
+        self.advance();
+        let kind_span_start = self.peek().span();
+        let kind = self.signature_kind()?;
+        let kind_span = cover(
+            kind_span_start,
+            self.tokens[self.pos.saturating_sub(1)].span(),
+        );
+        Ok(Param {
+            name,
+            name_span: name_token.span(),
+            kind,
+            kind_span,
+        })
+    }
+
+    /// `text`, `number`, `true/false`, or `list of` one of those.
+    fn signature_kind(&mut self) -> Result<SigKind, Diagnostic> {
+        let token = self.peek().clone();
+        let kind = match &token.kind {
+            TokenKind::Identifier(name) if name == "text" => {
+                self.advance();
+                SigKind::Text
+            }
+            TokenKind::Identifier(name) if name == "number" => {
+                self.advance();
+                SigKind::Number
+            }
+            TokenKind::True
+                if self.peek_at(1).kind == TokenKind::Slash
+                    && matches!(self.peek_at(2).kind, TokenKind::False) =>
+            {
+                self.advance();
+                self.advance();
+                self.advance();
+                SigKind::Bool
+            }
+            TokenKind::List => {
+                self.advance();
+                if self.peek().kind != TokenKind::Of {
+                    return Err(Diagnostic::new(
+                        token.span(),
+                        "A list parameter names the kind of its items.\n\
+                         Write list of text, list of number, list of true/false, or list of AED.",
+                    )
+                    .suggest("list of number"));
+                }
+                self.advance();
+                SigKind::List(Box::new(self.signature_kind()?))
+            }
+            TokenKind::Maybe => {
+                self.advance();
+                if self.at_end_of_line() {
+                    return Err(Diagnostic::new(
+                        token.span(),
+                        "maybe needs the kind that might be missing.\n\
+                         Write maybe number, maybe text, maybe true/false, or maybe AED.",
+                    )
+                    .suggest("maybe number"));
+                }
+                SigKind::Maybe(Box::new(self.signature_kind()?))
+            }
+            TokenKind::Identifier(name) if is_currency(name) => {
+                let code = name.clone();
+                self.advance();
+                SigKind::Money(code)
+            }
+            TokenKind::Identifier(name) if currency_letters(name) => {
+                let code = name.to_uppercase();
+                return Err(Diagnostic::new(
+                    token.span(),
+                    format!(
+                        "A currency is written in capitals, like {code}.\n\
+                         {name} is the same three letters, in capitals."
+                    ),
+                )
+                .suggest(code));
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    token.span(),
+                    format!(
+                        "A function's kind is text, number, true/false, maybe one of those, \
+                         a currency like AED, or a list of those, but found {}.\n\
+                         Int and Text arrive later, with types. Today, write number or text.",
+                        describe(&token.kind)
+                    ),
+                )
+                .suggest("number"));
+            }
+        };
+        Ok(kind)
+    }
+
+    /// `return value`, or `return` on its own.
+    fn return_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        if !self.in_function {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "return only goes inside a function, to give a value back.\n\
+                 On its own line, use say to show a value.",
+            )
+            .suggest("say \"Hello\""));
+        }
+        let value = if self.at_end_of_line() {
+            None
+        } else {
+            Some(self.expression()?)
+        };
+        Ok(Statement::Return {
+            value,
+            span: keyword.span(),
+        })
+    }
+
+    /// `greet("Amina")` as a whole line.
+    fn call_statement(&mut self, name: String) -> Result<Statement, Diagnostic> {
+        let name_token = self.advance().clone();
+        let (args, end) = self.arguments()?;
+        if !self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "This line calls {name} and then keeps going.\n\
+                     A call that gives a value back belongs inside say, check, or =. \
+                     A call that does work stands on its own line."
+                ),
+            )
+            .suggest(format!("say {name}()")));
+        }
+        Ok(Statement::Call {
+            name,
+            name_span: name_token.span(),
+            args,
+            span: cover(name_token.span(), end),
+            handlers: Vec::new(),
+        })
+    }
+
+    /// The values inside `(` and `)`, and the span of the closing parenthesis.
+    /// The current token is `(`.
+    fn arguments(&mut self) -> Result<(Vec<Expr>, Span), Diagnostic> {
+        let open = self.peek().clone();
+        if open.kind != TokenKind::LeftParen {
+            return Err(Diagnostic::new(
+                open.span(),
+                "A call needs ( after the function's name.\n\
+                 double(4) calls double with 4.",
+            )
+            .suggest("double(4)"));
+        }
+        self.advance();
+        if self.peek().kind == TokenKind::RightParen {
+            let close = self.advance().clone();
+            return Ok((Vec::new(), close.span()));
+        }
+        let mut args = Vec::new();
+        loop {
+            if !starts_value(&self.peek().kind) {
+                return Err(Diagnostic::new(
+                    self.peek().span(),
+                    format!(
+                        "A call needs a value here, but found {}.\n\
+                         double(4) calls double with 4.",
+                        describe(&self.peek().kind)
+                    ),
+                )
+                .suggest("double(4)"));
+            }
+            args.push(self.expression()?);
+            if self.peek().kind == TokenKind::Comma {
+                let comma = self.advance().clone();
+                if self.peek().kind == TokenKind::RightParen {
+                    return Err(Diagnostic::new(
+                        comma.span(),
+                        "This comma has no value after it.\n\
+                         Write the next value, or remove the comma.",
+                    ));
+                }
+                continue;
+            }
+            if self.peek().kind == TokenKind::RightParen {
+                let close = self.advance().clone();
+                return Ok((args, close.span()));
+            }
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "A call needs ) after its values, but found {}.\n\
+                     double(4) calls double with 4.",
+                    describe(&self.peek().kind)
+                ),
+            ));
+        }
+    }
+
+    /// `name = value` or `var name = value` inside a `for`, which isn't allowed.
+    fn value_created_in_loop(&mut self, start: &Token) -> Diagnostic {
+        let name = match &self.peek().kind {
+            TokenKind::Identifier(name) => name.clone(),
+            _ => "name".to_string(),
+        };
+        self.advance();
+        self.advance();
+        let value = match self.expression() {
+            Ok(value) => value.to_string(),
+            Err(_) => "...".to_string(),
+        };
+        Diagnostic::new(
+            start.span(),
+            format!(
+                "A for loop can't create a new value.\n\
+                 {name} would be created again on every pass. Create it before the for \
+                 with var {name} = ..., then change it here with set."
+            ),
+        )
+        .suggest(format!("set {name} = {value}"))
     }
 
     fn arm(&mut self) -> Result<Arm, Diagnostic> {
@@ -847,7 +1833,7 @@ impl<'a> Parser<'a> {
 
     fn unary(&mut self) -> Result<Expr, Diagnostic> {
         if self.peek().kind != TokenKind::Minus {
-            return self.primary();
+            return self.unary_value();
         }
         let minus = self.advance();
         self.expect_operand(minus)?;
@@ -858,16 +1844,126 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// A value, including `.field` and `at`, but not a leading minus.
+    fn unary_value(&mut self) -> Result<Expr, Diagnostic> {
+        let expr = self.primary()?;
+        self.postfix(expr)
+    }
+
+    /// `.field` and `at position` after a value.
+    fn postfix(&mut self, mut expr: Expr) -> Result<Expr, Diagnostic> {
+        loop {
+            match self.peek().kind {
+                TokenKind::LeftParen => {
+                    let ExprKind::Name(name) = expr.kind.clone() else {
+                        return Err(Diagnostic::new(
+                            self.peek().span(),
+                            "A call starts with the function's name, then (.\n\
+                             double(4) calls double with 4.",
+                        )
+                        .suggest("double(4)"));
+                    };
+                    let name_span = expr.span;
+                    let (args, end) = self.arguments()?;
+                    expr = Expr {
+                        span: cover(name_span, end),
+                        kind: ExprKind::Call {
+                            name,
+                            name_span,
+                            args,
+                        },
+                    };
+                }
+                TokenKind::Dot => {
+                    let dot = self.advance().clone();
+                    let field = self.peek().clone();
+                    let TokenKind::Identifier(name) = field.kind.clone() else {
+                        return Err(Diagnostic::new(
+                            dot.span(),
+                            format!(
+                                "A dot needs the field's name after it, but found {}.\n\
+                                 A record's fields have names: address.city.",
+                                describe(&field.kind)
+                            ),
+                        )
+                        .suggest("address.city"));
+                    };
+                    self.advance();
+                    expr = Expr {
+                        span: cover(expr.span, field.span()),
+                        kind: ExprKind::Field {
+                            record: Box::new(expr),
+                            name,
+                            name_span: field.span(),
+                        },
+                    };
+                }
+                TokenKind::At => {
+                    let at = self.advance().clone();
+                    if !starts_value(&self.peek().kind) {
+                        return Err(Diagnostic::new(
+                            at.span(),
+                            format!(
+                                "at needs a position after it, but found {}.\n\
+                                 Lists count from 1: hobbies at 1 is the first hobby.",
+                                describe(&self.peek().kind)
+                            ),
+                        )
+                        .suggest("hobbies at 1"));
+                    }
+                    let index = self.sum()?;
+                    expr = Expr {
+                        span: cover(expr.span, index.span),
+                        kind: ExprKind::At {
+                            list: Box::new(expr),
+                            index: Box::new(index),
+                            at_span: at.span(),
+                        },
+                    };
+                }
+                _ => return Ok(expr),
+            }
+        }
+    }
+
     fn primary(&mut self) -> Result<Expr, Diagnostic> {
         let token = self.peek();
         let kind = match &token.kind {
             TokenKind::Text(text) => ExprKind::Text(text.clone()),
             TokenKind::Template(pieces) => ExprKind::Template(template(pieces)?),
-            TokenKind::Number(number) => ExprKind::Number(number.clone()),
+            TokenKind::Number(_) => return self.number_or_money(),
+            TokenKind::Found => return self.found_expr(),
+            TokenKind::Missing => {
+                let span = token.span();
+                self.advance();
+                return Ok(Expr {
+                    kind: ExprKind::Missing,
+                    span,
+                });
+            }
+            TokenKind::Try => return self.try_expr(),
             TokenKind::True => ExprKind::Bool(true),
             TokenKind::False => ExprKind::Bool(false),
             TokenKind::Identifier(name) => ExprKind::Name(name.clone()),
+            TokenKind::List => return self.list_expr(),
+            TokenKind::Record => return self.record_expr(),
             TokenKind::LeftParen => return self.group(),
+            TokenKind::Of => {
+                return Err(Diagnostic::new(
+                    token.span(),
+                    "of names the kind of an empty list.\n\
+                     It follows list: list of text, list of number, or list of true/false.",
+                )
+                .suggest("list of text"))
+            }
+            TokenKind::At => {
+                return Err(Diagnostic::new(
+                    token.span(),
+                    "at picks an item out of a list, so the list comes first.\n\
+                     Lists count from 1: hobbies at 1 is the first hobby.",
+                )
+                .suggest("hobbies at 1"))
+            }
             TokenKind::Say => {
                 return Err(Diagnostic::new(
                     token.span(),
@@ -895,7 +1991,7 @@ impl<'a> Parser<'a> {
                     token.span(),
                     format!(
                         "Quill expected a value here, but found {}.\n\
-                         A value can be text, a number, true, false, a name or a calculation.",
+                         A value can be text, a number, true, false, a name, a list, a record or a calculation.",
                         describe(other)
                     ),
                 ))
@@ -906,6 +2002,187 @@ impl<'a> Parser<'a> {
             kind,
             span: token.span(),
         })
+    }
+
+    /// `list "coding", "reading"` or `list of text`.
+    fn list_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        if self.peek().kind == TokenKind::Of {
+            self.advance();
+            let empty = Some(self.signature_kind()?);
+            return Ok(Expr {
+                span: cover(
+                    keyword.span(),
+                    self.tokens[self.pos.saturating_sub(1)].span(),
+                ),
+                kind: ExprKind::List {
+                    items: Vec::new(),
+                    empty,
+                },
+            });
+        }
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "list needs its items after it, separated by commas.\n\
+                 An empty list names its kind: list of text, list of number, or list of true/false.",
+            )
+            .suggest("list \"coding\", \"reading\""));
+        }
+        let mut items = vec![self.sum()?];
+        while self.peek().kind == TokenKind::Comma {
+            let comma = self.advance().clone();
+            if !starts_value(&self.peek().kind) {
+                return Err(Diagnostic::new(
+                    comma.span(),
+                    "This comma has no item after it.\n\
+                     Write the next item, or remove the comma.",
+                ));
+            }
+            items.push(self.sum()?);
+        }
+        let span = cover(keyword.span(), items.last().unwrap().span);
+        Ok(Expr {
+            span,
+            kind: ExprKind::List { items, empty: None },
+        })
+    }
+
+    /// An indented record, or `record city = "Anytown", street = "123 Main St"`.
+    fn record_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        if self.at_end_of_line() {
+            return self.indented_record(keyword);
+        }
+        let mut fields = vec![self.record_field()?];
+        while self.peek().kind == TokenKind::Comma {
+            let comma = self.advance().clone();
+            if !matches!(self.peek().kind, TokenKind::Identifier(_)) {
+                return Err(Diagnostic::new(
+                    comma.span(),
+                    "This comma has no field after it.\n\
+                     A field is a name, then =, then a value.",
+                ));
+            }
+            fields.push(self.record_field()?);
+        }
+        self.reject_duplicate_fields(&fields)?;
+        Ok(Expr {
+            span: cover(keyword.span(), fields.last().unwrap().value.span),
+            kind: ExprKind::Record { fields },
+        })
+    }
+
+    fn indented_record(&mut self, keyword: Token) -> Result<Expr, Diagnostic> {
+        while self.peek().kind == TokenKind::Newline {
+            self.advance();
+        }
+        if self.peek().kind != TokenKind::Indent {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "This record has no fields.\n\
+                 Put each field on the next lines, indented by 2 spaces: a name, then =, then a value.",
+            )
+            .suggest("record\n  city = \"Anytown\""));
+        }
+        self.advance();
+        let mut fields = Vec::new();
+        loop {
+            match &self.peek().kind {
+                TokenKind::Newline => {
+                    self.advance();
+                }
+                TokenKind::Dedent => {
+                    self.advance();
+                    break;
+                }
+                TokenKind::EndOfFile => break,
+                TokenKind::Identifier(_) => fields.push(self.record_field()?),
+                _ => {
+                    return Err(Diagnostic::new(
+                        self.peek().span(),
+                        format!(
+                            "A record's field starts with its name, but found {}.\n\
+                             Each field is a name, then =, then a value.",
+                            describe(&self.peek().kind)
+                        ),
+                    )
+                    .suggest("city = \"Anytown\""));
+                }
+            }
+        }
+        if fields.is_empty() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "This record has no fields.\n\
+                 Put each field on the next lines, indented by 2 spaces: a name, then =, then a value.",
+            )
+            .suggest("record\n  city = \"Anytown\""));
+        }
+        self.reject_duplicate_fields(&fields)?;
+        Ok(Expr {
+            span: keyword.span(),
+            kind: ExprKind::Record { fields },
+        })
+    }
+
+    fn record_field(&mut self) -> Result<Field, Diagnostic> {
+        let name_token = self.peek().clone();
+        let TokenKind::Identifier(name) = name_token.kind.clone() else {
+            return Err(Diagnostic::new(
+                name_token.span(),
+                "A field starts with its name, then =, then a value.",
+            )
+            .suggest("city = \"Anytown\""));
+        };
+        self.advance();
+        if self.peek().kind != TokenKind::Equals {
+            return Err(Diagnostic::new(
+                name_token.span(),
+                format!(
+                    "The field {name} needs = and a value after it.\n\
+                     A field keeps one value under that name."
+                ),
+            )
+            .suggest(format!("{name} = \"Anytown\"")));
+        }
+        self.advance();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                name_token.span(),
+                format!(
+                    "{name} = needs a value after the =.\n\
+                     A field keeps one value under that name."
+                ),
+            )
+            .suggest(format!("{name} = \"Anytown\"")));
+        }
+        let value = self.expression()?;
+        Ok(Field {
+            name,
+            name_span: name_token.span(),
+            value,
+        })
+    }
+
+    fn reject_duplicate_fields(&self, fields: &[Field]) -> Result<(), Diagnostic> {
+        for (index, field) in fields.iter().enumerate() {
+            if let Some(first) = fields
+                .iter()
+                .take(index)
+                .find(|earlier| earlier.name == field.name)
+            {
+                return Err(Diagnostic::new(
+                    field.name_span,
+                    format!(
+                        "This record already has a field called {}.\n\
+                         A record keeps one value under each name. The first {} is on line {}.",
+                        field.name, field.name, first.name_span.line
+                    ),
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// `( value )`
@@ -952,7 +2229,7 @@ impl<'a> Parser<'a> {
             op.span(),
             format!(
                 "{what}, but found {}.\n\
-                 Write a value after it: text, a number, true, false, a name or a calculation.",
+                 Write a value after it: text, a number, true, false, a name, a list, a record or a calculation.",
                 describe(&next.kind)
             ),
         ))
@@ -987,10 +2264,10 @@ impl<'a> Parser<'a> {
                 token.span(),
                 format!(
                     "Quill doesn't know what to do with {name} here.\n\
-                     A line can start with say, check, var, set, when, or a name and = to create a value."
+                     A line can start with say, check, var, set, when, for, or a name and = to create a value."
                 ),
             );
-            let keyword = closest_match(name, ["say", "set", "var", "check", "when"]);
+            let keyword = closest_match(name, ["say", "set", "var", "check", "when", "for"]);
             return match (self.expression(), keyword) {
                 (Ok(value), Some("say")) => diagnostic.suggest(format!("say {value}")),
                 (_, Some(keyword)) => diagnostic.suggest(keyword),
@@ -1023,6 +2300,365 @@ impl<'a> Parser<'a> {
              Use say to show it, or give it a name to keep it.",
         )
         .suggest(format!("say {value}"))
+    }
+
+    /// `100 AED`, or a plain number when no currency follows.
+    fn number_or_money(&mut self) -> Result<Expr, Diagnostic> {
+        let token = self.advance().clone();
+        let TokenKind::Number(amount) = token.kind.clone() else {
+            return Err(Diagnostic::new(
+                token.span(),
+                "Quill expected a number here.",
+            ));
+        };
+        let next = self.peek().clone();
+        if next.line == token.line {
+            if let TokenKind::Identifier(name) = &next.kind {
+                if is_currency(name) {
+                    let currency = name.clone();
+                    self.advance();
+                    return Ok(Expr {
+                        span: cover(token.span(), next.span()),
+                        kind: ExprKind::Money { amount, currency },
+                    });
+                }
+                if currency_letters(name) {
+                    let code = name.to_uppercase();
+                    return Err(Diagnostic::new(
+                        next.span(),
+                        format!(
+                            "A currency is written in capitals, like {code}.\n\
+                             {amount} {name} writes the amount, then the currency."
+                        ),
+                    )
+                    .suggest(format!("{amount} {code}")));
+                }
+            }
+        }
+        Ok(Expr {
+            kind: ExprKind::Number(amount),
+            span: token.span(),
+        })
+    }
+
+    /// `found 2.50`.
+    fn found_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "found needs the value that was found.\n\
+                 found 2.50 holds a number. missing holds nothing.",
+            )
+            .suggest("found 2.50"));
+        }
+        let value = self.sum()?;
+        Ok(Expr {
+            span: cover(keyword.span(), value.span),
+            kind: ExprKind::Found(Box::new(value)),
+        })
+    }
+
+    /// `try charge(amount)`.
+    fn try_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        if self.at_end_of_line() || !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "try needs a call after it.\n\
+                 try charge(amount) runs charge and passes its failures upward.",
+            )
+            .suggest("try charge(amount)"));
+        }
+        let inner = self.unary()?;
+        Ok(Expr {
+            span: cover(keyword.span(), inner.span),
+            kind: ExprKind::Try(Box::new(inner)),
+        })
+    }
+
+    /// `when find_price("bread")`, then `found` and `missing`.
+    fn match_maybe(&mut self, span: Span) -> Result<Statement, Diagnostic> {
+        let subject = self.expression()?;
+        if self.peek().kind == TokenKind::Arrow {
+            return Err(Diagnostic::new(
+                subject.span,
+                "The cases of a when go on the lines below it, one per line, indented.\n\
+                 Each case is a condition, then ->, then what to do.",
+            )
+            .suggest("when\n  x > 1 -> say 1"));
+        }
+        if !self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                "The found and missing cases go on the lines below when.\n\
+                 Each case is found name -> ..., or missing -> ....",
+            ));
+        }
+        while self.peek().kind == TokenKind::Newline {
+            self.advance();
+        }
+        if self.peek().kind != TokenKind::Indent {
+            return Err(Diagnostic::new(
+                span,
+                "This when opens a maybe, but it has no cases.\n\
+                 Under it, handle found and missing.",
+            )
+            .suggest(
+                "when find_price(\"bread\")\n  found price -> say price\n  missing -> say \"none\"",
+            ));
+        }
+        self.advance();
+        let mut arms = Vec::new();
+        loop {
+            match self.peek().kind {
+                TokenKind::Newline => {
+                    self.advance();
+                    continue;
+                }
+                TokenKind::Dedent => {
+                    self.advance();
+                    break;
+                }
+                TokenKind::EndOfFile => break,
+                _ => arms.push(self.catch_arm()?),
+            }
+        }
+        if arms.is_empty() {
+            return Err(Diagnostic::new(
+                span,
+                "This when opens a maybe, but it has no cases.\n\
+                 Under it, handle found and missing.",
+            ));
+        }
+        Ok(Statement::Match {
+            subject,
+            arms,
+            span,
+        })
+    }
+
+    /// `found price -> say price`, or `missing -> say "none"`.
+    fn catch_arm(&mut self) -> Result<Catch, Diagnostic> {
+        let token = self.peek().clone();
+        let found = match token.kind {
+            TokenKind::Found => {
+                self.advance();
+                let name_token = self.peek().clone();
+                let TokenKind::Identifier(name) = name_token.kind.clone() else {
+                    return Err(Diagnostic::new(
+                        name_token.span(),
+                        "found needs the name that holds the value.\n\
+                         found price -> say price.",
+                    )
+                    .suggest("found price -> say price"));
+                };
+                self.advance();
+                Some((name, name_token.span()))
+            }
+            TokenKind::Missing => {
+                self.advance();
+                None
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    token.span(),
+                    "A maybe opens with found or missing.\n\
+                     found price -> say price handles the value. missing -> say \"none\" handles the gap.",
+                )
+                .suggest("missing -> say \"none\""));
+            }
+        };
+        let written = match &found {
+            Some((name, _)) => format!("found {name}"),
+            None => "missing".to_string(),
+        };
+        let span = token.span();
+        if self.peek().kind != TokenKind::Arrow {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "{written} needs ->, then what to do.\n\
+                     {written} -> say \"...\"."
+                ),
+            )
+            .suggest(format!("{written} -> say \"...\"")));
+        }
+        self.advance();
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                span,
+                format!("{written} needs what to do after ->, on the same line."),
+            )
+            .suggest(format!("{written} -> say \"...\"")));
+        }
+        let body = self.full_statement()?;
+        Ok(Catch {
+            found,
+            body: Box::new(body),
+            span,
+        })
+    }
+
+    /// `fails Declined, NetworkDown` on the first line of a function.
+    fn failure_list(&mut self) -> Result<Vec<(String, Span)>, Diagnostic> {
+        let keyword = self.advance().clone();
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "fails needs the names of the failures, like Declined.\n\
+                 A failure's name starts with a capital letter.",
+            )
+            .suggest("fails Declined"));
+        }
+        let mut names = Vec::new();
+        loop {
+            let (name, span) = self.failure_name()?;
+            if names.iter().any(|(found, _)| found == &name) {
+                return Err(Diagnostic::new(
+                    span,
+                    format!(
+                        "{name} is already in this fails list.\n\
+                         Each failure is named once."
+                    ),
+                ));
+            }
+            names.push((name, span));
+            if self.peek().kind == TokenKind::Comma {
+                let comma = self.advance().clone();
+                if self.at_end_of_line() {
+                    return Err(Diagnostic::new(
+                        comma.span(),
+                        "This comma has no failure after it.\n\
+                         Write the next name, or remove the comma.",
+                    ));
+                }
+                continue;
+            }
+            break;
+        }
+        self.end_of_line(&Statement::Fail {
+            name: names[0].0.clone(),
+            span: keyword.span(),
+        })?;
+        Ok(names)
+    }
+
+    /// `fail Declined`.
+    fn fail_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        if !self.in_function {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "fail only goes inside a function that declares fails.\n\
+                 The function names the failure, and the caller handles it with on.",
+            ));
+        }
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "fail needs the failure's name after it.\n\
+                 fail Declined leaves the function with that failure.",
+            )
+            .suggest("fail Declined"));
+        }
+        let (name, span) = self.failure_name()?;
+        Ok(Statement::Fail { name, span })
+    }
+
+    fn failure_name(&mut self) -> Result<(String, Span), Diagnostic> {
+        let token = self.peek().clone();
+        let TokenKind::Identifier(name) = token.kind.clone() else {
+            return Err(Diagnostic::new(
+                token.span(),
+                format!(
+                    "A failure's name starts with a capital letter, but found {}.\n\
+                     Declined and NetworkDown are failure names.",
+                    describe(&token.kind)
+                ),
+            )
+            .suggest("Declined"));
+        };
+        self.advance();
+        let mut chars = name.chars();
+        if !chars.next().is_some_and(|c| c.is_ascii_uppercase()) {
+            return Err(Diagnostic::new(
+                token.span(),
+                format!(
+                    "A failure's name starts with a capital letter.\n\
+                     Write {} instead of {name}.",
+                    capitalize(&name)
+                ),
+            )
+            .suggest(capitalize(&name)));
+        }
+        Ok((name, token.span()))
+    }
+
+    /// An indented `on` block under a call, when one follows this statement.
+    fn maybe_handlers(&mut self, statement: Statement) -> Result<Statement, Diagnostic> {
+        let saved = self.pos;
+        while self.peek().kind == TokenKind::Newline {
+            self.advance();
+        }
+        if self.peek().kind != TokenKind::Indent || self.peek_at(1).kind != TokenKind::On {
+            self.pos = saved;
+            return Ok(statement);
+        }
+        self.advance();
+        let mut handlers = Vec::new();
+        loop {
+            match self.peek().kind {
+                TokenKind::Newline => {
+                    self.advance();
+                    continue;
+                }
+                TokenKind::Dedent => {
+                    self.advance();
+                    break;
+                }
+                TokenKind::EndOfFile => break,
+                TokenKind::On => handlers.push(self.handler()?),
+                _ => {
+                    return Err(Diagnostic::new(
+                        self.peek().span(),
+                        "Under a call, an indented line handles a failure with on.\n\
+                         on Declined -> say \"Card declined\".",
+                    ));
+                }
+            }
+        }
+        Ok(attach_handlers(statement, handlers))
+    }
+
+    fn handler(&mut self) -> Result<Handler, Diagnostic> {
+        let keyword = self.advance().clone();
+        let (name, name_span) = self.failure_name()?;
+        if self.peek().kind != TokenKind::Arrow {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "on {name} needs ->, then what to do.\n\
+                     on {name} -> say \"{name}\"."
+                ),
+            )
+            .suggest(format!("on {name} -> say \"{name}\"")));
+        }
+        self.advance();
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                format!("on {name} needs what to do after ->, on the same line."),
+            )
+            .suggest(format!("on {name} -> say \"{name}\"")));
+        }
+        let body = self.full_statement()?;
+        Ok(Handler {
+            name,
+            name_span,
+            body: Box::new(body),
+            span: keyword.span(),
+        })
     }
 
     fn at_end_of_line(&self) -> bool {
@@ -1062,7 +2698,11 @@ fn template(pieces: &[Piece]) -> Result<Vec<Part>, Diagnostic> {
                 if tokens.is_empty() {
                     continue;
                 }
-                let mut parser = Parser { tokens, pos: 0 };
+                let mut parser = Parser {
+                    tokens,
+                    pos: 0,
+                    in_function: false,
+                };
                 let value = parser.expression()?;
                 let next = parser.peek();
                 if next.kind != TokenKind::EndOfFile {
@@ -1119,7 +2759,83 @@ fn starts_value(kind: &TokenKind) -> bool {
             | TokenKind::LeftParen
             | TokenKind::Minus
             | TokenKind::Not
+            | TokenKind::List
+            | TokenKind::Record
+            | TokenKind::Found
+            | TokenKind::Missing
+            | TokenKind::Try
     )
+}
+
+fn write_steps(f: &mut fmt::Formatter, steps: &[Access]) -> fmt::Result {
+    for step in steps {
+        match step {
+            Access::Field { name, .. } => write!(f, ".{name}")?,
+            Access::At { index, .. } => write!(f, " at {index}")?,
+        }
+    }
+    Ok(())
+}
+
+fn write_steps_string(steps: &[Access]) -> String {
+    let mut out = String::new();
+    for step in steps {
+        match step {
+            Access::Field { name, .. } => out.push_str(&format!(".{name}")),
+            Access::At { index, .. } => out.push_str(&format!(" at {index}")),
+        }
+    }
+    out
+}
+
+/// Whether this statement's value includes a record, which already ended its line.
+fn contains_record(statement: &Statement) -> bool {
+    match statement {
+        Statement::Say { value, .. }
+        | Statement::Let { value, .. }
+        | Statement::Set { value, .. } => contains_record_expr(value),
+        Statement::Check { left, right, .. } => {
+            contains_record_expr(left) || contains_record_expr(right)
+        }
+        Statement::When { .. }
+        | Statement::Match { .. }
+        | Statement::For { .. }
+        | Statement::Function { .. }
+        | Statement::Fail { .. } => false,
+        Statement::Return { value, .. } => value.as_ref().is_some_and(contains_record_expr),
+        Statement::Call { args, .. } => args.iter().any(contains_record_expr),
+    }
+}
+
+fn contains_record_expr(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Record { .. } => true,
+        ExprKind::List { items, .. } => items.iter().any(contains_record_expr),
+        ExprKind::At { list, index, .. } => {
+            contains_record_expr(list) || contains_record_expr(index)
+        }
+        ExprKind::Field { record, .. } => contains_record_expr(record),
+        ExprKind::Call { args, .. } => args.iter().any(contains_record_expr),
+        ExprKind::Negate(inner) | ExprKind::Not(inner) | ExprKind::Group(inner) => {
+            contains_record_expr(inner)
+        }
+        ExprKind::Arithmetic { left, right, .. }
+        | ExprKind::Compare { left, right, .. }
+        | ExprKind::Logic { left, right, .. } => {
+            contains_record_expr(left) || contains_record_expr(right)
+        }
+        ExprKind::Template(parts) => parts.iter().any(|part| match part {
+            Part::Value(value) => contains_record_expr(value),
+            Part::Text(_) => false,
+        }),
+        ExprKind::Found(inner) | ExprKind::Try(inner) => contains_record_expr(inner),
+        ExprKind::Text(_)
+        | ExprKind::Number(_)
+        | ExprKind::Money { .. }
+        | ExprKind::Bool(_)
+        | ExprKind::Name(_)
+        | ExprKind::Missing => false,
+    }
 }
 
 fn describe(kind: &TokenKind) -> String {
@@ -1221,6 +2937,7 @@ mod tests {
                         span: span(1, 5, 4),
                     },
                     mutable: false,
+                    handlers: Vec::new(),
                 },
                 Statement::Say {
                     value: Expr {
@@ -1645,5 +3362,36 @@ mod tests {
     fn an_arrow_outside_when_is_explained() {
         let err = error("say 1 -> say 2");
         assert!(err.message.contains("-> only goes inside a when"));
+    }
+
+    #[test]
+    fn a_for_loop_counts_through_a_range() {
+        let program = parse_source("for i in 1..3\n  say i\n").unwrap();
+        let Statement::For { name, body, .. } = &program.statements[0] else {
+            panic!("expected a for");
+        };
+        assert_eq!(name, "i");
+        assert_eq!(body.len(), 1);
+        assert_eq!(program.statements[0].to_string(), "for i in 1..3");
+    }
+
+    #[test]
+    fn a_for_needs_in_a_range_and_a_body() {
+        let err = error("for i 1..3\n  say i");
+        assert!(err.message.contains("for needs in after i"));
+        let err = error("for i in 1 3\n  say i");
+        assert!(err.message.contains("needs .."));
+        let err = error("for i in 1..3");
+        assert!(err.message.contains("nothing to repeat"));
+        let err = error("for i in 1..3\n  total = i");
+        assert!(err.message.contains("can't create a new value"));
+        assert_eq!(err.suggestion.as_deref(), Some("set total = i"));
+    }
+
+    #[test]
+    fn an_arrow_after_say_is_not_part_of_say() {
+        let err = error("say -> \"Hello\"");
+        assert!(err.message.contains("belongs inside a when"));
+        assert_eq!(err.suggestion.as_deref(), Some("say \"Hello\""));
     }
 }

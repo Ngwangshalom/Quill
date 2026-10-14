@@ -56,6 +56,17 @@ impl Decimal {
         self.units == 0
     }
 
+    /// This number as a whole number, when nothing sits after the point.
+    /// `1.0` is `1`. `1.5` is `None`.
+    pub fn whole(self) -> Option<i128> {
+        let value = self.trimmed();
+        if value.scale == 0 {
+            Some(value.units)
+        } else {
+            None
+        }
+    }
+
     pub fn checked_add(self, other: Decimal) -> Result<Decimal, MathError> {
         let (a, b, scale) = align(self, other)?;
         let units = a.checked_add(b).ok_or(MathError::TooLarge)?;

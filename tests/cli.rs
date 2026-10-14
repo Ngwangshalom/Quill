@@ -6,6 +6,7 @@ fn quill(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_quill"))
         .args(args)
         .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .env("QUILL_NO_EDITOR_SETUP", "1")
         .output()
         .expect("quill binary should start")
 }
@@ -306,6 +307,7 @@ fn quill_in(dir: &std::path::Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_quill"))
         .args(args)
         .current_dir(dir)
+        .env("QUILL_NO_EDITOR_SETUP", "1")
         .output()
         .expect("quill binary should start")
 }

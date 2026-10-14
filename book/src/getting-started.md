@@ -140,12 +140,56 @@ say "Welcome!"   -- this part is ignored too
 Welcome!
 ```
 
+## Colors in your editor
+
+Quill has its own colors, taken from the feather, the nib, and ink. `say`, `when`, and `true` each have their own color. The first time you run Quill, it gives those colors to Cursor and VS Code, puts the feather on every `.ql` file, and underlines mistakes while you type. Reload the editor window once to see it. Other languages keep the colors they already had.
+
+The feather follows the editor. On a dark window it is pale, so it shows against the dark file list. On a light window it is the deep blue feather from the logo.
+
+On a dark editor:
+
+| What | Color | Where it comes from |
+|---|---|---|
+| `say` | `#F0A35E` nib orange | the nib |
+| `when` and `else` | `#7EAEF5` feather blue | the feather |
+| `true` and `false` | `#5ECA8C` green | a yes on the page |
+| `var` and `set` | `#C9A6F2` lilac | a name you can change |
+| `check` | `#F0A0B4` rose | a test |
+| `and`, `or`, `not` | `#5EC4C0` teal | words that join a question |
+| `for` and `in` | `#C6D86A` yellow-green | a loop |
+| `list` | `#D4896A` clay | values in order |
+| `record` | `#A8C5A0` sage | named fields |
+| `of` | `#E8C547` gold | the kind of an empty list |
+| `at` | `#B07CFF` violet | one item, by its position |
+| `fn` and `return` | `#E8A0D4` pink | a function |
+| `maybe`, `found`, `missing` | `#F0B090` peach | a value that might be missing |
+| `fails`, `fail`, `on`, `try` | `#E08A8A` red | a failure the caller must handle |
+| Numbers | `#E7C98A` sand | counted things |
+| Text in quotes | `#F3E6D0` warm paper | the page |
+| Comments | `#9A9186` faded ink | ink, faded |
+
+On a light editor the same ideas use deeper shades, so they stay readable on paper: `say` `#C45C12`, `when` `#1D408A`, `true` `#157A42`, `list` `#8C4E32`, `record` `#3E5C32`, `of` `#8A5A00`, `at` `#5C2E9A`, `fn` `#8A3D78`, `maybe` `#A85A38`, `fails` `#A33B3B`, numbers `#9A4A12`, text `#6B3A22`. Where to write `of` and `at` is in [Lists and records](groups.md#where-of-and-at-are-used).
+
+Some colors are waiting. Nothing uses them until that part of Quill exists, so a name you invent is never painted early. When the word arrives, it takes the color that was saved for it:
+
+| When Quill gains | Color on a dark editor |
+|---|---|
+| Types (`type`) | `#6AA8C8` |
+| Contracts (`require`, `ensure`) | `#C8A06A` |
+| Permissions (`permit`) | `#C47848` |
+| Modules (`use`, `route`, `respond`) | `#A8C0D8` |
+
+This is installed on each computer where Quill runs. Set `QUILL_NO_EDITOR_SETUP=1` to leave the editor alone.
+
+Vim, Emacs, and Sublime also know `.ql` files. The files are in the `editors` folder. Any editor that can talk to a language server, including Neovim, Helix, and Zed, gets the underlines from `quill lsp`. That is the same check as `quill check`, and it does not run the program.
+
 ## The commands you'll use
 
 | Command | What it does |
 |---|---|
 | `quill run FILE.ql` | Run a program |
 | `quill check FILE.ql` | Look for mistakes without running anything |
+| `quill lsp` | Underline those mistakes in an editor |
 | `quill test` | Run the tests in every file in this folder |
 | `quill explain FILE.ql:N` | Show how Quill understood line N |
 | `quill new NAME` | Start a new project |

@@ -8,19 +8,72 @@ use crate::diagnostic::{Diagnostic, Span};
 use crate::parser::Comparison;
 use crate::value::Value;
 
+/// One running function, or the main program when `function` is absent.
+struct Frame {
+    function: Option<usize>,
+    slots: Vec<Option<Value>>,
+    next: usize,
+}
+
 /// Runs `chunk`, writing everything `say` prints to `out`.
 pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
     let mut stack: Vec<Value> = Vec::new();
-    let mut slots: Vec<Option<Value>> = vec![None; chunk.slot_count];
-    let mut next = 0;
+    let mut frames = vec![Frame {
+        function: None,
+        slots: vec![None; chunk.slot_count],
+        next: 0,
+    }];
 
-    while let Some(&op) = chunk.code.get(next) {
-        let span = chunk.spans.get(next).copied().unwrap_or(Span {
+    loop {
+        if frames.is_empty() {
+            break;
+        }
+        let index = frames.len() - 1;
+        let function = frames[index].function;
+        let at = frames[index].next;
+        let (code, spans, returns) = match function {
+            None => (&chunk.code, &chunk.spans, false),
+            Some(fn_index) => {
+                let function = chunk.functions.get(fn_index).ok_or_else(|| {
+                    internal(
+                        Span {
+                            line: 1,
+                            column: 1,
+                            length: 0,
+                        },
+                        "a call to a function that wasn't compiled",
+                    )
+                })?;
+                (&function.code, &function.spans, function.returns)
+            }
+        };
+        let Some(&op) = code.get(at) else {
+            if returns {
+                let name = function
+                    .and_then(|fn_index| chunk.functions.get(fn_index))
+                    .map(|function| function.name.as_str())
+                    .unwrap_or("This function");
+                return Err(Diagnostic::new(
+                    Span {
+                        line: 1,
+                        column: 1,
+                        length: 0,
+                    },
+                    format!(
+                        "{name} ended without giving a value back.\n\
+                         Add return, and make sure every path reaches it."
+                    ),
+                ));
+            }
+            frames.pop();
+            continue;
+        };
+        let span = spans.get(at).copied().unwrap_or(Span {
             line: 1,
             column: 1,
             length: 0,
         });
-        next += 1;
+        let mut next = at + 1;
         match op {
             Op::Constant(i) => {
                 let value = chunk
@@ -32,13 +85,15 @@ pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
             }
             Op::Store(slot) => {
                 let value = pop(&mut stack, span)?;
-                let target = slots
+                let target = frames[index]
+                    .slots
                     .get_mut(slot)
                     .ok_or_else(|| internal(span, "a value slot is missing"))?;
                 *target = Some(value);
             }
             Op::Load(slot) => {
-                let value = slots
+                let value = frames[index]
+                    .slots
                     .get(slot)
                     .cloned()
                     .flatten()
@@ -65,25 +120,32 @@ pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
                 }
             }
             Op::Add | Op::Subtract | Op::Multiply | Op::Divide | Op::Remainder => {
-                let right = pop_number(&mut stack, span)?;
-                let left = pop_number(&mut stack, span)?;
-                let result = match op {
-                    Op::Add => left.checked_add(right),
-                    Op::Subtract => left.checked_sub(right),
-                    Op::Multiply => left.checked_mul(right),
-                    Op::Divide => left.checked_div(right),
-                    _ => left.checked_rem(right),
-                };
-                stack.push(Value::Number(
-                    result.map_err(|err| math_error(err, op, span))?,
-                ));
+                let right = pop(&mut stack, span)?;
+                let left = pop(&mut stack, span)?;
+                stack.push(calculate(op, left, right, span)?);
             }
             Op::Negate => {
-                let number = pop_number(&mut stack, span)?;
-                let result = number
-                    .checked_neg()
-                    .map_err(|err| math_error(err, op, span))?;
-                stack.push(Value::Number(result));
+                let value = pop(&mut stack, span)?;
+                let negated = match value {
+                    Value::Number(number) => Value::Number(
+                        number
+                            .checked_neg()
+                            .map_err(|err| math_error(err, op, span))?,
+                    ),
+                    Value::Money { amount, currency } => Value::Money {
+                        amount: amount
+                            .checked_neg()
+                            .map_err(|err| math_error(err, op, span))?,
+                        currency,
+                    },
+                    _ => {
+                        return Err(internal(
+                            span,
+                            "a negative value that isn't a number or money",
+                        ))
+                    }
+                };
+                stack.push(negated);
             }
             Op::Not => {
                 let value = pop_bool(&mut stack, span)?;
@@ -114,9 +176,217 @@ pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
                 }
             }
             Op::Jump(target) => next = target,
+            Op::List(count) => {
+                let mut items = Vec::with_capacity(count);
+                for _ in 0..count {
+                    items.push(pop(&mut stack, span)?);
+                }
+                items.reverse();
+                stack.push(Value::List(items));
+            }
+            Op::Record(index) => {
+                let names = chunk
+                    .records
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| internal(span, "a record's fields are missing"))?;
+                let mut values = Vec::with_capacity(names.len());
+                for _ in &names {
+                    values.push(pop(&mut stack, span)?);
+                }
+                values.reverse();
+                stack.push(Value::Record(names.into_iter().zip(values).collect()));
+            }
+            Op::Length => {
+                let value = pop(&mut stack, span)?;
+                let Value::List(items) = value else {
+                    return Err(internal(span, "the length of something that isn't a list"));
+                };
+                stack.push(Value::Number(Decimal::from_int(items.len() as i128)));
+            }
+            Op::GetAt => {
+                let index = pop_number(&mut stack, span)?;
+                let list = pop(&mut stack, span)?;
+                let position = list_position(&list, index, span)?;
+                let Value::List(items) = list else {
+                    return Err(internal(span, "an item from something that isn't a list"));
+                };
+                stack.push(items[position].clone());
+            }
+            Op::SetAt => {
+                let new_item = pop(&mut stack, span)?;
+                let index = pop_number(&mut stack, span)?;
+                let list = pop(&mut stack, span)?;
+                let position = list_position(&list, index, span)?;
+                let Value::List(mut items) = list else {
+                    return Err(internal(span, "a change to something that isn't a list"));
+                };
+                items[position] = new_item;
+                stack.push(Value::List(items));
+            }
+            Op::GetField(index) => {
+                let name = field_name(chunk, index, span)?;
+                let record = pop(&mut stack, span)?;
+                stack.push(record_field(&record, &name, span)?);
+            }
+            Op::SetField(index) => {
+                let name = field_name(chunk, index, span)?;
+                let new_value = pop(&mut stack, span)?;
+                let record = pop(&mut stack, span)?;
+                let Value::Record(mut fields) = record else {
+                    return Err(internal(span, "a change to something that isn't a record"));
+                };
+                let Some(field) = fields.iter_mut().find(|(field, _)| field == &name) else {
+                    return Err(Diagnostic::new(
+                        span,
+                        format!(
+                            "This record has no field called {name}.\n\
+                             Its fields are {}.",
+                            fields
+                                .iter()
+                                .map(|(field, _)| field.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    ));
+                };
+                field.1 = new_value;
+                stack.push(Value::Record(fields));
+            }
+            Op::Dup => {
+                let value = stack
+                    .last()
+                    .cloned()
+                    .ok_or_else(|| internal(span, "the value stack is empty"))?;
+                stack.push(value);
+            }
+            Op::Swap => {
+                let top = pop(&mut stack, span)?;
+                let under = pop(&mut stack, span)?;
+                stack.push(top);
+                stack.push(under);
+            }
+            Op::Call(fn_index) => {
+                let function = chunk
+                    .functions
+                    .get(fn_index)
+                    .ok_or_else(|| internal(span, "a call to a function that wasn't compiled"))?;
+                let mut slots = vec![None; function.slot_count];
+                for slot in (0..function.arity).rev() {
+                    slots[slot] = Some(pop(&mut stack, span)?);
+                }
+                frames[index].next = next;
+                frames.push(Frame {
+                    function: Some(fn_index),
+                    slots,
+                    next: 0,
+                });
+                continue;
+            }
+            Op::Return(gives) => {
+                let value = if gives {
+                    Some(pop(&mut stack, span)?)
+                } else {
+                    None
+                };
+                frames.pop();
+                if let Some(value) = value {
+                    stack.push(value);
+                }
+                continue;
+            }
+            Op::WrapFound => {
+                let value = pop(&mut stack, span)?;
+                stack.push(Value::Found(Box::new(value)));
+            }
+            Op::MakeMissing => stack.push(Value::Missing),
+            Op::MatchFound(target) => {
+                let value = pop(&mut stack, span)?;
+                match value {
+                    Value::Missing => next = target,
+                    Value::Found(inner) => stack.push(*inner),
+                    _ => return Err(internal(span, "when opened a value that isn't a maybe")),
+                }
+            }
+            Op::Fail => {
+                let Value::Text(name) = pop(&mut stack, span)? else {
+                    return Err(internal(span, "a failure without a name"));
+                };
+                frames.pop();
+                if frames.is_empty() {
+                    return Err(Diagnostic::new(
+                        span,
+                        format!(
+                            "{name} wasn't handled.\n\
+                             Add on {name} under the call, or fails {name} on the function that tries it."
+                        ),
+                    ));
+                }
+                stack.push(Value::Failure(name));
+                continue;
+            }
+            Op::OnFail(constant, target) => {
+                let name = match chunk.constants.get(constant) {
+                    Some(Value::Text(name)) => name.clone(),
+                    _ => return Err(internal(span, "a failure handler is missing its name")),
+                };
+                if matches!(stack.last(), Some(Value::Failure(failure)) if failure == &name) {
+                    stack.pop();
+                    next = target;
+                }
+            }
+        }
+        if let Some(frame) = frames.get_mut(index) {
+            frame.next = next;
         }
     }
     Ok(())
+}
+
+fn calculate(op: Op, left: Value, right: Value, span: Span) -> Result<Value, Diagnostic> {
+    let numbers = |left: Decimal, right: Decimal| match op {
+        Op::Add => left.checked_add(right),
+        Op::Subtract => left.checked_sub(right),
+        Op::Multiply => left.checked_mul(right),
+        Op::Divide => left.checked_div(right),
+        _ => left.checked_rem(right),
+    };
+    match (left, right) {
+        (Value::Number(left), Value::Number(right)) => Ok(Value::Number(
+            numbers(left, right).map_err(|err| math_error(err, op, span))?,
+        )),
+        (
+            Value::Money {
+                amount: left,
+                currency,
+            },
+            Value::Money {
+                amount: right,
+                currency: right_code,
+            },
+        ) if currency == right_code && matches!(op, Op::Add | Op::Subtract) => Ok(Value::Money {
+            amount: numbers(left, right).map_err(|err| math_error(err, op, span))?,
+            currency,
+        }),
+        (Value::Money { amount, currency }, Value::Number(right))
+            if matches!(op, Op::Multiply | Op::Divide) =>
+        {
+            Ok(Value::Money {
+                amount: numbers(amount, right).map_err(|err| math_error(err, op, span))?,
+                currency,
+            })
+        }
+        (Value::Number(left), Value::Money { amount, currency }) if matches!(op, Op::Multiply) => {
+            Ok(Value::Money {
+                amount: numbers(left, amount).map_err(|err| math_error(err, op, span))?,
+                currency,
+            })
+        }
+        _ => Err(internal(
+            span,
+            "a calculation on values that can't be combined",
+        )),
+    }
 }
 
 /// Whether `left op right` is true. `None` if the values can't be compared.
@@ -134,8 +404,19 @@ fn compare(op: Comparison, left: &Value, right: &Value) -> Option<bool> {
             })
         }
         _ => {
-            let (Value::Number(left), Value::Number(right)) = (left, right) else {
-                return None;
+            let (left, right) = match (left, right) {
+                (Value::Number(left), Value::Number(right)) => (left, right),
+                (
+                    Value::Money {
+                        amount: left,
+                        currency: left_code,
+                    },
+                    Value::Money {
+                        amount: right,
+                        currency: right_code,
+                    },
+                ) if left_code == right_code => (left, right),
+                _ => return None,
             };
             Some(match op {
                 Comparison::Less => left < right,
@@ -206,6 +487,89 @@ fn math_error(err: MathError, op: Op, span: Span) -> Diagnostic {
     }
 }
 
+/// Where `index` sits in `list`. Position 1 is the first item.
+fn list_position(list: &Value, index: Decimal, span: Span) -> Result<usize, Diagnostic> {
+    let Value::List(items) = list else {
+        return Err(internal(span, "an item from something that isn't a list"));
+    };
+    let Some(position) = index.whole() else {
+        return Err(Diagnostic::new(
+            span,
+            format!(
+                "A list position has to be a whole number, but {index} isn't.\n\
+                 Lists count from 1: the first item is at 1."
+            ),
+        ));
+    };
+    if position < 1 {
+        return Err(Diagnostic::new(
+            span,
+            format!(
+                "Lists count from 1, so {position} isn't a position in this list.\n\
+                 The first item is at 1."
+            ),
+        ));
+    }
+    let Some(position) = usize::try_from(position).ok() else {
+        return Err(Diagnostic::new(
+            span,
+            "This position is too big for a list.\n\
+             Lists count from 1, and this one doesn't go that far."
+                .to_string(),
+        ));
+    };
+    if items.is_empty() {
+        return Err(Diagnostic::new(
+            span,
+            "This list is empty, so it has no items to pick.\n\
+             Add an item before asking for one.",
+        ));
+    }
+    if position > items.len() {
+        let last = items.len();
+        return Err(Diagnostic::new(
+            span,
+            format!(
+                "This list has {last} {}, so {position} is past the end.\n\
+                 The last item is at {last}.",
+                if last == 1 { "item" } else { "items" }
+            ),
+        ));
+    }
+    Ok(position - 1)
+}
+
+fn field_name(chunk: &Chunk, index: usize, span: Span) -> Result<String, Diagnostic> {
+    match chunk.constants.get(index) {
+        Some(Value::Text(name)) => Ok(name.clone()),
+        _ => Err(internal(span, "a field name is missing")),
+    }
+}
+
+fn record_field(record: &Value, name: &str, span: Span) -> Result<Value, Diagnostic> {
+    let Value::Record(fields) = record else {
+        return Err(internal(span, "a field of something that isn't a record"));
+    };
+    fields
+        .iter()
+        .find(|(field, _)| field == name)
+        .map(|(_, value)| value.clone())
+        .ok_or_else(|| {
+            Diagnostic::new(
+                span,
+                format!(
+                    "This record has no field called {name}.\n\
+                     Its fields are {}.",
+                    fields
+                        .iter()
+                        .map(|(field, _)| field.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            )
+        })
+}
+
 fn pop(stack: &mut Vec<Value>, span: Span) -> Result<Value, Diagnostic> {
     stack
         .pop()
@@ -268,6 +632,8 @@ mod tests {
             spans: vec![span(); code.len()],
             code,
             constants,
+            records: Vec::new(),
+            functions: Vec::new(),
             slot_count,
         }
     }
@@ -540,5 +906,100 @@ mod tests {
         }
         // A jump past the end just ends the program.
         assert_eq!(output(&chunk(vec![Op::Jump(99)], vec![], 0)).unwrap(), "");
+    }
+
+    #[test]
+    fn a_for_loop_counts_through_both_ends() {
+        assert_eq!(run_source("for i in 1..3\n  say i").unwrap(), "1\n2\n3\n");
+        assert_eq!(
+            run_source("var total = 0\nfor i in 1..3\n  set total = total + i\nsay total").unwrap(),
+            "6\n"
+        );
+        assert_eq!(
+            run_source("i = 10\nfor i in 1..2\n  say i\nsay i").unwrap(),
+            "1\n2\n10\n"
+        );
+        assert_eq!(
+            run_source("for i in 3..1\n  say i\nsay \"done\"").unwrap(),
+            "done\n"
+        );
+        assert_eq!(run_source("for i in -1..1\n  say i").unwrap(), "-1\n0\n1\n");
+    }
+
+    #[test]
+    fn a_list_keeps_values_in_order_and_counts_from_one() {
+        assert_eq!(
+            run_source("hobbies = list \"coding\", \"reading\", \"traveling\"\nsay hobbies\nsay hobbies at 1\nsay hobbies at 3").unwrap(),
+            "coding, reading, traveling\ncoding\ntraveling\n"
+        );
+        assert_eq!(
+            run_source("hobbies = list \"coding\", \"reading\"\nfor hobby in hobbies\n  say hobby")
+                .unwrap(),
+            "coding\nreading\n"
+        );
+        let err = run_source("hobbies = list \"coding\"\nsay hobbies at 2").unwrap_err();
+        assert!(err.message.contains("past the end"));
+        let err = run_source("empty = list of text\nsay empty at 1").unwrap_err();
+        assert!(err.message.contains("empty"));
+    }
+
+    #[test]
+    fn a_record_keeps_named_fields() {
+        let source = "\
+address = record
+  street = \"123 Main St\"
+  city = \"Anytown\"
+say address.city
+say address";
+        assert_eq!(
+            run_source(source).unwrap(),
+            "Anytown\nstreet: 123 Main St\ncity: Anytown\n"
+        );
+        assert_eq!(
+            run_source("var address = record city = \"Anytown\"\nset address.city = \"Springfield\"\nsay address.city").unwrap(),
+            "Springfield\n"
+        );
+        assert_eq!(
+            run_source("var hobbies = list \"coding\", \"reading\"\nset hobbies at 1 = \"writing\"\nsay hobbies").unwrap(),
+            "writing, reading\n"
+        );
+    }
+
+    #[test]
+    fn a_function_can_be_called_and_can_call_itself() {
+        assert_eq!(
+            run_source("fn double(n: number) -> number\n  return n * 2\nsay double(21)").unwrap(),
+            "42\n"
+        );
+        assert_eq!(
+            run_source("fn greet(name: text)\n  say \"Hello, {name}\"\ngreet(\"Ngwang\")").unwrap(),
+            "Hello, Ngwang\n"
+        );
+        assert_eq!(
+            run_source(
+                "fn fact(n: number) -> number\n  when\n    n <= 1 -> return 1\n    else -> return n * fact(n - 1)\nsay fact(5)"
+            )
+            .unwrap(),
+            "120\n"
+        );
+    }
+
+    #[test]
+    fn money_maybe_and_failures() {
+        assert_eq!(run_source("say 100 AED + 50 AED").unwrap(), "150 AED\n");
+        assert_eq!(
+            run_source(
+                "fn find_price(name: text) -> maybe number\n  when\n    name == \"bread\" -> return found 2.50\n    else -> return missing\nwhen find_price(\"cake\")\n  found price -> say price\n  missing -> say \"none\""
+            )
+            .unwrap(),
+            "none\n"
+        );
+        assert_eq!(
+            run_source(
+                "fn charge(amount: AED) -> text\n  fails Declined\n  when\n    amount <= 0 AED -> fail Declined\n    else -> return \"paid\"\nvar receipt = charge(0 AED)\n  on Declined -> say \"Card declined\"\nsay \"after\""
+            )
+            .unwrap(),
+            "Card declined\n"
+        );
     }
 }
