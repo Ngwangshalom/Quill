@@ -128,7 +128,7 @@ pub enum SigKind {
     Number,
     Bool,
     List(Box<SigKind>),
-    /// Money in one currency, written `AED`.
+    /// Money in one currency, written `USD`.
     Money(String),
     /// A value that might be missing, written `maybe number`.
     Maybe(Box<SigKind>),
@@ -166,7 +166,7 @@ pub struct Handler {
     pub span: Span,
 }
 
-/// A currency code is three capital letters, as in `AED`.
+/// A currency code is three capital letters, as in `USD`.
 pub fn is_currency(name: &str) -> bool {
     name.len() == 3 && name.chars().all(|c| c.is_ascii_uppercase())
 }
@@ -365,7 +365,7 @@ pub enum ExprKind {
     /// Text with values inside: `"Hello, {name}"`.
     Template(Vec<Part>),
     Number(String),
-    /// `100 AED`.
+    /// `100 USD`.
     Money {
         amount: String,
         currency: String,
@@ -709,7 +709,7 @@ impl<'a> Parser<'a> {
             TokenKind::Fails => Err(Diagnostic::new(
                 token.span(),
                 "fails names how a function can fail, on the first line under fn.\n\
-                 fn charge(amount: AED) -> text, then fails Declined.",
+                 fn charge(amount: USD) -> text, then fails Declined.",
             )
             .suggest("fails Declined")),
             TokenKind::On => Err(Diagnostic::new(
@@ -1459,7 +1459,7 @@ impl<'a> Parser<'a> {
                     return Err(Diagnostic::new(
                         token.span(),
                         "A list parameter names the kind of its items.\n\
-                         Write list of text, list of number, list of true/false, or list of AED.",
+                         Write list of text, list of number, list of true/false, or list of USD.",
                     )
                     .suggest("list of number"));
                 }
@@ -1472,7 +1472,7 @@ impl<'a> Parser<'a> {
                     return Err(Diagnostic::new(
                         token.span(),
                         "maybe needs the kind that might be missing.\n\
-                         Write maybe number, maybe text, maybe true/false, or maybe AED.",
+                         Write maybe number, maybe text, maybe true/false, or maybe USD.",
                     )
                     .suggest("maybe number"));
                 }
@@ -1499,7 +1499,7 @@ impl<'a> Parser<'a> {
                     token.span(),
                     format!(
                         "A function's kind is text, number, true/false, maybe one of those, \
-                         a currency like AED, or a list of those, but found {}.\n\
+                         a currency like USD, or a list of those, but found {}.\n\
                          Int and Text arrive later, with types. Today, write number or text.",
                         describe(&token.kind)
                     ),
@@ -2302,7 +2302,7 @@ impl<'a> Parser<'a> {
         .suggest(format!("say {value}"))
     }
 
-    /// `100 AED`, or a plain number when no currency follows.
+    /// `100 USD`, or a plain number when no currency follows.
     fn number_or_money(&mut self) -> Result<Expr, Diagnostic> {
         let token = self.advance().clone();
         let TokenKind::Number(amount) = token.kind.clone() else {

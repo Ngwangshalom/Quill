@@ -1,3 +1,7 @@
 /target
 .DS_Store
 /book/book
+
+# Local assistant files
+CLAUDE.md
+.claude/

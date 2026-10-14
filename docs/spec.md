@@ -463,7 +463,7 @@ kind      = "text" | "number" | "true/false" | "list" "of" kind
 - A function does not see values created outside it. Pass them in as parameters.
 - A function can call itself, and it can call a function written above it.
 - `return` outside a function is a mistake.
-- Kind names such as `Int` and `Text` are not part of this version. A parameter's kind is `text`, `number`, `true/false`, a currency such as `AED`, `maybe` one of those, or `list of` one of those.
+- Kind names such as `Int` and `Text` are not part of this version. A parameter's kind is `text`, `number`, `true/false`, a currency such as `USD`, `maybe` one of those, or `list of` one of those.
 - The first line of the body may be `fails NAME { "," NAME }`. A failure name starts with a capital letter. `fail NAME` leaves the function with that failure, and the name has to be in the list.
 
 ### 8.7 Money
@@ -471,15 +471,15 @@ kind      = "text" | "number" | "true/false" | "list" "of" kind
 An amount is a number, a space, and a currency of three capital letters.
 
 ```quill
-say 100 AED + 50 AED
+say 100 USD + 50 USD
 ```
 
-This shows `150 AED`.
+This shows `150 USD`.
 
 - `+` and `-` need two amounts in the same currency. Different currencies are a mistake.
-- `*` and `/` can combine an amount with a plain number: `100 AED * 0.90`, `100 AED / 2`. A number can also come first in a multiplication.
-- The currency is the kind in a function: `price: AED`.
-- A currency written in lowercase, such as `aed`, is a mistake. Write `AED`.
+- `*` and `/` can combine an amount with a plain number: `100 USD * 0.90`, `100 USD / 2`. A number can also come first in a multiplication.
+- The currency is the kind in a function: `price: USD`.
+- A currency written in lowercase, such as `usd`, is a mistake. Write `USD`.
 
 ### 8.8 Maybe
 
@@ -495,10 +495,10 @@ This shows `150 AED`.
 A function names the failures it can leave with. The caller handles each one, or passes them on.
 
 ```quill
-fn charge(amount: AED) -> text
+fn charge(amount: USD) -> text
   fails Declined
   when
-    amount <= 0 AED -> fail Declined
+    amount <= 0 USD -> fail Declined
     else -> return "paid"
 ```
 
@@ -607,7 +607,7 @@ The README describes these features. They are part of Quill's design but not of 
 |---|---|
 | `when` as a value | No null: `maybe` |
 | Parameter kinds written as `Int` or `Text` | Functions, `when` and tests |
-| Named types such as `User`, and `Money<AED>` as a type | Constrained types and exact money |
+| Named types such as `User`, and `Money<USD>` as a type | Constrained types and exact money |
 | Types (`type`), fields and `where` constraints | Constrained types and exact money |
 | Contracts: `require` and `ensure` | Contracts |
 | Permissions: `permit` | Permissions |
