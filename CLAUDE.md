@@ -26,6 +26,13 @@ change:
 - Updates docs/spec.md, the precise reference (Appendix B of the book).
 - Adds a line under "Unreleased" in book/src/appendix-version-history.md.
 - Updates README.md, CONTRIBUTING.md and `quill help` where they mention it.
+- Updates editor support in the same change, so every editor still
+  recognizes the new words: the grammar and colors in `editors/vscode`,
+  plus the Vim, Emacs, and Sublime files. Each kind of word has its own
+  color: `say`, `when`, `for`, `true` and `false`, `var` and `set`, `check`, and
+  the logic words. Planned kinds have a reserved color in the book's
+  editor chapter. When the word is added, use that color. Color a word
+  only once the language actually has it.
 
 Book examples are run by `cargo test` (tests/book.rs): ```quill must run,
 ```quill,error must stop with a problem, ```quill,ignore is not run (planned

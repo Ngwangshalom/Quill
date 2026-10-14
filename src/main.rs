@@ -1,3 +1,5 @@
+mod editor;
+mod lsp;
 mod update;
 
 use std::env;
@@ -19,6 +21,7 @@ Usage:
   quill run FILE.ql         Run a program
   quill FILE.ql             Same thing: a file on its own runs
   quill check FILE.ql       Find problems without running anything
+  quill lsp                 Report those problems to an editor
   quill test                Run every check and doc example in this folder
   quill explain FILE.ql:N   Show how Quill read line N
   quill new NAME            Create a folder NAME with hello.ql inside
@@ -47,12 +50,65 @@ when runs the first case whose condition is true:
     total > 100 -> say \"Free delivery\"
     else -> say \"Delivery: 5\"
 
+A block is indented by exactly 2 spaces. A tab is a mistake.
+
+for repeats the lines under it for each number from the first through the last,
+or once for each item in a list:
+
+  for i in 1..3
+    say i
+
+  hobbies = list \"coding\", \"reading\"
+  for hobby in hobbies
+    say hobby
+
+A record keeps named fields together. A dot reads one field:
+
+  address = record
+    city = \"Anytown\"
+  say address.city
+
+A function names a piece of work. -> names the kind it gives back, and return
+gives that value back. With no ->, call the function on its own line:
+
+  fn double(n: number) -> number
+    return n * 2
+  say double(21)
+
+  fn greet(name: text)
+    say \"Hello, {name}\"
+  greet(\"Amina\")
+
+Money names its currency. 100 AED + 50 AED is 150 AED. 100 AED + 20 USD
+is a mistake. maybe means the answer might be missing:
+
+  fn find_price(name: text) -> maybe number
+    when
+      name == \"bread\" -> return found 2.50
+      else -> return missing
+
+A function can fail, and the caller has to handle it:
+
+  fn charge(amount: AED) -> text
+    fails Declined
+    when
+      amount <= 0 AED -> fail Declined
+      else -> return \"paid\"
+  var receipt = charge(250 AED)
+    on Declined -> say \"Card declined\"
+
 A quote inside text needs no backslash when the text uses three quotes:
 
   \"\"\"She said \"hi\".\"\"\"
 
 Quill checks for a new version at most once a day and tells you when one is
 out. It never updates by itself. Set QUILL_NO_UPDATE_CHECK=1 to turn this off.
+
+The first time Quill runs, it adds Quill's own colors and the feather icon
+for .ql files to Cursor and VS Code, and underlines mistakes as you type.
+The feather is pale on a dark editor and deep blue on a light one.
+Reload the editor window to see them.
+Set QUILL_NO_EDITOR_SETUP=1 to leave your editor alone.
 
 Examples:
   quill new shop
@@ -61,8 +117,9 @@ Examples:
   quill test
 ";
 
-const COMMANDS: [&str; 10] = [
-    "run", "check", "tokens", "test", "explain", "new", "update", "upgrade", "help", "version",
+const COMMANDS: [&str; 11] = [
+    "run", "check", "lsp", "tokens", "test", "explain", "new", "update", "upgrade", "help",
+    "version",
 ];
 
 const STARTER: &str = "\
@@ -78,11 +135,21 @@ fn main() -> ExitCode {
 
     match args.as_slice() {
         [update::CHECK_COMMAND] => return update::background_check(),
-        ["update" | "upgrade"] => return update::update(None),
-        ["update" | "upgrade", version] => return update::update(Some(version)),
+        ["lsp"] => return lsp::serve(),
+        ["update" | "upgrade"] => {
+            let code = update::update(None);
+            editor::install();
+            return code;
+        }
+        ["update" | "upgrade", version] => {
+            let code = update::update(Some(version));
+            editor::install();
+            return code;
+        }
         _ => {}
     }
     let code = command(&args);
+    editor::install();
     update::notice();
     code
 }

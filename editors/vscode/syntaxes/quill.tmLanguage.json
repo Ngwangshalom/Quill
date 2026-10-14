@@ -1,0 +1,151 @@
+{
+  "scopeName": "source.quill",
+  "name": "Quill",
+  "patterns": [
+    { "include": "#example" },
+    { "include": "#comment" },
+    { "include": "#triple-string" },
+    { "include": "#string" },
+    { "include": "#number" },
+    { "include": "#say" },
+    { "include": "#when" },
+    { "include": "#bind" },
+    { "include": "#check" },
+    { "include": "#logic" },
+    { "include": "#loop" },
+    { "include": "#list" },
+    { "include": "#record" },
+    { "include": "#of" },
+    { "include": "#at" },
+    { "include": "#fn" },
+    { "include": "#maybe" },
+    { "include": "#failure" },
+    { "include": "#constant" },
+    { "include": "#operator" },
+    { "include": "#identifier" }
+  ],
+  "repository": {
+    "example": {
+      "match": "---[ \\t]+example:",
+      "name": "keyword.control.example.quill"
+    },
+    "comment": {
+      "match": "--.*",
+      "name": "comment.line.double-dash.quill"
+    },
+    "escapes": {
+      "match": "\\\\.",
+      "name": "constant.character.escape.quill"
+    },
+    "interpolation": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.interpolation.begin.quill" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.interpolation.end.quill" }
+      },
+      "name": "meta.interpolation.quill",
+      "patterns": [{ "include": "$self" }]
+    },
+    "triple-string": {
+      "begin": "\"\"\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.quill" }
+      },
+      "end": "\"\"\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.quill" }
+      },
+      "name": "string.quoted.triple.quill",
+      "patterns": [
+        { "include": "#escapes" },
+        { "include": "#interpolation" }
+      ]
+    },
+    "string": {
+      "begin": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.quill" }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.quill" }
+      },
+      "name": "string.quoted.double.quill",
+      "patterns": [
+        { "include": "#escapes" },
+        { "include": "#interpolation" }
+      ]
+    },
+    "number": {
+      "match": "(?<![\\w.])\\d+(?:\\.\\d+)?",
+      "name": "constant.numeric.quill"
+    },
+    "say": {
+      "match": "\\b(say)\\b",
+      "name": "keyword.other.say.quill"
+    },
+    "when": {
+      "match": "\\b(when|else)\\b",
+      "name": "keyword.control.conditional.quill"
+    },
+    "bind": {
+      "match": "\\b(var|set)\\b",
+      "name": "keyword.other.bind.quill"
+    },
+    "check": {
+      "match": "\\b(check)\\b",
+      "name": "keyword.other.check.quill"
+    },
+    "logic": {
+      "match": "\\b(and|or|not)\\b",
+      "name": "keyword.operator.logical.quill"
+    },
+    "loop": {
+      "match": "\\b(for|in)\\b",
+      "name": "keyword.control.loop.quill"
+    },
+    "list": {
+      "match": "\\b(list)\\b",
+      "name": "keyword.other.list.quill"
+    },
+    "record": {
+      "match": "\\b(record)\\b",
+      "name": "keyword.other.record.quill"
+    },
+    "of": {
+      "match": "\\b(of)\\b",
+      "name": "keyword.other.of.quill"
+    },
+    "at": {
+      "match": "\\b(at)\\b",
+      "name": "keyword.other.at.quill"
+    },
+    "fn": {
+      "match": "\\b(fn|return)\\b",
+      "name": "keyword.other.function.quill"
+    },
+    "maybe": {
+      "match": "\\b(maybe|found|missing)\\b",
+      "name": "keyword.other.maybe.quill"
+    },
+    "failure": {
+      "match": "\\b(fails|fail|on|try)\\b",
+      "name": "keyword.other.failure.quill"
+    },
+    "constant": {
+      "match": "\\b(true|false)\\b",
+      "name": "constant.language.quill"
+    },
+    "operator": {
+      "match": "->|==|!=|<=|>=|[=+\\-*/%<>]",
+      "name": "keyword.operator.quill"
+    },
+    "identifier": {
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b",
+      "name": "variable.other.quill"
+    }
+  }
+}

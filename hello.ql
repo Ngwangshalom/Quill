@@ -1,11 +1,109 @@
-var name = "Kopsala backend"
-var version = "0.02"
-developer = "Donald terms"
+-- Halllight closes one night of talent bookings in Bamenda.
+-- Prices live in fee_for. Tonight's requests are records.
+-- A fee of 0 XAF is declined. An act with no price is not on the roster.
+-- The till is only money actually taken. The checks at the end have to pass.
 
-say name 
+fn fee_for(act: text) -> maybe XAF
+  when
+    act == "Nchang Sisters" -> return found 80000 XAF
+    act == "Bamenda Brass" -> return found 150000 XAF
+    act == "Hilltop Duo" -> return found 65000 XAF
+    act == "Market Drums" -> return found 40000 XAF
+    act == "Quiet Hour" -> return found 0 XAF
+    else -> return missing
 
-when 
-  version == "0.02" -> say "{name} {developer}"
-  version == "0.03" -> say "Your the best in the world"
-  version == "0.03" -> say "We are the best in the world"
-  else -> say "We dont have that verison"
+fn charge(amount: XAF) -> text
+  fails Declined
+  when
+    amount <= 0 XAF -> fail Declined
+    else -> return "paid"
+
+fn collect(fee: XAF) -> XAF
+  var receipt = charge(fee)
+    on Declined -> return 0 XAF
+  when
+    receipt == "paid" -> return fee
+    else -> return 0 XAF
+
+fn post(place: text, act: text, fee: XAF) -> XAF
+  var paid = collect(fee)
+  when
+    paid == 0 XAF -> say "  {place}  ·  {act}  ·  declined"
+    else -> say "  {place}  ·  {act}  ·  {fee}  ·  confirmed"
+  return paid
+
+fn absent(place: text, act: text) -> XAF
+  say "  {place}  ·  {act}  ·  not on the roster"
+  return 0 XAF
+
+fn close_one(place: text, act: text) -> XAF
+  when fee_for(act)
+    found fee -> return post(place, act, fee)
+    missing -> return absent(place, act)
+
+-- The same rule as charge, used only to count. It does not take money.
+fn decision(fee: XAF) -> text
+  when
+    fee <= 0 XAF -> return "declined"
+    else -> return "confirmed"
+
+fn mark(act: text) -> text
+  when fee_for(act)
+    found fee -> return decision(fee)
+    missing -> return "missing"
+
+fn show_fee(act: text)
+  when fee_for(act)
+    found fee -> say "  {act}  ·  {fee}"
+    missing -> say "  {act}  ·  not listed"
+
+say "HALLLIGHT"
+say "Talent desk  ·  Bamenda"
+say "Close of 14 October 2026"
+say ""
+say "ROSTER"
+
+roster = list "Nchang Sisters", "Bamenda Brass", "Hilltop Duo", "Market Drums", "Quiet Hour"
+
+for act in roster
+  show_fee(act)
+
+say ""
+say "TONIGHT"
+
+avenue = record place = "Commercial Avenue", act = "Nchang Sisters"
+station = record place = "Up Station", act = "Bamenda Brass"
+yard = record place = "Ntarinkon Yard", act = "Hilltop Duo"
+market = record place = "Food Market", act = "Market Drums"
+town = record place = "Old Town House", act = "Quiet Hour"
+late = record place = "Late Call", act = "Sunday Choir"
+tonight = list avenue, station, yard, market, town, late
+requests = 6
+
+var till = 0 XAF
+var booked = 0
+var refused = 0
+var unknown = 0
+var label = ""
+
+for n in 1..requests
+  set till = till + close_one((tonight at n).place, (tonight at n).act)
+  set label = mark((tonight at n).act)
+  when
+    label == "confirmed" -> set booked = booked + 1
+    label == "declined" -> set refused = refused + 1
+    else -> set unknown = unknown + 1
+
+say ""
+say "CLOSE"
+say "  requests  ·  {requests}"
+say "  confirmed  ·  {booked}"
+say "  declined  ·  {refused}"
+say "  not on the roster  ·  {unknown}"
+say "  taken  ·  {till}"
+
+check booked == 4
+check refused == 1
+check unknown == 1
+check booked + refused + unknown == requests
+check till == 335000 XAF

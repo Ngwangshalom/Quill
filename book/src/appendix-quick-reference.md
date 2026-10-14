@@ -23,12 +23,31 @@ when
   else        -> say "Delivery: 10"
 
 check total == 25.00            -- a test
+
+for i in 1..3                   -- 1, then 2, then 3
+  say i
+
+hobbies = list "coding", "reading"
+say hobbies at 1
+
+address = record city = "Anytown"
+say address.city
+
+fn double(n: number) -> number
+  return n * 2
+say double(21)
 ```
 
 ```output
 Hi Amina, total 25.00
 She said "hi".
 Delivery: 5
+1
+2
+3
+coding
+Anytown
+42
 ```
 
 ## Kinds of values
@@ -38,6 +57,8 @@ Delivery: 5
 | Text | `"Hello"`, `"Hi {name}"`, `"""He said "hi"."""` |
 | Number | `42`, `0.10`, `-3.5` |
 | true/false | `true`, `false`, `total > 10` |
+| list | `list "coding", "reading"`, `hobbies at 1` |
+| record | `record city = "Anytown"`, `address.city` |
 
 ## Operators, tightest first
 
@@ -56,9 +77,17 @@ Delivery: 5
 
 `\n` new line · `\t` tab · `\"` quote · `\\` backslash · `\{` `\}` braces
 
+Blocks (`when`, `for`, `fn`, `record`) are indented by exactly 2 spaces.
+
 ## Reserved words
 
-`say` `check` `var` `set` `when` `else` `true` `false` `and` `or` `not`
+`say` `check` `var` `set` `when` `else` `for` `in` `list` `record` `of` `at` `fn` `return` `maybe` `found` `missing` `fails` `fail` `on` `try` `true` `false` `and` `or` `not`
+
+`fn double(n: number) -> number` names a calculation. `return n * 2` is the value the call becomes, and `double(21)` calls it. Leave off `->` when the function only does work, and call it on its own line. Each parameter has its own kind (`text`, `number`, `true/false`, a currency such as `AED`, `maybe` one of those, or `list of` one of those). The kind after `->` is the only kind `return` may give back.
+
+`100 AED + 50 AED` is money. Two currencies cannot be added. `-> maybe number` might be `found` or `missing`, and `when` has to handle both. `fails Declined` names a failure, `fail Declined` leaves with it, and the caller writes `on Declined` or `try`.
+
+`at` picks one list item: `hobbies at 1` reads the first, and `set hobbies at 2 = "writing"` changes that one item. `of` is required only for an empty list: `list of text`, `list of number`, or `list of true/false`. A list that already has items leaves `of` out.
 
 ## Commands
 

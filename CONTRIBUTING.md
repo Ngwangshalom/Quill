@@ -48,6 +48,7 @@ source (.ql) → lexer → parser → checker → compiler → VM
 | `src/value.rs` | The values programs work with at runtime |
 | `src/diagnostic.rs` | The shared error type and the README-style error format |
 | `src/explain.rs` | `quill explain` |
+| `editors/` | How editors know `.ql` files: Quill's colors, the feather, and `quill lsp` for underlines. Cursor and VS Code live in `editors/vscode` and are copied in the first time Quill runs. Each kind of word has its own color. When the language gains a function, keyword, operator, or other word, update the grammar and colors there, and in the Vim, Emacs, and Sublime files, in the same change. Use the reserved color from the book. Color a word only once the language actually has it |
 | `src/lib.rs` | Connects the stages together |
 | `src/main.rs` | The `quill` command line tool |
 | `tests/cli.rs` | End-to-end tests that run the real `quill` binary |
@@ -135,7 +136,7 @@ say 1 + "2"        -- must stop with a problem
 ```
 
 ```quill,ignore
-for i in 1..3      -- a planned feature: not run
+fn double(n: Int) -> Int   -- a planned feature: not run
 ```
 ````
 
@@ -177,10 +178,9 @@ Look for the [`good first issue`](../../labels/good%20first%20issue) label. Some
 - **Number separators:** let `1_000_000` be written for readability (lexer only).
 - **Comparing text:** let `<` and `>` put text in alphabetical order (checker and VM).
 - **`when` as a value:** `label = when ...`, where every case gives a value and `else` is required.
-- **`for` loops:** `for i in 1..10`, as in the README's FizzBuzz example.
 - **Better suggestions:** find an error message that confused you and improve it.
 - **Example programs:** add small, well-commented `.ql` files.
-- **Editor support:** syntax highlighting for VS Code.
+- **Editor coloring:** when a function or other syntax lands, paint it with the color reserved for it in the book, in `editors/vscode` and in the Vim, Emacs, and Sublime files.
 
 The [Roadmap](README.md#roadmap) in the README lists the bigger milestones.
 

@@ -63,7 +63,7 @@ Quill reads from top to bottom, so create values before using them.
 
 ## Kinds of values
 
-Every value has a **kind**. Quill has three:
+Every value has a **kind**. Quill starts with three:
 
 | Kind | Examples | Used for |
 |---|---|---|
@@ -86,6 +86,8 @@ Dubai
 120
 true
 ```
+
+A list and a record gather several values into one. They have their own chapter, [Lists and records](groups.md).
 
 A name keeps its kind for the whole program. Quill knows the kind of every value before the program runs, which is how it catches mistakes like adding text to a number. You'll see that in the next chapter.
 

@@ -8,40 +8,113 @@
 use crate::compiler::too_many_digits;
 use crate::decimal::Decimal;
 use crate::diagnostic::{closest_match, Diagnostic, Span};
-use crate::parser::{Arithmetic, Comparison, Expr, ExprKind, Part, Program, Statement};
+use crate::parser::{
+    Access, Arithmetic, Catch, Comparison, Expr, ExprKind, Handler, Param, Part, Program, SigKind,
+    Statement,
+};
 
 /// The kind of a value.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Kind {
     Text,
     Number,
     Bool,
+    /// Every item has this kind.
+    List(Box<Kind>),
+    /// Named fields. The order here is the order they were written.
+    Record(Vec<FieldKind>),
+    /// Money in one currency. The text is the code, such as `AED`.
+    Money(String),
+    /// A value that might be missing.
+    Maybe(Box<Kind>),
     /// Not known because of an earlier problem. Never reported again, so one
     /// mistake gives one error.
     Unknown,
 }
 
+/// One field of a record's kind.
+#[derive(Debug, Clone)]
+pub struct FieldKind {
+    pub name: String,
+    pub kind: Kind,
+}
+
+impl PartialEq for Kind {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Kind::Text, Kind::Text) | (Kind::Number, Kind::Number) | (Kind::Bool, Kind::Bool) => {
+                true
+            }
+            (Kind::Unknown, Kind::Unknown) => true,
+            (Kind::List(left), Kind::List(right)) => left == right,
+            (Kind::Money(left), Kind::Money(right)) => left == right,
+            (Kind::Maybe(left), Kind::Maybe(right)) => left == right,
+            (Kind::Record(left), Kind::Record(right)) => {
+                left.len() == right.len()
+                    && left.iter().all(|field| {
+                        right
+                            .iter()
+                            .any(|other| other.name == field.name && other.kind == field.kind)
+                    })
+            }
+            _ => false,
+        }
+    }
+}
+
 impl Kind {
     /// The kind's name, as errors and `quill explain` show it.
-    pub fn name(self) -> &'static str {
+    pub fn name(&self) -> String {
         match self {
-            Kind::Text => "Text",
-            Kind::Number => "Number",
-            Kind::Bool => "true/false",
-            Kind::Unknown => "a value",
+            Kind::Text => "Text".to_string(),
+            Kind::Number => "Number".to_string(),
+            Kind::Bool => "true/false".to_string(),
+            Kind::List(item) => format!("a list of {}", item.name()),
+            Kind::Record(fields) => {
+                let names: Vec<&str> = fields.iter().map(|field| field.name.as_str()).collect();
+                format!("a record with {}", names.join(", "))
+            }
+            Kind::Money(code) => format!("money in {code}"),
+            Kind::Maybe(inner) => format!("maybe {}", inner.name()),
+            Kind::Unknown => "a value".to_string(),
         }
     }
 
     /// The name with "a" where English needs one: "holds a Number".
-    fn with_article(self) -> &'static str {
+    fn with_article(&self) -> String {
         match self {
-            Kind::Number => "a Number",
+            Kind::Number => "a Number".to_string(),
             other => other.name(),
         }
     }
 
-    fn known(self) -> bool {
-        self != Kind::Unknown
+    fn known(&self) -> bool {
+        !matches!(self, Kind::Unknown)
+    }
+
+    /// The kind the way a function writes it: "a number", "text", "a list of number".
+    fn written_kind(&self) -> String {
+        match self {
+            Kind::Text => "text".to_string(),
+            Kind::Number => "a number".to_string(),
+            Kind::Bool => "true or false".to_string(),
+            Kind::List(item) => format!("a list of {}", item.written_item()),
+            Kind::Money(code) => format!("money in {code}"),
+            Kind::Maybe(inner) => format!("maybe {}", inner.written_item()),
+            other => other.with_article(),
+        }
+    }
+
+    fn written_item(&self) -> String {
+        match self {
+            Kind::Text => "text".to_string(),
+            Kind::Number => "number".to_string(),
+            Kind::Bool => "true/false".to_string(),
+            Kind::List(item) => format!("list of {}", item.written_item()),
+            Kind::Money(code) => code.clone(),
+            Kind::Maybe(inner) => format!("maybe {}", inner.written_item()),
+            other => other.name(),
+        }
     }
 }
 
@@ -53,6 +126,8 @@ pub struct KnownValue {
     pub span: Span,
     pub kind: Kind,
     pub mutable: bool,
+    /// `true` when a `for` owns this name and moves it to the next number itself.
+    pub loop_counter: bool,
     /// The line that created it, as Quill code.
     pub created: String,
 }
@@ -73,6 +148,7 @@ pub fn check(program: &Program) -> Result<(), Vec<Diagnostic>> {
 /// The values created before `line`, with their kinds.
 pub fn values_before(program: &Program, line: usize) -> Vec<KnownValue> {
     let mut checker = Checker::new(program);
+    checker.stop_before = Some(line);
     for statement in &program.statements {
         if statement.line() >= line {
             break;
@@ -86,17 +162,41 @@ pub fn values_before(program: &Program, line: usize) -> Vec<KnownValue> {
 pub fn kind_of(program: &Program, expr: &Expr, known: &[KnownValue]) -> Kind {
     let mut checker = Checker::new(program);
     checker.defined = known.to_vec();
+    checker.functions = function_signatures(program);
     checker.value(expr, None, &|_| String::new())
 }
 
 /// Rebuilds the line around a corrected value, for a suggestion.
 type Rewrite<'r> = &'r dyn Fn(&Expr) -> String;
 
+/// A function the program has written.
+#[derive(Debug, Clone)]
+struct KnownFn {
+    name: String,
+    span: Span,
+    params: Vec<(String, Kind)>,
+    /// Absent when the function gives nothing back.
+    result: Option<Kind>,
+    /// Failure names this function can leave with.
+    fails: Vec<String>,
+    /// `double(n: number) -> number`, for errors.
+    written: String,
+}
+
 struct Checker<'a> {
     program: &'a Program,
     /// Values created so far, in order.
     defined: Vec<KnownValue>,
+    /// Names from outside a function, while its body is being checked.
+    outer: Vec<KnownValue>,
+    functions: Vec<KnownFn>,
+    /// The function whose body is being checked.
+    in_function: Option<String>,
+    /// `true` while a call's failures are handled by `on` or passed on by `try`.
+    handling: bool,
     problems: Vec<Diagnostic>,
+    /// While explaining one line, stop before it and keep the names that cover it.
+    stop_before: Option<usize>,
 }
 
 impl<'a> Checker<'a> {
@@ -104,25 +204,70 @@ impl<'a> Checker<'a> {
         Checker {
             program,
             defined: Vec::new(),
+            outer: Vec::new(),
+            functions: Vec::new(),
+            in_function: None,
+            handling: false,
             problems: Vec::new(),
+            stop_before: None,
         }
     }
 
-    fn statement(&mut self, statement: &Statement) {
+    /// Checks `statement`. Returns true when the walk reached `stop_before`.
+    fn statement(&mut self, statement: &Statement) -> bool {
+        if self
+            .stop_before
+            .is_some_and(|stop| statement.line() >= stop)
+        {
+            return true;
+        }
         match statement {
-            Statement::Say { value, .. } => {
-                self.value(value, None, &|fixed| format!("say {fixed}"));
+            Statement::Say { value, span, .. } => {
+                let kind = self.value(value, None, &|fixed| format!("say {fixed}"));
+                if let Kind::Maybe(inner) = &kind {
+                    self.problems.push(Diagnostic::new(
+                        *span,
+                        format!(
+                            "say would hide that this might be missing.\n\
+                             Open it with when, and handle found and missing. \
+                             The value inside is {}.",
+                            inner.written_kind()
+                        ),
+                    ));
+                }
             }
             Statement::Let {
                 name,
                 name_span,
                 value,
                 mutable,
+                handlers,
             } => {
                 let prefix = if *mutable { "var " } else { "" };
+                let bare_call = matches!(value.kind, ExprKind::Call { .. });
+                if bare_call {
+                    self.handling = true;
+                }
                 let kind = self.value(value, Some(name), &|fixed| {
                     format!("{prefix}{name} = {fixed}")
                 });
+                self.handling = false;
+                if matches!(value.kind, ExprKind::Missing) {
+                    self.problems.push(Diagnostic::new(
+                        value.span,
+                        "missing belongs in return, inside a function that gives a maybe back.\n\
+                         return missing gives nothing back. found 1 gives a value back.",
+                    ));
+                }
+                if bare_call {
+                    self.check_handlers(value, handlers);
+                } else if !handlers.is_empty() {
+                    self.problems.push(Diagnostic::new(
+                        handlers[0].span,
+                        "on handles the failures of a call.\n\
+                         The value after = has to be the call itself, like charge(amount).",
+                    ));
+                }
                 match self.lookup(name).cloned() {
                     Some(first) if first.mutable => self.problems.push(
                         Diagnostic::new(
@@ -144,11 +289,27 @@ impl<'a> Checker<'a> {
                             first.span.line
                         ),
                     )),
+                    None if self.functions.iter().any(|func| &func.name == name) => {
+                        let line = self
+                            .functions
+                            .iter()
+                            .find(|func| &func.name == name)
+                            .map(|func| func.span.line)
+                            .unwrap_or(name_span.line);
+                        self.problems.push(Diagnostic::new(
+                            *name_span,
+                            format!(
+                                "{name} is already a function, written on line {line}.\n\
+                                 A value needs its own name."
+                            ),
+                        ));
+                    }
                     None => self.defined.push(KnownValue {
                         name: name.clone(),
                         span: *name_span,
                         kind,
                         mutable: *mutable,
+                        loop_counter: false,
                         created: statement.to_string(),
                     }),
                 }
@@ -156,9 +317,21 @@ impl<'a> Checker<'a> {
             Statement::Set {
                 name,
                 name_span,
+                steps,
                 value,
+                handlers,
                 ..
-            } => self.set(name, *name_span, value),
+            } => {
+                let bare_call = matches!(value.kind, ExprKind::Call { .. });
+                if bare_call {
+                    self.handling = true;
+                }
+                self.set(name, *name_span, steps, value);
+                self.handling = false;
+                if bare_call {
+                    self.check_handlers(value, handlers);
+                }
+            }
             Statement::Check {
                 left,
                 op,
@@ -185,6 +358,9 @@ impl<'a> Checker<'a> {
             }
             Statement::When { arms, .. } => {
                 for arm in arms {
+                    if self.stop_before.is_some_and(|stop| arm.span.line >= stop) {
+                        return true;
+                    }
                     if let Some(condition) = &arm.condition {
                         let body = &arm.body;
                         let kind =
@@ -197,19 +373,759 @@ impl<'a> Checker<'a> {
                                      but {condition} is {}.\n\
                                      Compare it to something, like {}.",
                                     kind.with_article(),
-                                    condition_example(condition, kind)
+                                    condition_example(condition, &kind)
                                 ),
                             ));
                         }
                     }
-                    self.statement(&arm.body);
+                    if self.statement(&arm.body) {
+                        return true;
+                    }
+                }
+            }
+            Statement::For {
+                name,
+                name_span,
+                start,
+                end,
+                body,
+                ..
+            } => {
+                let item_kind = match end {
+                    Some(end) => {
+                        self.expect_number(start, "start");
+                        self.expect_number(end, "end");
+                        Kind::Number
+                    }
+                    None => self.list_item_kind(start),
+                };
+                let saved = self.hide(name);
+                self.defined.push(KnownValue {
+                    name: name.clone(),
+                    span: *name_span,
+                    kind: item_kind,
+                    mutable: false,
+                    loop_counter: true,
+                    created: statement.to_string(),
+                });
+                for statement in body {
+                    if self.statement(statement) {
+                        return true;
+                    }
+                }
+                self.defined.pop();
+                self.restore(saved);
+            }
+            Statement::Function {
+                name,
+                name_span,
+                params,
+                result,
+                fails,
+                body,
+                ..
+            } => return self.function(name, *name_span, params, result, fails, body),
+            Statement::Return { value, span } => self.return_value(value.as_ref(), *span),
+            Statement::Call {
+                name,
+                name_span,
+                args,
+                handlers,
+                ..
+            } => {
+                self.handling = true;
+                self.call_statement(name, *name_span, args);
+                self.handling = false;
+                self.check_call_handlers(name, handlers);
+            }
+            Statement::Match {
+                subject,
+                arms,
+                span,
+            } => {
+                self.open_maybe(subject, arms, *span);
+            }
+            Statement::Fail { name, span } => self.fail_name(name, *span),
+        }
+        false
+    }
+
+    /// The start or end of a `for` range must be a number.
+    fn expect_number(&mut self, expr: &Expr, role: &str) {
+        let kind = self.value(expr, None, &|fixed| fixed.to_string());
+        if kind.known() && kind != Kind::Number {
+            self.problems.push(Diagnostic::new(
+                expr.span,
+                format!(
+                    "The {role} of a for loop has to be a number, but {expr} is {}.\n\
+                     for counts from one number to another, like for i in 1..3.",
+                    kind.name()
+                ),
+            ));
+        }
+    }
+
+    /// Takes a value of this name out of scope, so a `for` can use the name itself.
+    fn hide(&mut self, name: &str) -> Option<(usize, KnownValue)> {
+        let index = self.defined.iter().position(|known| known.name == name)?;
+        Some((index, self.defined.remove(index)))
+    }
+
+    fn restore(&mut self, saved: Option<(usize, KnownValue)>) {
+        if let Some((index, saved)) = saved {
+            let index = index.min(self.defined.len());
+            self.defined.insert(index, saved);
+        }
+    }
+
+    /// Checks a function, then keeps it for later calls.
+    fn function(
+        &mut self,
+        name: &str,
+        name_span: Span,
+        params: &[Param],
+        result: &Option<SigKind>,
+        fails: &[(String, Span)],
+        body: &[Statement],
+    ) -> bool {
+        if let Some(first) = self.functions.iter().find(|func| func.name == name) {
+            self.problems.push(Diagnostic::new(
+                name_span,
+                format!(
+                    "{name} is already a function, written on line {}.\n\
+                     Each function needs its own name.",
+                    first.span.line
+                ),
+            ));
+            return false;
+        }
+        if self.lookup(name).is_some() {
+            self.problems.push(Diagnostic::new(
+                name_span,
+                format!(
+                    "{name} is already a value.\n\
+                     A function needs its own name."
+                ),
+            ));
+            return false;
+        }
+        let known = known_function(name, name_span, params, result, fails);
+        self.functions.push(known.clone());
+        self.outer = std::mem::take(&mut self.defined);
+        self.in_function = Some(name.to_string());
+        for (param_name, kind) in &known.params {
+            let param = params.iter().find(|param| &param.name == param_name);
+            self.defined.push(KnownValue {
+                name: param_name.clone(),
+                span: param.map(|param| param.name_span).unwrap_or(name_span),
+                kind: kind.clone(),
+                mutable: false,
+                loop_counter: false,
+                created: format!(
+                    "{param_name}: {}",
+                    param.map(|param| param.kind.written()).unwrap_or_default()
+                ),
+            });
+        }
+        let mut stopped = false;
+        for statement in body {
+            if self.statement(statement) {
+                stopped = true;
+                break;
+            }
+        }
+        if !stopped {
+            if let Some(result_kind) = &known.result {
+                if !body_returns(body) {
+                    self.problems.push(
+                        Diagnostic::new(
+                            name_span,
+                            format!(
+                                "{name} has to give back {}.\n\
+                             End every path with return, like return 1.",
+                                result_kind.with_article()
+                            ),
+                        )
+                        .suggest("return 1"),
+                    );
+                }
+            }
+            self.report_dead_code(body);
+            self.defined = std::mem::take(&mut self.outer);
+            self.in_function = None;
+        }
+        stopped
+    }
+
+    fn return_value(&mut self, value: Option<&Expr>, span: Span) {
+        let Some(name) = self.in_function.clone() else {
+            self.problems.push(Diagnostic::new(
+                span,
+                "return only goes inside a function, to give a value back.\n\
+                 On its own line, use say to show a value.",
+            ));
+            return;
+        };
+        let result = self
+            .functions
+            .iter()
+            .find(|func| func.name == name)
+            .and_then(|func| func.result.clone());
+        match (result, value) {
+            (Some(expected), Some(value)) => {
+                let kind = self.value(value, None, &|fixed| format!("return {fixed}"));
+                if matches!(value.kind, ExprKind::Missing) && matches!(expected, Kind::Maybe(_)) {
+                    return;
+                }
+                if kind.known() && kind != expected {
+                    self.problems.push(Diagnostic::new(
+                        value.span,
+                        format!(
+                            "{name} gives back {}, but {value} is {}.\n\
+                             return has to give back {}.",
+                            expected.with_article(),
+                            kind.with_article(),
+                            expected.written_kind()
+                        ),
+                    ));
+                }
+            }
+            (Some(expected), None) => {
+                self.problems.push(
+                    Diagnostic::new(
+                        span,
+                        format!(
+                            "{name} gives back {}, so return needs a value after it.\n\
+                         return 1 gives a number back.",
+                            expected.with_article()
+                        ),
+                    )
+                    .suggest("return 1"),
+                );
+            }
+            (None, Some(value)) => {
+                self.problems.push(Diagnostic::new(
+                    value.span,
+                    format!(
+                        "{name} doesn't give a value back, so return stands on its own.\n\
+                         To give {value} back, write what {name} gives back after ->."
+                    ),
+                ));
+            }
+            (None, None) => {}
+        }
+    }
+
+    fn call_statement(&mut self, name: &str, name_span: Span, args: &[Expr]) {
+        let Some(func) = self
+            .functions
+            .iter()
+            .find(|func| func.name == name)
+            .cloned()
+        else {
+            self.missing_function(name, name_span);
+            return;
+        };
+        if let Some(result) = &func.result {
+            let suggestion = format!("var result = {}", call_written(name, args));
+            let message = if self.handling {
+                format!(
+                    "{name} gives back {}, and this call doesn't keep it.\n\
+                     Write var result = {}, then handle each failure with on.",
+                    result.with_article(),
+                    call_written(name, args)
+                )
+            } else {
+                format!(
+                    "{name} gives back {}, so the call has to be used.\n\
+                     say {} shows what it gives back.",
+                    result.with_article(),
+                    func.written
+                )
+            };
+            self.problems.push(
+                Diagnostic::new(name_span, message).suggest(if self.handling {
+                    suggestion
+                } else {
+                    format!("say {}", call_written(name, args))
+                }),
+            );
+            if !self.handling {
+                return;
+            }
+        }
+        self.check_args(name, name_span, args, &func);
+        self.require_handled(&func, name_span);
+    }
+
+    /// Money arithmetic, when either side is money. `None` when neither side is.
+    fn money_arithmetic(
+        &mut self,
+        op: Arithmetic,
+        expr: &Expr,
+        left: &Expr,
+        right: &Expr,
+        left_kind: &Kind,
+        right_kind: &Kind,
+    ) -> Option<Kind> {
+        let left_code = match left_kind {
+            Kind::Money(code) => Some(code.clone()),
+            _ => None,
+        };
+        let right_code = match right_kind {
+            Kind::Money(code) => Some(code.clone()),
+            _ => None,
+        };
+        if left_code.is_none() && right_code.is_none() {
+            return None;
+        }
+        if let (Some(left_money), Some(right_money)) = (&left_code, &right_code) {
+            if left_money == right_money && matches!(op, Arithmetic::Add | Arithmetic::Subtract) {
+                return Some(Kind::Money(left_money.clone()));
+            }
+        }
+        if op == Arithmetic::Multiply {
+            if let (Some(code), Kind::Number) = (&left_code, right_kind) {
+                return Some(Kind::Money(code.clone()));
+            }
+            if let (Some(code), Kind::Number) = (&right_code, left_kind) {
+                return Some(Kind::Money(code.clone()));
+            }
+        }
+        if let (Some(code), Kind::Number) = (&left_code, right_kind) {
+            if op == Arithmetic::Divide {
+                return Some(Kind::Money(code.clone()));
+            }
+        }
+        let why = if left_code.is_some() && right_code.is_some() && left_code != right_code {
+            format!(
+                "Quill won't mix currencies. {} and {} stay apart until one of them is converted.",
+                left_code.unwrap_or_default(),
+                right_code.unwrap_or_default()
+            )
+        } else if matches!(op, Arithmetic::Add | Arithmetic::Subtract) {
+            "Add or subtract two amounts in the same currency, like 100 AED + 50 AED.".to_string()
+        } else if op == Arithmetic::Divide {
+            "Divide money by a number, as in 100 AED / 2.".to_string()
+        } else if op == Arithmetic::Remainder {
+            "A remainder needs two numbers. Money can be added, subtracted, multiplied by a number, or divided by a number.".to_string()
+        } else {
+            "Multiply money by a number, as in 100 AED * 0.90.".to_string()
+        };
+        self.problems.push(Diagnostic::new(
+            expr.span,
+            format!(
+                "You're {} {} ({left}) and {} ({right}).\n{why}",
+                op.verb(),
+                left_kind.name(),
+                right_kind.name()
+            ),
+        ));
+        Some(Kind::Unknown)
+    }
+
+    fn require_handled(&mut self, func: &KnownFn, span: Span) {
+        if func.fails.is_empty() || self.handling {
+            return;
+        }
+        self.problems.push(Diagnostic::new(
+            span,
+            format!(
+                "{} can fail with {}.\n\
+                 Handle each failure with on under the call, or write try {}(...) \
+                 inside a function that fails the same way.",
+                func.name,
+                func.fails.join(" or "),
+                func.name
+            ),
+        ));
+    }
+
+    fn check_handlers(&mut self, value: &Expr, handlers: &[Handler]) {
+        let ExprKind::Call {
+            name, name_span, ..
+        } = &value.kind
+        else {
+            return;
+        };
+        let Some(func) = self
+            .functions
+            .iter()
+            .find(|func| &func.name == name)
+            .cloned()
+        else {
+            return;
+        };
+        self.cover_failures(&func, *name_span, handlers);
+    }
+
+    fn check_call_handlers(&mut self, name: &str, handlers: &[Handler]) {
+        let Some(func) = self
+            .functions
+            .iter()
+            .find(|func| func.name == name)
+            .cloned()
+        else {
+            return;
+        };
+        let span = handlers
+            .first()
+            .map(|handler| handler.span)
+            .unwrap_or(func.span);
+        self.cover_failures(&func, span, handlers);
+    }
+
+    fn cover_failures(&mut self, func: &KnownFn, span: Span, handlers: &[Handler]) {
+        if func.fails.is_empty() {
+            if !handlers.is_empty() {
+                self.problems.push(Diagnostic::new(
+                    handlers[0].span,
+                    format!(
+                        "{} doesn't fail, so on doesn't belong here.\n\
+                         on handles a failure named in fails.",
+                        func.name
+                    ),
+                ));
+            }
+            return;
+        }
+        let mut seen = Vec::new();
+        for handler in handlers {
+            if !func.fails.iter().any(|name| name == &handler.name) {
+                self.problems.push(Diagnostic::new(
+                    handler.name_span,
+                    format!(
+                        "{} doesn't fail with {}.\n\
+                         It fails with {}.",
+                        func.name,
+                        handler.name,
+                        func.fails.join(" or ")
+                    ),
+                ));
+            } else if seen.contains(&handler.name) {
+                self.problems.push(Diagnostic::new(
+                    handler.name_span,
+                    format!(
+                        "{} is already handled.\n\
+                         Each failure needs one on.",
+                        handler.name
+                    ),
+                ));
+            } else {
+                seen.push(handler.name.clone());
+            }
+            if self.in_function.is_some() {
+                if let Some(result) = self
+                    .functions
+                    .iter()
+                    .find(|outer| self.in_function.as_deref() == Some(outer.name.as_str()))
+                    .and_then(|outer| outer.result.clone())
+                {
+                    if !always_returns(&handler.body) {
+                        self.problems.push(Diagnostic::new(
+                            handler.span,
+                            format!(
+                                "This on has to give back {}, or the function stops without a value.\n\
+                                 End it with return.",
+                                result.with_article()
+                            ),
+                        ));
+                    }
+                }
+            }
+            let _ = self.statement(&handler.body);
+        }
+        for name in &func.fails {
+            if !seen.contains(name) {
+                self.problems.push(
+                    Diagnostic::new(
+                        span,
+                        format!(
+                            "{name} isn't handled.\n\
+                             {} can fail with {name}, so the call needs on {name}.",
+                            func.name
+                        ),
+                    )
+                    .suggest(format!("on {name} -> say \"{name}\"")),
+                );
+            }
+        }
+    }
+
+    fn open_maybe(&mut self, subject: &Expr, arms: &[Catch], span: Span) {
+        let kind = self.value(subject, None, &|fixed| format!("when {fixed}"));
+        let inner = match kind {
+            Kind::Maybe(inner) => *inner,
+            Kind::Unknown => Kind::Unknown,
+            other => {
+                self.problems.push(Diagnostic::new(
+                    subject.span,
+                    format!(
+                        "when opens a maybe here, but {subject} is {}.\n\
+                         A maybe comes back from a function written -> maybe, \
+                         and the cases below are found and missing.",
+                        other.with_article()
+                    ),
+                ));
+                Kind::Unknown
+            }
+        };
+        let mut saw_found = false;
+        let mut saw_missing = false;
+        for arm in arms {
+            match &arm.found {
+                Some((name, name_span)) => {
+                    if saw_found {
+                        self.problems.push(Diagnostic::new(
+                            *name_span,
+                            "found is already handled above.\n\
+                             A maybe has one found case and one missing case.",
+                        ));
+                    }
+                    saw_found = true;
+                    let saved = self.hide(name);
+                    self.defined.push(KnownValue {
+                        name: name.clone(),
+                        span: *name_span,
+                        kind: inner.clone(),
+                        mutable: false,
+                        loop_counter: false,
+                        created: format!("found {name}"),
+                    });
+                    let _ = self.statement(&arm.body);
+                    self.defined.pop();
+                    self.restore(saved);
+                }
+                None => {
+                    if saw_missing {
+                        self.problems.push(Diagnostic::new(
+                            arm.span,
+                            "missing is already handled above.\n\
+                             A maybe has one found case and one missing case.",
+                        ));
+                    }
+                    saw_missing = true;
+                    let _ = self.statement(&arm.body);
+                }
+            }
+        }
+        if !saw_found {
+            self.problems.push(
+                Diagnostic::new(
+                    span,
+                    "This when doesn't handle found.\n\
+                     found name -> ... uses the value when it is there.",
+                )
+                .suggest("found value -> say value"),
+            );
+        }
+        if !saw_missing {
+            self.problems.push(
+                Diagnostic::new(
+                    span,
+                    "This when doesn't handle missing.\n\
+                     A maybe can be missing, and that case has to be handled too.",
+                )
+                .suggest("missing -> say \"none\""),
+            );
+        }
+    }
+
+    fn fail_name(&mut self, name: &str, span: Span) {
+        let Some(function) = self.in_function.clone() else {
+            self.problems.push(Diagnostic::new(
+                span,
+                "fail only goes inside a function that declares fails.",
+            ));
+            return;
+        };
+        let declared = self
+            .functions
+            .iter()
+            .find(|func| func.name == function)
+            .map(|func| func.fails.clone())
+            .unwrap_or_default();
+        if !declared.iter().any(|failure| failure == name) {
+            let listed = if declared.is_empty() {
+                format!("{function} doesn't declare any failures. Add fails {name} under fn.")
+            } else {
+                format!("{function} fails with {}.", declared.join(" or "))
+            };
+            self.problems.push(Diagnostic::new(
+                span,
+                format!("{function} doesn't fail with {name}.\n{listed}"),
+            ));
+        }
+    }
+
+    fn try_call(&mut self, inner: &Expr) -> Kind {
+        let ExprKind::Call { name, .. } = &inner.kind else {
+            self.problems.push(Diagnostic::new(
+                inner.span,
+                "try needs a call after it.\n\
+                 try charge(amount) runs charge and passes its failures upward.",
+            ));
+            return Kind::Unknown;
+        };
+        let Some(function) = self.in_function.clone() else {
+            self.problems.push(Diagnostic::new(
+                inner.span,
+                "try goes inside a function that fails the same way.\n\
+                 At the top of the program, handle each failure with on.",
+            ));
+            return Kind::Unknown;
+        };
+        let saved = self.handling;
+        self.handling = true;
+        let kind = self.value(inner, None, &|fixed| format!("try {fixed}"));
+        self.handling = saved;
+        let callee = self
+            .functions
+            .iter()
+            .find(|func| &func.name == name)
+            .cloned();
+        let caller = self
+            .functions
+            .iter()
+            .find(|func| func.name == function)
+            .cloned();
+        if let (Some(callee), Some(caller)) = (callee, caller) {
+            if callee.fails.is_empty() {
+                self.problems.push(Diagnostic::new(
+                    inner.span,
+                    format!(
+                        "try is for a call that can fail.\n\
+                         {name} doesn't fail, so call it without try."
+                    ),
+                ));
+            }
+            for failure in &callee.fails {
+                if !caller.fails.iter().any(|name| name == failure) {
+                    self.problems.push(Diagnostic::new(
+                        inner.span,
+                        format!(
+                            "{function} doesn't fail with {failure}, so it can't pass that failure on.\n\
+                             Add {failure} after fails, or handle it with on."
+                        ),
+                    ));
+                }
+            }
+        }
+        kind
+    }
+
+    fn missing_function(&mut self, name: &str, span: Span) {
+        if let Some(later) = self.function_later(name, span.line) {
+            self.problems.push(Diagnostic::new(
+                span,
+                format!(
+                    "{name} is used here, but the function isn't written until line {}.\n\
+                     Write the function above the line that calls it.",
+                    later.line
+                ),
+            ));
+            return;
+        }
+        let problem = Diagnostic::new(
+            span,
+            format!(
+                "There's no function called {name}.\n\
+                 Write it with fn {name}(...) above this line."
+            ),
+        );
+        let names = self.functions.iter().map(|func| func.name.as_str());
+        self.problems.push(match closest_match(name, names) {
+            Some(fixed) => problem.suggest(fixed.to_string()),
+            None => problem.suggest(format!("fn {name}() -> number\n  return 1")),
+        });
+    }
+
+    fn check_args(&mut self, name: &str, span: Span, args: &[Expr], func: &KnownFn) {
+        if args.len() != func.params.len() {
+            let count = func.params.len();
+            let word = if count == 1 { "value" } else { "values" };
+            self.problems.push(Diagnostic::new(
+                span,
+                format!(
+                    "{name} takes {count} {word}, but this call has {}.\n\
+                     {}.",
+                    args.len(),
+                    func.written
+                ),
+            ));
+        }
+        for (index, arg) in args.iter().enumerate() {
+            let kind = self.value(arg, None, &|fixed| {
+                let mut args = args.to_vec();
+                if let Some(slot) = args.get_mut(index) {
+                    *slot = fixed.clone();
+                }
+                call_written(name, &args)
+            });
+            if let Some((param, expected)) = func.params.get(index) {
+                if matches!(arg.kind, ExprKind::Missing) && matches!(expected, Kind::Maybe(_)) {
+                    continue;
+                }
+                if kind.known() && kind != *expected {
+                    self.problems.push(Diagnostic::new(
+                        arg.span,
+                        format!(
+                            "{name} needs {} for {param}, but {arg} is {}.\n\
+                             {}.",
+                            expected.written_kind(),
+                            kind.with_article(),
+                            func.written
+                        ),
+                    ));
                 }
             }
         }
     }
 
-    fn set(&mut self, name: &str, name_span: Span, value: &Expr) {
-        let kind = self.value(value, None, &|fixed| format!("set {name} = {fixed}"));
+    fn function_later(&self, name: &str, after_line: usize) -> Option<Span> {
+        self.program.statements.iter().find_map(|statement| {
+            if let Statement::Function {
+                name: created,
+                name_span,
+                ..
+            } = statement
+            {
+                if created == name && name_span.line > after_line {
+                    return Some(*name_span);
+                }
+            }
+            None
+        })
+    }
+
+    fn report_dead_code(&mut self, body: &[Statement]) {
+        for pair in body.windows(2) {
+            if always_returns(&pair[0]) {
+                self.problems.push(Diagnostic::new(
+                    span_of(&pair[1]),
+                    "This line can never run.\n\
+                     return already left the function.",
+                ));
+            }
+        }
+        for statement in body {
+            match statement {
+                Statement::When { arms, .. } => {
+                    for arm in arms {
+                        self.report_dead_code(std::slice::from_ref(arm.body.as_ref()));
+                    }
+                }
+                Statement::For { body, .. } | Statement::Function { body, .. } => {
+                    self.report_dead_code(body);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn set(&mut self, name: &str, name_span: Span, steps: &[Access], value: &Expr) {
+        let place = access_text(steps);
+        let kind = self.value(value, None, &|fixed| format!("set {name}{place} = {fixed}"));
         let Some(target) = self.lookup(name).cloned() else {
             let problem = if let Some(later) = self.created_later(name, name_span.line) {
                 Diagnostic::new(
@@ -242,6 +1158,19 @@ impl<'a> Checker<'a> {
             return;
         };
 
+        if target.loop_counter {
+            self.problems.push(Diagnostic::new(
+                name_span,
+                format!(
+                    "{name} changes on its own, once each time through the for.\n\
+                     The for on line {} moves {name} on to the next one. \
+                     To keep a total, create a var before the for and change that with set.",
+                    target.span.line
+                ),
+            ));
+            return;
+        }
+
         if !target.mutable {
             self.problems.push(Diagnostic::new(
                 name_span,
@@ -255,19 +1184,23 @@ impl<'a> Checker<'a> {
             return;
         }
 
-        if target.kind.known() && kind.known() && target.kind != kind {
+        let mut slot_kind = target.kind.clone();
+        for step in steps {
+            slot_kind = self.follow(step, &slot_kind, name);
+        }
+        if slot_kind.known() && kind.known() && slot_kind != kind {
             let problem = Diagnostic::new(
                 value.span,
                 format!(
-                    "{name} holds {}, so it can't be set to {} ({value}).\n\
+                    "{name}{place} holds {}, so it can't be set to {} ({value}).\n\
                      A value keeps the same kind for the whole program.",
-                    target.kind.with_article(),
+                    slot_kind.with_article(),
                     kind.name()
                 ),
             );
             self.problems.push(match number_from_text(value) {
-                Some(number) if target.kind == Kind::Number => {
-                    problem.suggest(format!("set {name} = {number}"))
+                Some(number) if slot_kind == Kind::Number => {
+                    problem.suggest(format!("set {name}{place} = {number}"))
                 }
                 _ => problem,
             });
@@ -309,6 +1242,9 @@ impl<'a> Checker<'a> {
             ExprKind::Group(inner) => self.infer(inner, context),
             ExprKind::Negate(inner) => {
                 let kind = self.infer(inner, context);
+                if let Kind::Money(code) = &kind {
+                    return Kind::Money(code.clone());
+                }
                 if kind.known() && kind != Kind::Number {
                     self.problems.push(Diagnostic::new(
                         expr.span,
@@ -331,7 +1267,7 @@ impl<'a> Checker<'a> {
                             "not turns true into false and false into true, but {inner} is {}.\n\
                              To use it as a condition, compare it to something, like {}.",
                             kind.name(),
-                            condition_example(inner, kind)
+                            condition_example(inner, &kind)
                         ),
                     ));
                 }
@@ -375,13 +1311,303 @@ impl<'a> Checker<'a> {
                                  To use it as a condition, compare it to something, like {}.",
                                 op.word(),
                                 kind.with_article(),
-                                condition_example(side, kind)
+                                condition_example(side, &kind)
                             ),
                         ));
                     }
                 }
                 Kind::Bool
             }
+            ExprKind::List { items, empty } => self.list_kind(items, empty.as_ref()),
+            ExprKind::Record { fields } => {
+                let mut kinds = Vec::new();
+                for field in fields {
+                    kinds.push(FieldKind {
+                        name: field.name.clone(),
+                        kind: self.infer(&field.value, context),
+                    });
+                }
+                Kind::Record(kinds)
+            }
+            ExprKind::At {
+                list,
+                index,
+                at_span,
+            } => {
+                let kind = self.infer(list, context);
+                self.expect_position(index);
+                match &kind {
+                    Kind::List(item) => {
+                        self.position_in_range(list, index);
+                        (**item).clone()
+                    }
+                    Kind::Unknown => Kind::Unknown,
+                    _ => {
+                        self.problems.push(Diagnostic::new(
+                            *at_span,
+                            format!(
+                                "{list} is {}, so it has no item at a position.\n\
+                                 at picks an item from a list, like hobbies at 1. Lists count from 1.",
+                                kind.name()
+                            ),
+                        ));
+                        Kind::Unknown
+                    }
+                }
+            }
+            ExprKind::Money { amount, currency } => {
+                if Decimal::parse(amount).is_none() {
+                    self.problems.push(too_many_digits(amount, expr.span));
+                }
+                Kind::Money(currency.clone())
+            }
+            ExprKind::Found(inner) => Kind::Maybe(Box::new(self.infer(inner, context))),
+            ExprKind::Missing => Kind::Maybe(Box::new(Kind::Unknown)),
+            ExprKind::Try(inner) => self.try_call(inner),
+            ExprKind::Call {
+                name,
+                name_span,
+                args,
+            } => {
+                let Some(func) = self
+                    .functions
+                    .iter()
+                    .find(|func| &func.name == name)
+                    .cloned()
+                else {
+                    self.missing_function(name, *name_span);
+                    return Kind::Unknown;
+                };
+                self.check_args(name, *name_span, args, &func);
+                self.require_handled(&func, *name_span);
+                match func.result.clone() {
+                    Some(kind) => kind,
+                    None => {
+                        self.problems.push(Diagnostic::new(
+                            *name_span,
+                            format!(
+                                "{name} doesn't give a value back.\n\
+                                 Write {name}(...) on its own line. It runs, and nothing comes back."
+                            ),
+                        ));
+                        Kind::Unknown
+                    }
+                }
+            }
+            ExprKind::Field {
+                record,
+                name,
+                name_span,
+            } => {
+                let kind = self.infer(record, context);
+                match &kind {
+                    Kind::Record(fields) => self.field_kind(fields, name, *name_span),
+                    Kind::Unknown => Kind::Unknown,
+                    _ => {
+                        self.problems.push(Diagnostic::new(
+                            *name_span,
+                            format!(
+                                "{record} is {}, so it has no fields.\n\
+                                 A dot reads a field of a record, like address.city.",
+                                kind.name()
+                            ),
+                        ));
+                        Kind::Unknown
+                    }
+                }
+            }
+        }
+    }
+
+    /// The kind of the items when `for` walks a list.
+    fn list_item_kind(&mut self, list: &Expr) -> Kind {
+        let kind = self.value(list, None, &|fixed| fixed.to_string());
+        match kind {
+            Kind::List(item) => *item,
+            Kind::Unknown => Kind::Unknown,
+            Kind::Number => {
+                self.problems.push(Diagnostic::new(
+                    list.span,
+                    format!(
+                        "for walks a list here, but {list} is a Number.\n\
+                         To count from one number through another, write .. between them, like for i in 1..3."
+                    ),
+                ));
+                Kind::Unknown
+            }
+            other => {
+                self.problems.push(Diagnostic::new(
+                    list.span,
+                    format!(
+                        "for walks a list here, but {list} is {}.\n\
+                         A list holds values of one kind. To count, use a range: for i in 1..3.",
+                        other.name()
+                    ),
+                ));
+                Kind::Unknown
+            }
+        }
+    }
+
+    fn list_kind(&mut self, items: &[Expr], empty: Option<&SigKind>) -> Kind {
+        let Some(first) = items.first() else {
+            return match empty {
+                Some(kind) => Kind::List(Box::new(sig_kind(kind))),
+                None => Kind::Unknown,
+            };
+        };
+        let item_kind = self.value(first, None, &|fixed| fixed.to_string());
+        for item in items.iter().skip(1) {
+            let kind = self.value(item, None, &|fixed| fixed.to_string());
+            if item_kind.known() && kind.known() && kind != item_kind {
+                self.problems.push(Diagnostic::new(
+                    item.span,
+                    format!(
+                        "Every item in a list has to be the same kind.\n\
+                         This list holds {}, but {item} is {}.",
+                        item_kind.name(),
+                        kind.name()
+                    ),
+                ));
+            }
+        }
+        if item_kind.known() {
+            Kind::List(Box::new(item_kind))
+        } else {
+            Kind::Unknown
+        }
+    }
+
+    /// Walk one `set` step and return the kind that step reaches.
+    fn follow(&mut self, step: &Access, kind: &Kind, root: &str) -> Kind {
+        if !kind.known() {
+            return Kind::Unknown;
+        }
+        match step {
+            Access::Field { name, span } => match kind {
+                Kind::Record(fields) => self.field_kind(fields, name, *span),
+                _ => {
+                    self.problems.push(Diagnostic::new(
+                        *span,
+                        format!(
+                            "{root} is {}, so it has no field called {name}.\n\
+                             A dot reads a field of a record, like address.city.",
+                            kind.name()
+                        ),
+                    ));
+                    Kind::Unknown
+                }
+            },
+            Access::At { index, span } => {
+                self.expect_position(index);
+                match kind {
+                    Kind::List(item) => (**item).clone(),
+                    _ => {
+                        self.problems.push(Diagnostic::new(
+                            *span,
+                            format!(
+                                "{root} is {}, so it has no item at a position.\n\
+                                 at picks an item from a list, like hobbies at 1.",
+                                kind.name()
+                            ),
+                        ));
+                        Kind::Unknown
+                    }
+                }
+            }
+        }
+    }
+
+    fn field_kind(&mut self, fields: &[FieldKind], name: &str, span: Span) -> Kind {
+        if let Some(field) = fields.iter().find(|field| field.name == name) {
+            return field.kind.clone();
+        }
+        let known = fields.iter().map(|field| field.name.as_str());
+        let problem = Diagnostic::new(
+            span,
+            format!(
+                "This record has no field called {name}.\n\
+                 Its fields are {}.",
+                fields
+                    .iter()
+                    .map(|field| field.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        );
+        self.problems.push(match closest_match(name, known) {
+            Some(fixed) => problem.suggest(fixed),
+            None => problem,
+        });
+        Kind::Unknown
+    }
+
+    /// A list position is a whole number, and 1 is the first item.
+    fn expect_position(&mut self, index: &Expr) {
+        let kind = self.value(index, None, &|fixed| fixed.to_string());
+        if kind.known() && kind != Kind::Number {
+            self.problems.push(Diagnostic::new(
+                index.span,
+                format!(
+                    "A list position has to be a number, but {index} is {}.\n\
+                     Lists count from 1: hobbies at 1 is the first hobby.",
+                    kind.name()
+                ),
+            ));
+            return;
+        }
+        let ExprKind::Number(written) = &index.ungrouped().kind else {
+            return;
+        };
+        let Some(number) = Decimal::parse(written) else {
+            return;
+        };
+        match number.whole() {
+            Some(position) if position >= 1 => {}
+            Some(position) => self.problems.push(Diagnostic::new(
+                index.span,
+                format!(
+                    "Lists count from 1, so {position} isn't a position.\n\
+                     The first item is at 1."
+                ),
+            )),
+            None => self.problems.push(Diagnostic::new(
+                index.span,
+                format!(
+                    "A list position has to be a whole number, but {written} isn't.\n\
+                     Lists count from 1: hobbies at 1 is the first hobby."
+                ),
+            )),
+        }
+    }
+
+    /// When both the list and the position are written out, reject a position past the end.
+    fn position_in_range(&mut self, list: &Expr, index: &Expr) {
+        let ExprKind::List { items, empty: None } = &list.ungrouped().kind else {
+            return;
+        };
+        let ExprKind::Number(written) = &index.ungrouped().kind else {
+            return;
+        };
+        let Some(number) = Decimal::parse(written) else {
+            return;
+        };
+        let Some(position) = number.whole() else {
+            return;
+        };
+        let Some(position) = usize::try_from(position).ok() else {
+            return;
+        };
+        if position > items.len() {
+            let last = items.len();
+            self.problems.push(Diagnostic::new(
+                index.span,
+                format!(
+                    "This list has {last} {}, so {position} is past the end.\n\
+                     The last item is at {last}.",
+                    if last == 1 { "item" } else { "items" }
+                ),
+            ));
         }
     }
 
@@ -413,6 +1639,9 @@ impl<'a> Checker<'a> {
         }
         if !left_kind.known() || !right_kind.known() {
             return Kind::Unknown;
+        }
+        if let Some(kind) = self.money_arithmetic(op, expr, left, right, &left_kind, &right_kind) {
+            return kind;
         }
         if left_kind == Kind::Number && right_kind == Kind::Number {
             return Kind::Number;
@@ -464,7 +1693,33 @@ impl<'a> Checker<'a> {
 
     fn name(&mut self, expr: &Expr, name: &str, context: &Context) -> Kind {
         if let Some(known) = self.lookup(name) {
-            return known.kind;
+            return known.kind.clone();
+        }
+        if let Some(func) = self.functions.iter().find(|func| func.name == name) {
+            self.problems.push(
+                Diagnostic::new(
+                    expr.span,
+                    format!(
+                        "{name} is a function, so it has to be called.\n\
+                         {}.",
+                        func.written
+                    ),
+                )
+                .suggest(func.written.clone()),
+            );
+            return Kind::Unknown;
+        }
+        if self.in_function.is_some() && self.outer.iter().any(|known| known.name == name) {
+            let function = self.in_function.clone().unwrap_or_default();
+            self.problems.push(Diagnostic::new(
+                expr.span,
+                format!(
+                    "{name} is outside {function}.\n\
+                     A function uses its parameters and the names it creates inside it. \
+                     Pass {name} in as a parameter."
+                ),
+            ));
+            return Kind::Unknown;
         }
 
         let problem = if context.creating == Some(name) {
@@ -522,8 +1777,105 @@ impl<'a> Checker<'a> {
                     name_span,
                     ..
                 } if created == name && name_span.line > after_line => Some(*name_span),
+                Statement::Function {
+                    name: created,
+                    name_span,
+                    ..
+                } if created == name && name_span.line > after_line => Some(*name_span),
                 _ => None,
             })
+    }
+}
+
+fn known_function(
+    name: &str,
+    span: Span,
+    params: &[Param],
+    result: &Option<SigKind>,
+    fails: &[(String, Span)],
+) -> KnownFn {
+    let written_params: Vec<String> = params
+        .iter()
+        .map(|param| format!("{}: {}", param.name, param.kind.written()))
+        .collect();
+    KnownFn {
+        name: name.to_string(),
+        span,
+        params: params
+            .iter()
+            .map(|param| (param.name.clone(), sig_kind(&param.kind)))
+            .collect(),
+        result: result.as_ref().map(sig_kind),
+        fails: fails.iter().map(|(name, _)| name.clone()).collect(),
+        written: format!("{name}({})", written_params.join(", ")),
+    }
+}
+
+fn function_signatures(program: &Program) -> Vec<KnownFn> {
+    program
+        .statements
+        .iter()
+        .filter_map(|statement| {
+            let Statement::Function {
+                name,
+                name_span,
+                params,
+                result,
+                fails,
+                ..
+            } = statement
+            else {
+                return None;
+            };
+            Some(known_function(name, *name_span, params, result, fails))
+        })
+        .collect()
+}
+
+fn sig_kind(kind: &SigKind) -> Kind {
+    match kind {
+        SigKind::Text => Kind::Text,
+        SigKind::Number => Kind::Number,
+        SigKind::Bool => Kind::Bool,
+        SigKind::List(item) => Kind::List(Box::new(sig_kind(item))),
+        SigKind::Money(code) => Kind::Money(code.clone()),
+        SigKind::Maybe(inner) => Kind::Maybe(Box::new(sig_kind(inner))),
+    }
+}
+
+fn call_written(name: &str, args: &[Expr]) -> String {
+    let args: Vec<String> = args.iter().map(|arg| arg.to_string()).collect();
+    format!("{name}({})", args.join(", "))
+}
+
+fn body_returns(body: &[Statement]) -> bool {
+    body.last().is_some_and(always_returns)
+}
+
+fn always_returns(statement: &Statement) -> bool {
+    match statement {
+        Statement::Return { .. } | Statement::Fail { .. } => true,
+        Statement::Match { arms, .. } => arms.iter().all(|arm| always_returns(&arm.body)),
+        Statement::When { arms, .. } => {
+            arms.iter().any(|arm| arm.condition.is_none())
+                && arms.iter().all(|arm| always_returns(&arm.body))
+        }
+        _ => false,
+    }
+}
+
+fn span_of(statement: &Statement) -> Span {
+    match statement {
+        Statement::Say { span, .. }
+        | Statement::Set { span, .. }
+        | Statement::Check { span, .. }
+        | Statement::When { span, .. }
+        | Statement::For { span, .. }
+        | Statement::Function { span, .. }
+        | Statement::Return { span, .. }
+        | Statement::Call { span, .. } => *span,
+        Statement::Let { name_span, .. } => *name_span,
+        Statement::Match { span, .. } | Statement::Fail { span, .. } => *span,
     }
 }
 
@@ -552,17 +1904,28 @@ fn comparison_problem(
     fix_left: &dyn Fn(&Expr) -> String,
     fix_right: &dyn Fn(&Expr) -> String,
 ) -> Option<Diagnostic> {
-    let Sides {
-        left,
-        left_kind,
-        right,
-        right_kind,
-    } = *sides;
+    let left = sides.left;
+    let right = sides.right;
+    let left_kind = sides.left_kind.clone();
+    let right_kind = sides.right_kind.clone();
     if !left_kind.known() || !right_kind.known() {
         return None;
     }
 
     if op.orders() {
+        if let (Kind::Money(left_code), Kind::Money(right_code)) = (&left_kind, &right_kind) {
+            if left_code == right_code {
+                return None;
+            }
+            return Some(Diagnostic::new(
+                span,
+                format!(
+                    "{} compares money in {left_code} ({left}) to money in {right_code} ({right}).\n\
+                     Quill won't mix currencies. Compare two amounts in the same currency.",
+                    op.symbol()
+                ),
+            ));
+        }
         let (side, kind, fix) = if left_kind != Kind::Number {
             (left, left_kind, fix_left)
         } else if right_kind != Kind::Number {
@@ -609,11 +1972,22 @@ fn comparison_problem(
 }
 
 /// A condition built from a value that isn't true/false, for an error message.
-fn condition_example(expr: &Expr, kind: Kind) -> String {
+fn condition_example(expr: &Expr, kind: &Kind) -> String {
     match kind {
         Kind::Text => format!("{expr} == \"yes\""),
         _ => format!("{expr} > 0"),
     }
+}
+
+fn access_text(steps: &[Access]) -> String {
+    let mut out = String::new();
+    for step in steps {
+        match step {
+            Access::Field { name, .. } => out.push_str(&format!(".{name}")),
+            Access::At { index, .. } => out.push_str(&format!(" at {index}")),
+        }
+    }
+    out
 }
 
 /// The number inside a text like "5", as a number.
@@ -700,6 +2074,47 @@ fn replace(expr: &Expr, span: Span, with: &Expr) -> Expr {
             left: swap(left),
             right: swap(right),
             op_span: *op_span,
+        },
+        ExprKind::List { items, empty } => ExprKind::List {
+            items: items.iter().map(|item| replace(item, span, with)).collect(),
+            empty: empty.clone(),
+        },
+        ExprKind::Record { fields } => ExprKind::Record {
+            fields: fields
+                .iter()
+                .map(|field| crate::parser::Field {
+                    name: field.name.clone(),
+                    name_span: field.name_span,
+                    value: replace(&field.value, span, with),
+                })
+                .collect(),
+        },
+        ExprKind::At {
+            list,
+            index,
+            at_span,
+        } => ExprKind::At {
+            list: swap(list),
+            index: swap(index),
+            at_span: *at_span,
+        },
+        ExprKind::Field {
+            record,
+            name,
+            name_span,
+        } => ExprKind::Field {
+            record: swap(record),
+            name: name.clone(),
+            name_span: *name_span,
+        },
+        ExprKind::Call {
+            name,
+            name_span,
+            args,
+        } => ExprKind::Call {
+            name: name.clone(),
+            name_span: *name_span,
+            args: args.iter().map(|arg| replace(arg, span, with)).collect(),
         },
         other => other.clone(),
     };
@@ -806,7 +2221,7 @@ mod tests {
     #[test]
     fn a_bad_value_still_creates_the_name() {
         // Only the first line is wrong; `say total` shouldn't be reported too.
-        let found = problems("total = missing\nsay total");
+        let found = problems("total = nowhere\nsay total");
         assert_eq!(found.len(), 1);
     }
 
@@ -1012,7 +2427,7 @@ mod tests {
         let known = values_before(&program, 4);
         let summary: Vec<(String, Kind, bool)> = known
             .iter()
-            .map(|k| (k.name.clone(), k.kind, k.mutable))
+            .map(|k| (k.name.clone(), k.kind.clone(), k.mutable))
             .collect();
         assert_eq!(
             summary,
@@ -1022,5 +2437,64 @@ mod tests {
                 ("c".to_string(), Kind::Bool, false),
             ]
         );
+    }
+
+    #[test]
+    fn a_for_loop_gives_its_name_only_to_the_body() {
+        assert_eq!(problems("for i in 1..3\n  say i\nsay \"done\""), vec![]);
+        let found = problem("for i in 1..3\n  say i\nsay i");
+        assert!(found.message.contains("There's no value called i"));
+        let found = problem("for i in 1..\"3\"\n  say i");
+        assert!(found
+            .message
+            .contains("The end of a for loop has to be a number"));
+        let found = problem("var total = 0\nfor i in 1..3\n  set i = i + 1");
+        assert!(found.message.contains("changes on its own"));
+    }
+
+    #[test]
+    fn a_for_loop_can_reuse_an_outer_name() {
+        assert_eq!(problems("i = 10\nfor i in i..12\n  say i\nsay i"), vec![]);
+    }
+
+    #[test]
+    fn a_list_holds_one_kind_and_a_record_names_its_fields() {
+        assert_eq!(
+            problems("hobbies = list \"coding\", \"reading\"\nsay hobbies at 1"),
+            vec![]
+        );
+        let found = problem("hobbies = list \"coding\", 2");
+        assert!(found.message.contains("same kind"));
+        let found = problem("hobbies = list \"coding\"\nsay hobbies.city");
+        assert!(found.message.contains("has no fields"));
+        let found = problem("address = record city = \"Anytown\"\nsay address.street");
+        assert!(found.message.contains("no field called street"));
+        let found = problem("hobbies = list \"coding\", \"reading\"\nsay hobbies at 0");
+        assert!(found.message.contains("count from 1"));
+        assert_eq!(
+            problems("var hobbies = list of text\nset hobbies = list \"coding\""),
+            vec![]
+        );
+        let found =
+            problem("address = record city = \"Anytown\"\nset address.city = \"Springfield\"");
+        assert!(found.message.contains("isn't marked var"));
+        assert_eq!(
+            problems("var address = record city = \"Anytown\"\nset address.city = \"Springfield\""),
+            vec![]
+        );
+        let found = problem("for hobby in 1\n  say hobby");
+        assert!(found.message.contains("for i in 1..3"));
+    }
+
+    #[test]
+    fn a_function_gives_back_the_kind_it_names() {
+        assert_eq!(
+            problems("fn double(n: number) -> number\n  return n * 2\nsay double(4)"),
+            vec![]
+        );
+        let found = problem("fn double(n: number) -> number\n  return n * 2\nsay double(\"4\")");
+        assert!(found.message.contains("needs a number"));
+        let found = problem("fn double(n: number) -> number\n  say n");
+        assert!(found.message.contains("has to give back"));
     }
 }

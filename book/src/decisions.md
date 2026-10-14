@@ -114,7 +114,23 @@ It's hot
 Have a nice day
 ```
 
-Use spaces to indent, and keep the cases of a `when` lined up with each other. Quill tells you when a line doesn't line up.
+A block moves in by **exactly 2 spaces**. Not one space, not four, and not a tab. The cases of a `when` line up with each other, and a line that ends the block comes back to the same column as the `when`.
+
+```quill,error
+temperature = 31
+
+when
+    temperature > 30 -> say "It's hot"
+```
+
+```output
+Problem on line 4 of example.ql:
+
+        temperature > 30 -> say "It's hot"
+    ^^^^
+This line is indented by 4 spaces.
+A block moves in by exactly 2 spaces from the line above it, so this line should be indented by 2 spaces.
+```
 
 ## Changing values in a when
 
@@ -191,7 +207,7 @@ when
 FizzBuzz
 ```
 
-The order of the cases matters: `15` also divides by 3, but the `FizzBuzz` case comes first. Once loops arrive in Quill, you'll be able to run this for every number from 1 to 100.
+The order of the cases matters: `15` also divides by 3, but the `FizzBuzz` case comes first. A `for` loop, in [Repeating with for](loops.md), runs this for every number from 1 to 100.
 
 ## Conditions must be true or false
 
