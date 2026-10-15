@@ -34,6 +34,8 @@ contexts:
       scope: keyword.other.of.quill
     - match: '\b(at)\b'
       scope: keyword.other.at.quill
+    - match: '\b(get|sum|with)\b'
+      scope: keyword.other.ask.quill
     - match: '\b(fn|return)\b'
       scope: keyword.other.function.quill
     - match: '\b(maybe|found|missing)\b'

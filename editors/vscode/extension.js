@@ -22,6 +22,7 @@ const DARK = {
   record: "#A8C5A0",
   of: "#E8C547",
   at: "#B07CFF",
+  ask: "#6EC1D6",
   fn: "#E8A0D4",
   maybe: "#F0B090",
   failure: "#E08A8A",
@@ -45,6 +46,7 @@ const LIGHT = {
   record: "#3E5C32",
   of: "#8A5A00",
   at: "#5C2E9A",
+  ask: "#15556A",
   fn: "#8A3D78",
   maybe: "#A85A38",
   failure: "#A33B3B",
@@ -56,7 +58,7 @@ const LIGHT = {
   escape: "#C45C12",
 };
 
-const PALETTE_MARK = { dark: "#E08A8A", light: "#A33B3B" };
+const PALETTE_MARK = { dark: "#6EC1D6", light: "#15556A" };
 
 const SCOPE = {
   say: "keyword.other.say.quill",
@@ -70,6 +72,7 @@ const SCOPE = {
   record: "keyword.other.record.quill",
   of: "keyword.other.of.quill",
   at: "keyword.other.at.quill",
+  ask: "keyword.other.ask.quill",
   fn: "keyword.other.function.quill",
   maybe: "keyword.other.maybe.quill",
   failure: "keyword.other.failure.quill",

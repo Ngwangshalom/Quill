@@ -253,6 +253,35 @@ pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
                 field.1 = new_value;
                 stack.push(Value::Record(fields));
             }
+            Op::Pluck(index) => {
+                let name = field_name(chunk, index, span)?;
+                let list = pop(&mut stack, span)?;
+                stack.push(pluck(list, &name, span)?);
+            }
+            Op::Pick(index) => {
+                let names = chunk
+                    .picks
+                    .get(index)
+                    .cloned()
+                    .ok_or_else(|| internal(span, "the fields of a get were not compiled"))?;
+                let list = pop(&mut stack, span)?;
+                stack.push(pick(list, &names, span)?);
+            }
+            Op::SumField { name, currency } => {
+                let code = match currency {
+                    Some(index) => Some(field_name(chunk, index, span)?),
+                    None => None,
+                };
+                let field = field_name(chunk, name, span)?;
+                let list = pop(&mut stack, span)?;
+                stack.push(sum_field(list, &field, code.as_deref(), span)?);
+            }
+            Op::Gather { outer, inner } => {
+                let nested = field_name(chunk, inner, span)?;
+                let field = field_name(chunk, outer, span)?;
+                let source = pop(&mut stack, span)?;
+                stack.push(gather(source, &field, &nested, span)?);
+            }
             Op::Dup => {
                 let value = stack
                     .last()
@@ -546,6 +575,161 @@ fn field_name(chunk: &Chunk, index: usize, span: Span) -> Result<String, Diagnos
     }
 }
 
+/// The field of each record. A missing amount is left out. A found amount is unwrapped.
+fn pluck(list: Value, field: &str, span: Span) -> Result<Value, Diagnostic> {
+    if let Value::Record(_) = list {
+        return record_field(&list, field, span);
+    }
+    let Value::List(items) = list else {
+        return Err(internal(span, "a field from something that isn't a list"));
+    };
+    let mut values = Vec::new();
+    for item in items {
+        if let Some(value) = present(record_field(&item, field, span)?) {
+            values.push(value);
+        }
+    }
+    Ok(Value::List(values))
+}
+
+/// A record of the named fields, for each record in the list.
+fn pick(list: Value, names: &[String], span: Span) -> Result<Value, Diagnostic> {
+    if let Value::Record(_) = list {
+        return Ok(Value::Record(picked_fields(&list, names, span)?));
+    }
+    let Value::List(items) = list else {
+        return Err(internal(span, "fields from something that isn't a list"));
+    };
+    let mut records = Vec::new();
+    for item in items {
+        records.push(Value::Record(picked_fields(&item, names, span)?));
+    }
+    Ok(Value::List(records))
+}
+
+fn picked_fields(
+    record: &Value,
+    names: &[String],
+    span: Span,
+) -> Result<Vec<(String, Value)>, Diagnostic> {
+    let mut fields = Vec::new();
+    for name in names {
+        fields.push((name.clone(), record_field(record, name, span)?));
+    }
+    Ok(fields)
+}
+
+/// Adds the field of each record. One record gives that one amount. A missing amount is left out.
+fn sum_field(
+    list: Value,
+    field: &str,
+    currency: Option<&str>,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let items = match list {
+        Value::List(items) => items,
+        Value::Record(_) => vec![list],
+        _ => return Err(internal(span, "a sum of something that isn't a record")),
+    };
+    let mut total_number: Option<Decimal> = None;
+    let mut total_money: Option<(Decimal, String)> = None;
+    for item in items {
+        let Some(value) = present(record_field(&item, field, span)?) else {
+            continue;
+        };
+        match value {
+            Value::Number(amount) => {
+                total_number = Some(match total_number {
+                    None => amount,
+                    Some(so_far) => add_amounts(so_far, amount, span)?,
+                });
+            }
+            Value::Money { amount, currency } => match total_money {
+                None => total_money = Some((amount, currency)),
+                Some((so_far, code)) if code == currency => {
+                    total_money = Some((add_amounts(so_far, amount, span)?, code));
+                }
+                Some((_, code)) => {
+                    return Err(Diagnostic::new(
+                        span,
+                        format!(
+                            "This sum holds money in {code}, and this record holds money in {currency}.\n\
+                             Add amounts in one currency: sum fee of roster."
+                        ),
+                    ));
+                }
+            },
+            _ => return Err(internal(span, "a sum of something that isn't an amount")),
+        }
+    }
+    if let Some((amount, code)) = total_money {
+        return Ok(Value::Money {
+            amount,
+            currency: code,
+        });
+    }
+    if let Some(amount) = total_number {
+        return Ok(Value::Number(amount));
+    }
+    if let Some(code) = currency {
+        return Ok(Value::Money {
+            amount: Decimal::ZERO,
+            currency: code.to_string(),
+        });
+    }
+    Ok(Value::Number(Decimal::ZERO))
+}
+
+fn add_amounts(left: Decimal, right: Decimal, span: Span) -> Result<Decimal, Diagnostic> {
+    left.checked_add(right).map_err(|_| {
+        Diagnostic::new(
+            span,
+            "This sum is too big for a Quill number.\n\
+             Numbers can have up to 38 digits in total, before and after the point.",
+        )
+    })
+}
+
+/// `found` opens into the value it holds. `missing` is left out.
+fn present(value: Value) -> Option<Value> {
+    match value {
+        Value::Missing => None,
+        Value::Found(inner) => Some(*inner),
+        other => Some(other),
+    }
+}
+
+/// The records named by `field`, each of which has `nested`, from a record or a list of records.
+fn gather(source: Value, field: &str, nested: &str, span: Span) -> Result<Value, Diagnostic> {
+    let lists = match &source {
+        Value::Record(_) => vec![record_field(&source, field, span)?],
+        Value::List(items) => {
+            let mut lists = Vec::new();
+            for item in items {
+                lists.push(record_field(item, field, span)?);
+            }
+            lists
+        }
+        _ => {
+            return Err(internal(
+                span,
+                "data from something that isn't a record or a list",
+            ))
+        }
+    };
+    let mut records = Vec::new();
+    for list in lists {
+        let Value::List(items) = list else {
+            return Err(internal(span, "a list of records that wasn't a list"));
+        };
+        for item in items {
+            record_field(&item, nested, span)?;
+            records.push(item);
+        }
+    }
+    Ok(Value::List(records))
+}
+
 fn record_field(record: &Value, name: &str, span: Span) -> Result<Value, Diagnostic> {
     let Value::Record(fields) = record else {
         return Err(internal(span, "a field of something that isn't a record"));
@@ -633,6 +817,7 @@ mod tests {
             code,
             constants,
             records: Vec::new(),
+            picks: Vec::new(),
             functions: Vec::new(),
             slot_count,
         }
@@ -1001,5 +1186,89 @@ say address";
             .unwrap(),
             "Card declined\n"
         );
+    }
+
+    #[test]
+    fn get_and_sum_read_a_list_without_a_loop() {
+        let roster = "\
+sisters = record name = \"Nchang Sisters\", fee = 80000 USD
+brass = record name = \"Bamenda Brass\", fee = 150000 USD
+roster = list sisters, brass
+say sum fee of roster
+say get fee of roster
+";
+        assert_eq!(
+            run_source(roster).unwrap(),
+            "230000 USD\n80000 USD, 150000 USD\n"
+        );
+        let people = "\
+sisters = record name = \"Nchang Sisters\", age = 24, fee = 80000 USD
+brass = record name = \"Bamenda Brass\", age = 31, fee = 150000 USD
+roster = list sisters, brass
+people = get name, age, fee of roster
+say (people at 1).name
+say (people at 1).age
+say (people at 2).fee
+";
+        assert_eq!(
+            run_source(people).unwrap(),
+            "Nchang Sisters\n24\n150000 USD\n"
+        );
+        let school = "\
+school = record name = \"Harvard\", fees = 10000
+data = get name, fees of school
+say data.name
+say data.fees
+";
+        assert_eq!(run_source(school).unwrap(), "Harvard\n10000\n");
+        assert_eq!(
+            run_source("school = record name = \"Harvard\", fees = 10000\nsay sum fees of school")
+                .unwrap(),
+            "10000\n"
+        );
+    }
+
+    #[test]
+    fn sum_leaves_out_a_missing_amount() {
+        let source = "\
+fn fee_for(name: text) -> maybe USD
+  when
+    name == \"Quiet Hour\" -> return missing
+    else -> return found 40000 USD
+quiet = record name = \"Quiet Hour\", fee = fee_for(\"Quiet Hour\")
+drums = record name = \"Market Drums\", fee = fee_for(\"Market Drums\")
+roster = list quiet, drums
+say sum fee of roster
+";
+        assert_eq!(run_source(source).unwrap(), "40000 USD\n");
+    }
+
+    #[test]
+    fn get_brings_embedded_records_from_one_place() {
+        let source = "\
+up = record place = \"Up Station\", acts = list \"Bamenda Brass\", \"Hilltop Duo\"
+old = record place = \"Old Town\", acts = list \"Market Drums\"
+roster = record bookings = list up, old
+tonight = get bookings with acts in roster
+say (tonight at 1).place
+saturday = record day = \"Saturday\", bookings = list up
+sunday = record day = \"Sunday\", bookings = list old
+nights = list saturday, sunday
+all = get bookings with acts in nights
+say (all at 2).place
+";
+        assert_eq!(run_source(source).unwrap(), "Up Station\nOld Town\n");
+    }
+
+    #[test]
+    fn an_empty_sum_of_money_keeps_the_currency() {
+        let source = "\
+fn fee_for(name: text) -> maybe USD
+  return missing
+quiet = record name = \"Quiet Hour\", fee = fee_for(\"Quiet Hour\")
+roster = list quiet
+say sum fee of roster
+";
+        assert_eq!(run_source(source).unwrap(), "0 USD\n");
     }
 }

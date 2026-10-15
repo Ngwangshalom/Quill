@@ -182,6 +182,49 @@ A short record can sit on one line: `address = record city = "Anytown", state = 
 
 Fields can be different kinds. `city` can be text while another field is a number. Two records are the same kind when they have the same field names and each field has the same kind. The order you write the fields does not matter for that.
 
+## When a value wraps another
+
+One school is a record. The fields belong to that one school, so `sum` reads them directly:
+
+```quill
+school = record name = "Harvard", fees = 10000
+say sum fees of school
+```
+
+```output
+10000
+```
+
+A list wraps several records when they are the same kind of thing and one line should read all of them:
+
+```quill
+harvard = record name = "Harvard", fees = 10000
+oxford = record name = "Oxford", fees = 12000
+schools = list harvard, oxford
+say sum fees of schools
+```
+
+```output
+22000
+```
+
+`schools` exists so the two fees can be added together. One school has no list around it.
+
+A record wraps a list when one thing owns many items:
+
+```quill
+up = record place = "Up Station"
+old = record place = "Old Town"
+desk = record bookings = list up, old
+say get place of desk.bookings
+```
+
+```output
+Up Station, Old Town
+```
+
+`desk` is one desk. `bookings` is the list it owns. `get place of desk.bookings` reads a field from that list.
+
 ## Changing one piece
 
 The whole list or record has to be marked `var`. Then `set` can replace one item or one field:
@@ -204,6 +247,23 @@ Springfield
 `set hobbies = list "cooking"` replaces the whole list. The new list still has to be a list of the same kind.
 
 A record that isn't marked `var` stays as it was written. Change it by writing `var` where it is created, then `set` the field.
+
+## Asking for one field
+
+When the list holds records, `sum` and `get` read one field from all of them. One record gives that one amount: `sum fees of school`. `get name, fee of roster` keeps several fields together. A dot reaches a field further in: `get place of desk.bookings`, or `get gpa of school.acceptances`. [Asking for data](asking.md) shows each form. `for` stays when each record needs its own step.
+
+```quill
+sisters = record name = "Nchang Sisters", fee = 80000 USD
+brass = record name = "Bamenda Brass", fee = 150000 USD
+roster = list sisters, brass
+say sum fee of roster
+say get fee of roster
+```
+
+```output
+230000 USD
+80000 USD, 150000 USD
+```
 
 ## Try it
 

@@ -1,6 +1,6 @@
 # Repeating with for
 
-Some work has to happen more than once: say every number from 1 through 10, add up a list of prices, print a row for each guest. A `for` loop repeats the lines under it, once for each number in a range. When those things are already gathered together, [Lists and records](groups.md) shows how `for` walks a list.
+Some work has to happen more than once: say every number from 1 through 10, add up a list of prices, print a row for each guest. A `for` loop repeats the lines under it, once for each number in a range. When those things are already gathered together, [Lists and records](groups.md) shows how `for` walks a list. When you want one field, a total, or the records inside other records, [Asking for data](asking.md) does that in one line. `for` stays for the step each record needs on its own.
 
 ## Counting from one number to another
 

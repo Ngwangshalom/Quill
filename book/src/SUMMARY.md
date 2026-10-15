@@ -10,6 +10,7 @@
 - [Values That Change](changing-values.md)
 - [Making Decisions with when](decisions.md)
 - [Repeating with for](loops.md)
+- [Asking for data](asking.md)
 - [Lists and records](groups.md)
 - [Functions](functions.md)
 - [Money](money.md)

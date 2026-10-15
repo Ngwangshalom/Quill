@@ -158,6 +158,15 @@ pub fn values_before(program: &Program, line: usize) -> Vec<KnownValue> {
     checker.defined
 }
 
+/// The currency of every `sum` whose field is money. The span covers the whole `sum`.
+pub fn sum_currencies(program: &Program) -> Vec<(Span, String)> {
+    let mut checker = Checker::new(program);
+    for statement in &program.statements {
+        checker.statement(statement);
+    }
+    checker.sum_currencies
+}
+
 /// The kind of `expr`, given the values that exist.
 pub fn kind_of(program: &Program, expr: &Expr, known: &[KnownValue]) -> Kind {
     let mut checker = Checker::new(program);
@@ -197,6 +206,8 @@ struct Checker<'a> {
     problems: Vec<Diagnostic>,
     /// While explaining one line, stop before it and keep the names that cover it.
     stop_before: Option<usize>,
+    /// Currency of each `sum` whose field is money, so an empty list still has a currency.
+    sum_currencies: Vec<(Span, String)>,
 }
 
 impl<'a> Checker<'a> {
@@ -210,6 +221,7 @@ impl<'a> Checker<'a> {
             handling: false,
             problems: Vec::new(),
             stop_before: None,
+            sum_currencies: Vec::new(),
         }
     }
 
@@ -1394,6 +1406,20 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
+            ExprKind::Sum {
+                field,
+                field_span,
+                list,
+                ..
+            } => self.sum_kind(expr.span, field, *field_span, list, context),
+            ExprKind::Get { fields, list, .. } => self.get_kind(fields, list, context),
+            ExprKind::GetWith {
+                field,
+                field_span,
+                nested,
+                nested_span,
+                source,
+            } => self.gather_kind(field, *field_span, nested, *nested_span, source, context),
             ExprKind::Field {
                 record,
                 name,
@@ -1516,6 +1542,233 @@ impl<'a> Checker<'a> {
                 }
             }
         }
+    }
+
+    /// The fields of each record in a list. `word` is `get` or `sum`, for the error.
+    fn records_of(&mut self, list: &Expr, word: &str, context: &Context) -> Option<Vec<FieldKind>> {
+        let kind = self.infer(list, context);
+        match kind {
+            Kind::List(item) => match *item {
+                Kind::Record(fields) => Some(fields),
+                Kind::Unknown => None,
+                other => {
+                    self.problems.push(Diagnostic::new(
+                        list.span,
+                        format!(
+                            "{list} holds {}, and {word} needs a record or a list of records.\n\
+                             {word} fees of school reads that one amount. \
+                             {word} fee of roster reads the fee of each record.",
+                            other.name()
+                        ),
+                    ));
+                    None
+                }
+            },
+            Kind::Record(fields) => Some(fields),
+            Kind::Unknown => None,
+            other => {
+                self.problems.push(Diagnostic::new(
+                    list.span,
+                    format!(
+                        "{list} is {}, and {word} needs a record or a list of records.\n\
+                         {word} fees of school reads that one amount. \
+                         {word} fee of roster reads the fee of each record.",
+                        other.name()
+                    ),
+                ));
+                None
+            }
+        }
+    }
+
+    /// `get fee of roster` is a list of that field. `get name, fee of roster` is a list of
+    /// records that keep only those fields.
+    fn get_kind(&mut self, asked: &[crate::parser::Asked], list: &Expr, context: &Context) -> Kind {
+        let source = self.infer(list, context);
+        let (fields, one_record) = match source {
+            Kind::List(item) => match *item {
+                Kind::Record(fields) => (fields, false),
+                Kind::Unknown => return Kind::Unknown,
+                other => {
+                    self.problems.push(Diagnostic::new(
+                        list.span,
+                        format!(
+                            "{list} holds {}, and get needs a record or a list of records.\n\
+                             get name, fee of roster reads those fields.",
+                            other.name()
+                        ),
+                    ));
+                    return Kind::Unknown;
+                }
+            },
+            Kind::Record(fields) => (fields, true),
+            Kind::Unknown => return Kind::Unknown,
+            other => {
+                self.problems.push(Diagnostic::new(
+                    list.span,
+                    format!(
+                        "{list} is {}, and get needs a record or a list of records.\n\
+                         get name, fee of school reads those fields of one record. \
+                         get name, fee of roster reads them from each record in a list.",
+                        other.name()
+                    ),
+                ));
+                return Kind::Unknown;
+            }
+        };
+        if asked.len() == 1 {
+            let field = &asked[0];
+            let kind = self.field_kind(&fields, &field.name, field.span);
+            if one_record {
+                return kind;
+            }
+            return match kind {
+                Kind::Maybe(inner) => Kind::List(inner),
+                Kind::Unknown => Kind::Unknown,
+                kind => Kind::List(Box::new(kind)),
+            };
+        }
+        let mut kinds = Vec::new();
+        let mut seen = Vec::new();
+        for field in asked {
+            if seen.iter().any(|name| name == &field.name) {
+                self.problems.push(Diagnostic::new(
+                    field.span,
+                    format!(
+                        "{name} is already in this get.\n\
+                         Name each field once: get name, fee of roster.",
+                        name = field.name
+                    ),
+                ));
+                return Kind::Unknown;
+            }
+            seen.push(field.name.clone());
+            kinds.push(FieldKind {
+                name: field.name.clone(),
+                kind: self.field_kind(&fields, &field.name, field.span),
+            });
+        }
+        if kinds.iter().any(|field| !field.kind.known()) {
+            return Kind::Unknown;
+        }
+        let record = Kind::Record(kinds);
+        if one_record {
+            record
+        } else {
+            Kind::List(Box::new(record))
+        }
+    }
+
+    /// `sum fee of roster`: a number, or money in one currency. One record gives that one amount.
+    /// A maybe amount counts when it is found.
+    fn sum_kind(
+        &mut self,
+        span: Span,
+        field: &str,
+        field_span: Span,
+        list: &Expr,
+        context: &Context,
+    ) -> Kind {
+        let Some(fields) = self.records_of(list, "sum", context) else {
+            return Kind::Unknown;
+        };
+        let amount = match self.field_kind(&fields, field, field_span) {
+            Kind::Maybe(inner) => *inner,
+            other => other,
+        };
+        match amount {
+            Kind::Number => Kind::Number,
+            Kind::Money(code) => {
+                self.sum_currencies.push((span, code.clone()));
+                Kind::Money(code)
+            }
+            Kind::Unknown => Kind::Unknown,
+            other => {
+                self.problems.push(Diagnostic::new(
+                    field_span,
+                    format!(
+                        "sum adds amounts, but {field} is {}.\n\
+                         Name a number or an amount of money: sum fee of roster.",
+                        other.name()
+                    ),
+                ));
+                Kind::Unknown
+            }
+        }
+    }
+
+    /// `get bookings with acts in roster`. The result is the list of bookings.
+    fn gather_kind(
+        &mut self,
+        field: &str,
+        field_span: Span,
+        nested: &str,
+        nested_span: Span,
+        source: &Expr,
+        context: &Context,
+    ) -> Kind {
+        let source_kind = self.infer(source, context);
+        let outer = match &source_kind {
+            Kind::Record(fields) => self.field_kind(fields, field, field_span),
+            Kind::List(item) => match item.as_ref() {
+                Kind::Record(fields) => self.field_kind(fields, field, field_span),
+                Kind::Unknown => return Kind::Unknown,
+                other => {
+                    self.problems.push(Diagnostic::new(
+                        source.span,
+                        format!(
+                            "{source} holds {}, and get needs a record or a list of records.\n\
+                             get bookings with acts in roster brings the bookings and their acts.",
+                            other.name()
+                        ),
+                    ));
+                    return Kind::Unknown;
+                }
+            },
+            Kind::Unknown => return Kind::Unknown,
+            other => {
+                self.problems.push(Diagnostic::new(
+                    source.span,
+                    format!(
+                        "{source} is {}, and get needs a record or a list of records.\n\
+                         get bookings with acts in roster brings the bookings and their acts.",
+                        other.name()
+                    ),
+                ));
+                return Kind::Unknown;
+            }
+        };
+        let Kind::List(item) = outer else {
+            if outer.known() {
+                self.problems.push(Diagnostic::new(
+                    field_span,
+                    format!(
+                        "{field} is {}, and get with needs a list of records.\n\
+                         get bookings with acts in roster brings each booking and its acts.",
+                        outer.name()
+                    ),
+                ));
+            }
+            return Kind::Unknown;
+        };
+        let Kind::Record(fields) = item.as_ref() else {
+            if item.known() {
+                self.problems.push(Diagnostic::new(
+                    field_span,
+                    format!(
+                        "{field} holds {}, and each one has to be a record.\n\
+                         get bookings with acts in roster brings each booking and its acts.",
+                        item.name()
+                    ),
+                ));
+            }
+            return Kind::Unknown;
+        };
+        let nested_kind = self.field_kind(fields, nested, nested_span);
+        if !nested_kind.known() {
+            return Kind::Unknown;
+        }
+        Kind::List(item)
     }
 
     fn field_kind(&mut self, fields: &[FieldKind], name: &str, span: Span) -> Kind {
@@ -2107,6 +2360,39 @@ fn replace(expr: &Expr, span: Span, with: &Expr) -> Expr {
             name: name.clone(),
             name_span: *name_span,
         },
+        ExprKind::Sum {
+            field,
+            field_span,
+            of_span,
+            list,
+        } => ExprKind::Sum {
+            field: field.clone(),
+            field_span: *field_span,
+            of_span: *of_span,
+            list: swap(list),
+        },
+        ExprKind::Get {
+            fields,
+            of_span,
+            list,
+        } => ExprKind::Get {
+            fields: fields.clone(),
+            of_span: *of_span,
+            list: swap(list),
+        },
+        ExprKind::GetWith {
+            field,
+            field_span,
+            nested,
+            nested_span,
+            source,
+        } => ExprKind::GetWith {
+            field: field.clone(),
+            field_span: *field_span,
+            nested: nested.clone(),
+            nested_span: *nested_span,
+            source: swap(source),
+        },
         ExprKind::Call {
             name,
             name_span,
@@ -2496,5 +2782,36 @@ mod tests {
         assert!(found.message.contains("needs a number"));
         let found = problem("fn double(n: number) -> number\n  say n");
         assert!(found.message.contains("has to give back"));
+    }
+
+    #[test]
+    fn sum_and_get_need_a_real_field() {
+        let roster = "\
+roster = list record name = \"Nchang Sisters\", fee = 80000 USD
+";
+        assert_eq!(problems(&format!("{roster}say sum fee of roster")), vec![]);
+        assert_eq!(problems(&format!("{roster}say get fee of roster")), vec![]);
+        let found = problem(&format!("{roster}say sum name of roster"));
+        assert!(found.message.contains("sum adds amounts"));
+        assert_eq!(
+            problems(&format!("{roster}say get name, fee of roster")),
+            vec![]
+        );
+        let found = problem(&format!("{roster}say get name, name of roster"));
+        assert!(found.message.contains("already in this get"));
+        let found = problem("say sum fee of 1");
+        assert!(found.message.contains("record or a list of records"));
+        assert_eq!(
+            problems("school = record fees = 10000\nsay sum fees of school"),
+            vec![]
+        );
+        let found = problem(
+            "\
+up = record place = \"Up Station\", acts = list \"Bamenda Brass\"
+roster = record bookings = list up
+say get bookings with guest in roster
+",
+        );
+        assert!(found.message.contains("no field called guest"));
     }
 }

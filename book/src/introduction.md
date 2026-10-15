@@ -32,6 +32,7 @@ This book is for anyone who wants to learn Quill:
 Many languages let small mistakes slip through until a program is already running, sometimes in front of real customers. Quill tries to catch them first:
 
 - **Money is exact.** `100 USD + 50 USD` is `150 USD`, and `0.1 + 0.2` is exactly `0.3`. Dollars and euros cannot be added.
+- **Ask for the data.** `sum fee of roster` adds each fee. `get place of desk.bookings` reads a field of a list on a record, and `get gpa of school.acceptances` reads a field of a nested record. [Asking for data](asking.md) shows each form. `for` stays when each record needs its own step.
 - **A missing answer has to be handled.** `maybe` says a value might not be there. `found` and `missing` are both required.
 - **A failure has to be handled.** `fails Declined` names it, `fail Declined` leaves with it, and the caller writes `on Declined`.
 - **Nothing changes by accident.** A value can only change if you mark it with `var`, so every change is visible when you read the code.

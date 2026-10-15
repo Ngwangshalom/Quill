@@ -430,6 +430,36 @@ pub enum ExprKind {
         name: String,
         name_span: Span,
     },
+    /// `sum fee of roster`. Adds that field of each record. A missing amount is left out.
+    Sum {
+        field: String,
+        field_span: Span,
+        of_span: Span,
+        list: Box<Expr>,
+    },
+    /// `get fee of roster`, or `get name, age, fee of roster`.
+    /// One field is a list of those values. Several fields are a list of records
+    /// that keep only those fields. A missing amount is left out of a single field.
+    Get {
+        fields: Vec<Asked>,
+        of_span: Span,
+        list: Box<Expr>,
+    },
+    /// `get bookings with acts in roster`. The bookings, each with its acts, from one place.
+    GetWith {
+        field: String,
+        field_span: Span,
+        nested: String,
+        nested_span: Span,
+        source: Box<Expr>,
+    },
+}
+
+/// A field named by `get`: `name` in `get name, fee of roster`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Asked {
+    pub name: String,
+    pub span: Span,
 }
 
 /// One field of a record: `city = "Anytown"`.
@@ -526,6 +556,23 @@ impl fmt::Display for Expr {
             }
             ExprKind::At { list, index, .. } => write!(f, "{list} at {index}"),
             ExprKind::Field { record, name, .. } => write!(f, "{record}.{name}"),
+            ExprKind::Sum { field, list, .. } => write!(f, "sum {field} of {list}"),
+            ExprKind::Get { fields, list, .. } => {
+                write!(f, "get ")?;
+                for (index, field) in fields.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", field.name)?;
+                }
+                write!(f, " of {list}")
+            }
+            ExprKind::GetWith {
+                field,
+                nested,
+                source,
+                ..
+            } => write!(f, "get {field} with {nested} in {source}"),
         }
     }
 }
@@ -1947,6 +1994,7 @@ impl<'a> Parser<'a> {
             TokenKind::Identifier(name) => ExprKind::Name(name.clone()),
             TokenKind::List => return self.list_expr(),
             TokenKind::Record => return self.record_expr(),
+            TokenKind::Get | TokenKind::Sum => return self.ask_expr(),
             TokenKind::LeftParen => return self.group(),
             TokenKind::Of => {
                 return Err(Diagnostic::new(
@@ -2002,6 +2050,191 @@ impl<'a> Parser<'a> {
             kind,
             span: token.span(),
         })
+    }
+
+    /// `sum fee of roster`, `get fee of roster`, or `get bookings with acts in roster`.
+    fn ask_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        let summing = keyword.kind == TokenKind::Sum;
+        let field_token = self.peek().clone();
+        let TokenKind::Identifier(field) = field_token.kind.clone() else {
+            let message = if summing {
+                "sum needs the name of the amount.\n\
+                 sum fee of roster adds the fee of each record."
+            } else {
+                "get needs the name of the data.\n\
+                 get fee of roster takes the fee of each record. \
+                 get bookings with acts in roster brings the bookings and their acts."
+            };
+            let suggestion = if summing {
+                "sum fee of roster"
+            } else {
+                "get fee of roster"
+            };
+            return Err(Diagnostic::new(field_token.span(), message).suggest(suggestion));
+        };
+        self.advance();
+        let mut fields = vec![Asked {
+            name: field.clone(),
+            span: field_token.span(),
+        }];
+        while self.peek().kind == TokenKind::Comma {
+            let comma = self.advance().clone();
+            if summing {
+                return Err(Diagnostic::new(
+                    comma.span(),
+                    "sum adds one amount.\n\
+                     sum fee of roster adds the fee of each record.",
+                )
+                .suggest(format!("sum {field} of roster")));
+            }
+            let next = self.peek().clone();
+            let TokenKind::Identifier(name) = next.kind.clone() else {
+                return Err(Diagnostic::new(
+                    comma.span(),
+                    format!(
+                        "This comma needs the next field, but found {}.\n\
+                         get name, fee of roster takes those fields of each record.",
+                        describe(&next.kind)
+                    ),
+                )
+                .suggest("get name, fee of roster"));
+            };
+            self.advance();
+            fields.push(Asked {
+                name,
+                span: next.span(),
+            });
+        }
+        let written_fields = fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        match self.peek().kind {
+            TokenKind::Of => {
+                let of_token = self.advance().clone();
+                if !starts_value(&self.peek().kind) {
+                    return Err(Diagnostic::new(
+                        self.peek().span(),
+                        format!(
+                            "of needs the list after it, but found {}.\n\
+                             {} {written_fields} of roster reads that field of each record.",
+                            describe(&self.peek().kind),
+                            if summing { "sum" } else { "get" }
+                        ),
+                    )
+                    .suggest(format!(
+                        "{} {written_fields} of roster",
+                        if summing { "sum" } else { "get" }
+                    )));
+                }
+                let list = self.unary()?;
+                let kind = if summing {
+                    ExprKind::Sum {
+                        field,
+                        field_span: field_token.span(),
+                        of_span: of_token.span(),
+                        list: Box::new(list.clone()),
+                    }
+                } else {
+                    ExprKind::Get {
+                        fields,
+                        of_span: of_token.span(),
+                        list: Box::new(list.clone()),
+                    }
+                };
+                Ok(Expr {
+                    span: cover(keyword.span(), list.span),
+                    kind,
+                })
+            }
+            TokenKind::With => {
+                if fields.len() > 1 {
+                    return Err(Diagnostic::new(
+                        self.peek().span(),
+                        "with brings one list and the data embedded in it.\n\
+                         get bookings with acts in roster. Several fields use of: \
+                         get name, fee of roster.",
+                    )
+                    .suggest("get name, fee of roster"));
+                }
+                if summing {
+                    return Err(Diagnostic::new(
+                        self.peek().span(),
+                        "sum adds one field of a list.\n\
+                         sum fee of roster adds the fee of each record.",
+                    )
+                    .suggest(format!("sum {field} of roster")));
+                }
+                self.advance();
+                let nested_token = self.peek().clone();
+                let TokenKind::Identifier(nested) = nested_token.kind.clone() else {
+                    return Err(Diagnostic::new(
+                        nested_token.span(),
+                        "with needs the name of the embedded data.\n\
+                         get bookings with acts in roster brings each booking and its acts.",
+                    )
+                    .suggest("get bookings with acts in roster"));
+                };
+                self.advance();
+                if self.peek().kind != TokenKind::In {
+                    return Err(Diagnostic::new(
+                        self.peek().span(),
+                        format!(
+                            "in names where the data is, but found {}.\n\
+                             get bookings with acts in roster.",
+                            describe(&self.peek().kind)
+                        ),
+                    )
+                    .suggest(format!("get {field} with {nested} in roster")));
+                }
+                self.advance();
+                if !starts_value(&self.peek().kind) {
+                    return Err(Diagnostic::new(
+                        self.peek().span(),
+                        format!(
+                            "in needs the data after it, but found {}.\n\
+                             get bookings with acts in roster.",
+                            describe(&self.peek().kind)
+                        ),
+                    )
+                    .suggest(format!("get {field} with {nested} in roster")));
+                }
+                let source = self.unary()?;
+                Ok(Expr {
+                    span: cover(keyword.span(), source.span),
+                    kind: ExprKind::GetWith {
+                        field,
+                        field_span: field_token.span(),
+                        nested,
+                        nested_span: nested_token.span(),
+                        source: Box::new(source),
+                    },
+                })
+            }
+            _ => {
+                let found = self.peek().clone();
+                let message = if summing {
+                    format!(
+                        "sum {field} needs of, and then the list.\n\
+                         sum {field} of roster adds that field of each record."
+                    )
+                } else {
+                    format!(
+                        "get {written_fields} needs of, or with.\n\
+                         get fee of roster takes one field. get name, fee of roster takes several. \
+                         get bookings with acts in roster brings the acts with the bookings."
+                    )
+                };
+                let suggestion = if summing {
+                    format!("sum {field} of roster")
+                } else {
+                    format!("get {field} of roster")
+                };
+                Err(Diagnostic::new(found.span(), message).suggest(suggestion))
+            }
+        }
     }
 
     /// `list "coding", "reading"` or `list of text`.
@@ -2761,6 +2994,8 @@ fn starts_value(kind: &TokenKind) -> bool {
             | TokenKind::Not
             | TokenKind::List
             | TokenKind::Record
+            | TokenKind::Get
+            | TokenKind::Sum
             | TokenKind::Found
             | TokenKind::Missing
             | TokenKind::Try
@@ -2815,6 +3050,8 @@ fn contains_record_expr(expr: &Expr) -> bool {
             contains_record_expr(list) || contains_record_expr(index)
         }
         ExprKind::Field { record, .. } => contains_record_expr(record),
+        ExprKind::Sum { list, .. } | ExprKind::Get { list, .. } => contains_record_expr(list),
+        ExprKind::GetWith { source, .. } => contains_record_expr(source),
         ExprKind::Call { args, .. } => args.iter().any(contains_record_expr),
         ExprKind::Negate(inner) | ExprKind::Not(inner) | ExprKind::Group(inner) => {
             contains_record_expr(inner)

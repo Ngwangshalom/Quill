@@ -49,6 +49,10 @@
   '((((background light)) :foreground "#5C2E9A")
     (t :foreground "#B07CFF"))
   "at." :group 'quill)
+(defface quill-ask
+  '((((background light)) :foreground "#15556A")
+    (t :foreground "#6EC1D6"))
+  "get, sum, and with." :group 'quill)
 (defface quill-fn
   '((((background light)) :foreground "#8A3D78")
     (t :foreground "#E8A0D4"))
@@ -87,6 +91,7 @@
     ("\\b\\(record\\)\\b" . 'quill-record)
     ("\\b\\(of\\)\\b" . 'quill-of)
     ("\\b\\(at\\)\\b" . 'quill-at)
+    ("\\b\\(get\\|sum\\|with\\)\\b" . 'quill-ask)
     ("\\b\\(fn\\|return\\)\\b" . 'quill-fn)
     ("\\b\\(maybe\\|found\\|missing\\)\\b" . 'quill-maybe)
     ("\\b\\(fails\\|fail\\|on\\|try\\)\\b" . 'quill-fail)

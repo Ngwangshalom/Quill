@@ -53,6 +53,24 @@ pub enum Op {
     SetAt,
     /// Pop a record and push `constants[index]`'s field. The constant is the field's name as text.
     GetField(usize),
+    /// Pop a list of records and push a list of one field. A missing amount is left out.
+    /// The constant is the field's name as text.
+    Pluck(usize),
+    /// Pop a list of records and push a list of records that keep `picks[index]`, in that order.
+    Pick(usize),
+    /// Pop a list of records and push the sum of one field. A missing amount is left out.
+    /// `name` is the field. `currency` is the code when the field is money, so an empty list
+    /// still has a currency.
+    SumField {
+        name: usize,
+        currency: Option<usize>,
+    },
+    /// Pop a record or a list of records and push the list named by `outer`, after checking
+    /// that each record has `inner`. Both constants are field names as text.
+    Gather {
+        outer: usize,
+        inner: usize,
+    },
     /// Pop a new value and a record, and push the record with that field replaced.
     /// The constant is the field's name as text.
     SetField(usize),
@@ -99,6 +117,8 @@ pub struct Chunk {
     pub constants: Vec<Value>,
     /// Field names for each `Op::Record`, in the order the values were pushed.
     pub records: Vec<Vec<String>>,
+    /// Field names for each `Op::Pick`, in the order they were written.
+    pub picks: Vec<Vec<String>>,
     /// How many named values the program creates.
     pub slot_count: usize,
     pub functions: Vec<Function>,
@@ -106,6 +126,7 @@ pub struct Chunk {
 
 pub fn compile(program: &Program) -> Result<Chunk, Diagnostic> {
     let mut compiler = Compiler {
+        sum_currencies: crate::checker::sum_currencies(program),
         chunk: Chunk::default(),
         code: Vec::new(),
         spans: Vec::new(),
@@ -131,6 +152,8 @@ pub fn compile(program: &Program) -> Result<Chunk, Diagnostic> {
 }
 
 struct Compiler {
+    /// Currency of each money `sum`, keyed by the span of the whole `sum`.
+    sum_currencies: Vec<(Span, String)>,
     chunk: Chunk,
     /// Instructions for the code being compiled: the main program, or one function.
     code: Vec<Op>,
@@ -454,6 +477,40 @@ impl Compiler {
                 self.expression(record)?;
                 let index = self.field_name(name);
                 self.emit(Op::GetField(index), span);
+            }
+            ExprKind::Get { fields, list, .. } => {
+                self.expression(list)?;
+                if fields.len() == 1 {
+                    let index = self.field_name(&fields[0].name);
+                    self.emit(Op::Pluck(index), span);
+                } else {
+                    let names = fields.iter().map(|field| field.name.clone()).collect();
+                    let index = self.chunk.picks.len();
+                    self.chunk.picks.push(names);
+                    self.emit(Op::Pick(index), span);
+                }
+            }
+            ExprKind::Sum { field, list, .. } => {
+                self.expression(list)?;
+                let name = self.field_name(field);
+                let currency = self
+                    .sum_currencies
+                    .iter()
+                    .find(|(sum_span, _)| *sum_span == span)
+                    .map(|(_, code)| code.clone());
+                let currency = currency.map(|code| self.field_name(&code));
+                self.emit(Op::SumField { name, currency }, span);
+            }
+            ExprKind::GetWith {
+                field,
+                nested,
+                source,
+                ..
+            } => {
+                self.expression(source)?;
+                let outer = self.field_name(field);
+                let inner = self.field_name(nested);
+                self.emit(Op::Gather { outer, inner }, span);
             }
             ExprKind::Call {
                 name,

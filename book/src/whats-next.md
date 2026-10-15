@@ -2,7 +2,7 @@
 
 Quill is young, and these features are designed but not built yet. The examples on this page show how they're planned to work. They don't run yet.
 
-Functions, [money](money.md), [maybe](maybe.md), and [failures](failures.md) are in the language now. What is still ahead is a `when` that gives a value back, and kind names like `Int` and `Text`. Today a parameter's kind is `number`, `text`, `true/false`, a currency such as `USD`, `maybe` one of those, or `list of` one of those.
+Functions, [money](money.md), [maybe](maybe.md), [failures](failures.md), and [asking for data](asking.md) with `get` and `sum` are in the language now. `for` is still there when each record needs its own step. What is still ahead is a `when` that gives a value back, and kind names like `Int` and `Text`. Today a parameter's kind is `number`, `text`, `true/false`, a currency such as `USD`, `maybe` one of those, or `list of` one of those.
 
 ## And more
 

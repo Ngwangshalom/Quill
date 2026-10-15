@@ -29,6 +29,12 @@ pub enum TokenKind {
     Record,
     Of,
     At,
+    /// `get fee of roster`, or `get bookings with acts in roster`.
+    Get,
+    /// `sum fee of roster`.
+    Sum,
+    /// The embedded field in `get bookings with acts in roster`.
+    With,
     /// `fn`, a function.
     Fn,
     /// `return`, the value a function gives back.
@@ -156,6 +162,9 @@ impl fmt::Display for TokenKind {
             TokenKind::Record => "record",
             TokenKind::Of => "of",
             TokenKind::At => "at",
+            TokenKind::Get => "get",
+            TokenKind::Sum => "sum",
+            TokenKind::With => "with",
             TokenKind::Fn => "fn",
             TokenKind::Return => "return",
             TokenKind::Maybe => "maybe",
@@ -717,6 +726,9 @@ impl Lexer {
             "record" => TokenKind::Record,
             "of" => TokenKind::Of,
             "at" => TokenKind::At,
+            "get" => TokenKind::Get,
+            "sum" => TokenKind::Sum,
+            "with" => TokenKind::With,
             "fn" => TokenKind::Fn,
             "return" => TokenKind::Return,
             "maybe" => TokenKind::Maybe,
@@ -1056,7 +1068,7 @@ mod tests {
     #[test]
     fn keywords() {
         let kinds: Vec<TokenKind> = tokens(
-            "var set when else for in list record of at fn return maybe found missing fails fail on try true false and or not variable",
+            "var set when else for in list record of at get sum with fn return maybe found missing fails fail on try true false and or not variable",
         )
         .into_iter()
         .map(|(kind, _, _)| kind)
@@ -1074,6 +1086,9 @@ mod tests {
                 Record,
                 Of,
                 At,
+                Get,
+                Sum,
+                With,
                 Fn,
                 Return,
                 Maybe,
