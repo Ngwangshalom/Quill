@@ -83,7 +83,7 @@ A name can't start with a digit: `2x` is a mistake.
 These words have a meaning in Quill and can't be used as names:
 
 ```
-say  check  var  set  when  else  for  in  list  record  of  at  fn  return  maybe  found  missing  fails  fail  on  try  true  false  and  or  not
+say  check  var  set  when  else  for  in  list  record  of  at  get  sum  with  fn  return  maybe  found  missing  fails  fail  on  try  true  false  and  or  not
 ```
 
 ## 4. Kinds of values
@@ -231,6 +231,108 @@ set address.city = "Springfield"
 ```
 
 The new value must match the item's or the field's kind. `for NAME in LIST` walks a list (§8.5).
+
+### 5.6 Asking for a field
+
+`get` and `sum` read a list of records without a loop. `for` still walks the list when each record needs its own step (§8.5). A program can use either.
+
+```quill
+sisters = record name = "Nchang Sisters", fee = 80000 USD
+brass = record name = "Bamenda Brass", fee = 150000 USD
+roster = list sisters, brass
+till = sum fee of roster
+fees = get fee of roster
+say till
+say fees
+```
+
+```output
+230000 USD
+80000 USD, 150000 USD
+```
+
+A missing amount is left out of the sum:
+
+```quill
+fn fee_for(name: text) -> maybe USD
+  when
+    name == "Quiet Hour" -> return missing
+    else -> return found 40000 USD
+
+quiet = record name = "Quiet Hour", fee = fee_for("Quiet Hour")
+drums = record name = "Market Drums", fee = fee_for("Market Drums")
+roster = list quiet, drums
+say sum fee of roster
+```
+
+```output
+40000 USD
+```
+
+Several fields stay together on a smaller record. Name the record before the dot:
+
+```quill
+sisters = record name = "Nchang Sisters", age = 24, fee = 80000 USD
+people = get name, age, fee of list sisters
+person = people at 1
+say person.name
+say person.fee
+```
+
+```output
+Nchang Sisters
+80000 USD
+```
+
+A dot after `of` reads a field further in. One nested record gives that one value. A list on a record gives a list:
+
+```quill
+school = record
+  name = "Harvard"
+  acceptances = record gpa = 4.0
+
+say get gpa of school.acceptances
+
+up = record place = "Up Station", acts = list "Bamenda Brass", "Hilltop Duo"
+old = record place = "Old Town", acts = list "Market Drums"
+desk = record bookings = list up, old
+say get place of desk.bookings
+```
+
+```output
+4.0
+Up Station, Old Town
+```
+
+`get` can also name the list and the field embedded in each record. One record, or a list of records, can hold that list:
+
+```quill
+up = record place = "Up Station", acts = list "Bamenda Brass", "Hilltop Duo"
+old = record place = "Old Town", acts = list "Market Drums"
+desk = record bookings = list up, old
+tonight = get bookings with acts in desk
+first = tonight at 1
+say first.place
+
+saturday = record day = "Saturday", bookings = list up
+sunday = record day = "Sunday", bookings = list old
+nights = list saturday, sunday
+all = get bookings with acts in nights
+second = all at 2
+say second.place
+```
+
+```output
+Up Station
+Old Town
+```
+
+- `sum NAME of LIST` adds `NAME` from each record. `NAME` is a number or money in one currency. The result is that number, or money in that currency. When the value after `of` is one record, the sum is that one amount: `sum fees of school`.
+- `get NAME of LIST` gives a list of `NAME` from each record.
+- `get NAME { "," NAME } of LIST` gives a list of records. Each record keeps only the named fields, in the order they were written. The same field twice is a mistake. When the value after `of` is one record, one field comes back as that value, and several fields come back as one record. A dot after `of` reaches a field further in: `get gpa of school.acceptances`, `get place of desk.bookings`. `record = list at 1` then `record.name` reads a field of that item. `(list at 1).name` is the same value.
+- A field that is `maybe` contributes only when it is `found`. `missing` is left out. When every money amount is missing, `sum` is `0` in that currency.
+- `get NAME with NESTED in SOURCE` gives the list `NAME`. Each record in that list has the field `NESTED`. `SOURCE` is one record, or a list of records that each hold `NAME`. A list of records is gathered into one list.
+- The field names are checked before anything runs. A missing field, a list that is not records, or a `sum` of text is a mistake, and nothing runs.
 
 ## 6. Calculations and conditions
 
@@ -649,7 +751,9 @@ comparison  = sum [ COMPARE sum ] ;
 sum         = product { ( "+" | "-" ) product } ;
 product     = negative { ( "*" | "/" | "%" ) negative } ;
 negative    = "-" negative | atom { "." NAME | "at" sum } ;
-atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record ;
+atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | ask | total ;
+ask         = "get" NAME { "," NAME } "of" negative | "get" NAME "with" NAME "in" negative ;
+total       = "sum" NAME "of" negative ;
 list        = "list" ( "of" ( "text" | "number" | "true/false" ) | sum { "," sum } ) ;
 record      = "record" ( NEWLINE INDENT field { field } DEDENT | field { "," field } ) ;
 field       = NAME "=" value ;

@@ -18,7 +18,7 @@
 
 ---
 
-> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs the first features so far: `say`, values, `var` / `set`, exact arithmetic, `{values}` inside text, `when`, `for` loops, lists, records, `check` and doc examples, functions (`fn`, `return`), money (`100 USD`), `maybe`, and failures (`fails`, `on`, `try`). Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
+> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs the first features so far: `say`, values, `var` / `set`, exact arithmetic, `{values}` inside text, `when`, `for` loops, `get` and `sum`, lists, records, `check` and doc examples, functions (`fn`, `return`), money (`100 USD`), `maybe`, and failures (`fails`, `on`, `try`). Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
 
 ## Why Quill?
 
@@ -32,6 +32,7 @@ What works now:
 
 - **Code reads like what it means.** Indentation-based, no semicolons, no braces.
 - **Money is exact.** `100 USD + 50 USD` is `150 USD`. `0.1 + 0.2` is `0.3`. Dollars and euros cannot be added.
+- **Ask for the data.** `sum fee of roster` adds each fee. `get fee of roster` takes that field. `get place of desk.bookings` reads a field of a list on a record. A missing amount is left out. `for` remains when each record needs its own step.
 - **Nothing is missing by surprise.** There is no `null`. A `maybe` says the value might be missing, and both cases have to be handled.
 - **Failures are part of the function.** `fails Declined` names the failure, `fail Declined` leaves with it, and the caller handles it with `on` or passes it on with `try`.
 - **Errors teach.** Every error explains what went wrong, why, and how to fix it. `quill explain` shows how Quill read the code.
@@ -159,6 +160,32 @@ total = 100 USD + 50 USD
 
 That is `150 USD`. `100 USD + 20 EUR` is a mistake: Quill will not mix currencies. Named types such as `Money<USD>` and `where` arrive later. Today the currency itself is the kind: `amount: USD`.
 
+### Asking for data
+
+`sum` adds one field. `get` takes that field, including a field further in. A missing amount is left out. `for` stays when each record needs its own step.
+
+```quill
+sisters = record name = "Nchang Sisters", fee = 80000 USD
+brass = record name = "Bamenda Brass", fee = 150000 USD
+roster = list sisters, brass
+
+say sum fee of roster
+say get fee of roster
+
+up = record place = "Up Station", acts = list "Bamenda Brass", "Hilltop Duo"
+old = record place = "Old Town", acts = list "Market Drums"
+desk = record bookings = list up, old
+say get place of desk.bookings
+first = desk.bookings at 1
+say first.acts
+
+people = get name, fee of roster
+person = people at 1
+say person.name
+```
+
+`sum fee of roster` is `230000 USD`. `sum fees of school` is that one amount. `get fee of roster` is `80000 USD, 150000 USD`. `get place of desk.bookings` is `Up Station, Old Town`. `first.acts` is `Bamenda Brass, Hilltop Duo`. `get name, fee of roster` keeps those two fields together, so `person.name` is `Nchang Sisters`.
+
 ### Contracts
 
 Functions can state what they require and what they guarantee. Quill checks these at runtime today and proves them before running wherever it can.
@@ -282,6 +309,7 @@ Quill is for backend engineering, financial software, automation, reliable busin
 - [x] `say`, values, `var` / `set`, expressions
 - [x] `when` with conditions
 - [x] Loops (`for i in 1..3`, and `for hobby in hobbies`)
+- [x] Asking for data (`sum fee of roster`, `get fee of roster`, `get place of desk.bookings`)
 - [x] Lists and records
 - [x] Functions (`fn double(n: number) -> number`, `return`, and calls)
 

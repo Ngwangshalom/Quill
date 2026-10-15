@@ -6,6 +6,7 @@ What changed in each version of Quill. The newest version is at the top.
 
 Changes that are finished but not yet in a release.
 
+- **Asking for data.** `sum fee of roster` adds the fee of each record. `get fee of roster` takes that field as a list. `get name, age, fee of roster` keeps those fields together on each record. The same line reads one record: `get name, fees of school` is one record with those fields. `sum fees of school` is that one amount. A dot after `of` reads a field further in: `get place of desk.bookings`, `get gpa of school.acceptances`. Name the record before the dot: `first = desk.bookings at 1`, then `first.place`. `get bookings with acts in roster` is the longer form, for a list and the field embedded in it. A missing amount is left out of a single field. `for` remains when each record needs its own step. `get`, `sum`, and `with` are sea (`#6EC1D6` on a dark editor, `#15556A` on a light one).
 - Money examples use dollars. `100 USD + 50 USD` is `150 USD`.
 - Quill's public description is this: intent is clear, failures are explicit, and correctness is part of the code. It is for backend engineering, financial software, automation, reliable business applications, and AI and machine learning. Asking a model and training one are part of that. Operating systems, device drivers, and 3D games stay with Rust and C++.
 

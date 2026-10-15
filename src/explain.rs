@@ -364,6 +364,12 @@ impl Describer<'_> {
             ExprKind::Record { .. } => kind,
             ExprKind::At { .. } => format!("an item from a list, {kind}"),
             ExprKind::Field { .. } => format!("a field of a record, {kind}"),
+            ExprKind::Sum { .. } => format!("the sum of one field, {kind}"),
+            ExprKind::Get { fields, .. } if fields.len() == 1 => {
+                format!("one field of each record, {kind}")
+            }
+            ExprKind::Get { .. } => format!("those fields of each record, {kind}"),
+            ExprKind::GetWith { .. } => format!("records and the data embedded in them, {kind}"),
             ExprKind::Call { name, .. } => format!("a call of {name}, {kind}"),
             ExprKind::Money { .. } => kind,
             ExprKind::Found(_) => format!("a maybe that holds a value, {kind}"),
@@ -423,6 +429,8 @@ fn names_in(expr: &Expr, names: &mut Vec<String>) {
             names_in(index, names);
         }
         ExprKind::Field { record, .. } => names_in(record, names),
+        ExprKind::Sum { list, .. } | ExprKind::Get { list, .. } => names_in(list, names),
+        ExprKind::GetWith { source, .. } => names_in(source, names),
         ExprKind::Call { args, .. } => {
             for arg in args {
                 names_in(arg, names);

@@ -62,6 +62,20 @@ or once for each item in a list:
   for hobby in hobbies
     say hobby
 
+get and sum ask a record, or a list of records, for data. for stays when each record
+needs its own step. A missing amount is left out:
+
+  sisters = record name = \"Nchang Sisters\", fee = 80000 USD
+  brass = record name = \"Bamenda Brass\", fee = 150000 USD
+  roster = list sisters, brass
+  say sum fee of roster
+  say get fee of roster
+
+get place of desk.bookings reads a field of a list on a record.
+get gpa of school.acceptances reads a field of a nested record.
+Name the record before the dot: first = desk.bookings at 1, then first.place.
+get bookings with acts in desk is the longer form.
+
 A record keeps named fields together. A dot reads one field:
 
   address = record

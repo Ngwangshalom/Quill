@@ -36,6 +36,16 @@ say address.city
 fn double(n: number) -> number
   return n * 2
 say double(21)
+
+act = record name = "Brass", fee = 150000 USD
+roster = list act
+say sum fee of roster
+say get fee of roster
+
+up = record place = "Up Station", acts = list "Bamenda Brass"
+old = record place = "Old Town", acts = list "Market Drums"
+desk = record bookings = list up, old
+say get place of desk.bookings
 ```
 
 ```output
@@ -48,6 +58,9 @@ Delivery: 5
 coding
 Anytown
 42
+150000 USD
+150000 USD
+Up Station, Old Town
 ```
 
 ## Kinds of values
@@ -81,13 +94,15 @@ Blocks (`when`, `for`, `fn`, `record`) are indented by exactly 2 spaces.
 
 ## Reserved words
 
-`say` `check` `var` `set` `when` `else` `for` `in` `list` `record` `of` `at` `fn` `return` `maybe` `found` `missing` `fails` `fail` `on` `try` `true` `false` `and` `or` `not`
+`say` `check` `var` `set` `when` `else` `for` `in` `list` `record` `of` `at` `get` `sum` `with` `fn` `return` `maybe` `found` `missing` `fails` `fail` `on` `try` `true` `false` `and` `or` `not`
 
 `fn double(n: number) -> number` names a calculation. `return n * 2` is the value the call becomes, and `double(21)` calls it. Leave off `->` when the function only does work, and call it on its own line. Each parameter has its own kind (`text`, `number`, `true/false`, a currency such as `USD`, `maybe` one of those, or `list of` one of those). The kind after `->` is the only kind `return` may give back.
 
 `100 USD + 50 USD` is money. Two currencies cannot be added. `-> maybe number` might be `found` or `missing`, and `when` has to handle both. `fails Declined` names a failure, `fail Declined` leaves with it, and the caller writes `on Declined` or `try`.
 
 `at` picks one list item: `hobbies at 1` reads the first, and `set hobbies at 2 = "writing"` changes that one item. `of` is required only for an empty list: `list of text`, `list of number`, or `list of true/false`. A list that already has items leaves `of` out.
+
+`sum fee of roster` adds the fee of each record. `get fee of roster` takes that field as a list. `get place of desk.bookings` reads a field of a list on a record, and `get gpa of school.acceptances` reads a field of a nested record. Give that record a name before the dot: `first = desk.bookings at 1`, then `first.place`. `get bookings with acts in desk` is the longer form: it names the list and the field embedded in it. A missing amount is left out. `for` stays when each record needs its own step.
 
 ## Commands
 

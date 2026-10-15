@@ -17,6 +17,7 @@
     { "include": "#record" },
     { "include": "#of" },
     { "include": "#at" },
+    { "include": "#ask" },
     { "include": "#fn" },
     { "include": "#maybe" },
     { "include": "#failure" },
@@ -122,6 +123,10 @@
     "at": {
       "match": "\\b(at)\\b",
       "name": "keyword.other.at.quill"
+    },
+    "ask": {
+      "match": "\\b(get|sum|with)\\b",
+      "name": "keyword.other.ask.quill"
     },
     "fn": {
       "match": "\\b(fn|return)\\b",

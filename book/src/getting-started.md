@@ -158,6 +158,7 @@ On a dark editor:
 | `check` | `#F0A0B4` rose | a test |
 | `and`, `or`, `not` | `#5EC4C0` teal | words that join a question |
 | `for` and `in` | `#C6D86A` yellow-green | a loop |
+| `get`, `sum`, and `with` | `#6EC1D6` sea | asking for data |
 | `list` | `#D4896A` clay | values in order |
 | `record` | `#A8C5A0` sage | named fields |
 | `of` | `#E8C547` gold | the kind of an empty list |
@@ -169,7 +170,7 @@ On a dark editor:
 | Text in quotes | `#F3E6D0` warm paper | the page |
 | Comments | `#9A9186` faded ink | ink, faded |
 
-On a light editor the same ideas use deeper shades, so they stay readable on paper: `say` `#C45C12`, `when` `#1D408A`, `true` `#157A42`, `list` `#8C4E32`, `record` `#3E5C32`, `of` `#8A5A00`, `at` `#5C2E9A`, `fn` `#8A3D78`, `maybe` `#A85A38`, `fails` `#A33B3B`, numbers `#9A4A12`, text `#6B3A22`. Where to write `of` and `at` is in [Lists and records](groups.md#where-of-and-at-are-used).
+On a light editor the same ideas use deeper shades, so they stay readable on paper: `say` `#C45C12`, `when` `#1D408A`, `true` `#157A42`, `list` `#8C4E32`, `record` `#3E5C32`, `of` `#8A5A00`, `at` `#5C2E9A`, `get` `#15556A`, `fn` `#8A3D78`, `maybe` `#A85A38`, `fails` `#A33B3B`, numbers `#9A4A12`, text `#6B3A22`. Where to write `of` and `at` is in [Lists and records](groups.md#where-of-and-at-are-used). Asking for a field is in [Asking for data](asking.md).
 
 Some colors are waiting. Nothing uses them until that part of Quill exists, so a name you invent is never painted early. When the word arrives, it takes the color that was saved for it:
 

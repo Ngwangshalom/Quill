@@ -13,6 +13,7 @@ syn keyword quillList list
 syn keyword quillRecord record
 syn keyword quillOf of
 syn keyword quillAt at
+syn keyword quillAsk get sum with
 syn keyword quillFn fn return
 syn keyword quillMaybe maybe found missing
 syn keyword quillFail fails fail on try
@@ -22,7 +23,7 @@ syn match quillExample "---\s\+example:"
 syn region quillString start='"' skip='\\.' end='"' contains=quillEscape,quillInterpolation
 syn region quillString start='"""' end='"""' contains=quillEscape,quillInterpolation
 syn match quillEscape "\\." contained
-syn region quillInterpolation start="{" end="}" contained contains=quillSay,quillWhen,quillBind,quillCheck,quillLogic,quillLoop,quillList,quillRecord,quillOf,quillAt,quillFn,quillMaybe,quillFail,quillTruth,quillNumber,quillOperator
+syn region quillInterpolation start="{" end="}" contained contains=quillSay,quillWhen,quillBind,quillCheck,quillLogic,quillLoop,quillList,quillRecord,quillOf,quillAt,quillAsk,quillFn,quillMaybe,quillFail,quillTruth,quillNumber,quillOperator
 syn match quillNumber "\<\d\+\(\.\d\+\)\?"
 syn match quillOperator "->\|==\|!=\|<=\|>=\|[=+\-*/%<>]"
 
@@ -38,6 +39,7 @@ if &background == "light"
   hi def QuillRecord guifg=#3E5C32 ctermfg=65
   hi def QuillOf guifg=#8A5A00 ctermfg=136
   hi def QuillAt guifg=#5C2E9A ctermfg=55
+  hi def QuillAsk guifg=#15556A ctermfg=23
   hi def QuillFn guifg=#8A3D78 ctermfg=90
   hi def QuillMaybe guifg=#A85A38 ctermfg=130
   hi def QuillFail guifg=#A33B3B ctermfg=131
@@ -59,6 +61,7 @@ else
   hi def QuillRecord guifg=#A8C5A0 ctermfg=151
   hi def QuillOf guifg=#E8C547 ctermfg=221
   hi def QuillAt guifg=#B07CFF ctermfg=141
+  hi def QuillAsk guifg=#6EC1D6 ctermfg=80
   hi def QuillFn guifg=#E8A0D4 ctermfg=182
   hi def QuillMaybe guifg=#F0B090 ctermfg=180
   hi def QuillFail guifg=#E08A8A ctermfg=174
@@ -82,6 +85,7 @@ hi def link quillList QuillList
 hi def link quillRecord QuillRecord
 hi def link quillOf QuillOf
 hi def link quillAt QuillAt
+hi def link quillAsk QuillAsk
 hi def link quillFn QuillFn
 hi def link quillMaybe QuillMaybe
 hi def link quillFail QuillFail
