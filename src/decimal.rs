@@ -122,7 +122,7 @@ impl Decimal {
         }
         let (a, b, scale) = align(self, other)?;
         Ok(Decimal {
-            units: a % b,
+            units: a.checked_rem(b).ok_or(MathError::TooLarge)?,
             scale,
         })
     }

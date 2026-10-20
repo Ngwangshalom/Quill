@@ -16,6 +16,7 @@
 - [Money](money.md)
 - [Maybe](maybe.md)
 - [Failures](failures.md)
+- [Contracts](contracts.md)
 - [Testing Your Code](testing.md)
 - [Reading Quill's Errors](errors.md)
 - [What's Coming Next](whats-next.md)

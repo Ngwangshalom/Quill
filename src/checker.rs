@@ -9,8 +9,8 @@ use crate::compiler::too_many_digits;
 use crate::decimal::Decimal;
 use crate::diagnostic::{closest_match, Diagnostic, Span};
 use crate::parser::{
-    Access, Arithmetic, Catch, Comparison, Expr, ExprKind, Handler, Param, Part, Program, SigKind,
-    Statement,
+    Access, Arithmetic, Catch, Comparison, Contract, Expr, ExprKind, Handler, Param, Part, Program,
+    Recovery, Rule, SigKind, Statement, ValueArm,
 };
 
 /// The kind of a value.
@@ -158,6 +158,16 @@ pub fn values_before(program: &Program, line: usize) -> Vec<KnownValue> {
     checker.defined
 }
 
+/// For every `where` that filters records: the fields its condition reads. The span
+/// covers the whole `where`.
+pub fn where_fields(program: &Program) -> Vec<(Span, Vec<String>)> {
+    let mut checker = Checker::new(program);
+    for statement in &program.statements {
+        checker.statement(statement);
+    }
+    checker.where_fields
+}
+
 /// The currency of every `sum` whose field is money. The span covers the whole `sum`.
 pub fn sum_currencies(program: &Program) -> Vec<(Span, String)> {
     let mut checker = Checker::new(program);
@@ -184,6 +194,8 @@ struct KnownFn {
     name: String,
     span: Span,
     params: Vec<(String, Kind)>,
+    /// Each parameter's `where` range, in the same order as `params`.
+    rules: Vec<Option<Rule>>,
     /// Absent when the function gives nothing back.
     result: Option<Kind>,
     /// Failure names this function can leave with.
@@ -208,6 +220,8 @@ struct Checker<'a> {
     stop_before: Option<usize>,
     /// Currency of each `sum` whose field is money, so an empty list still has a currency.
     sum_currencies: Vec<(Span, String)>,
+    /// See `where_fields`.
+    where_fields: Vec<(Span, Vec<String>)>,
 }
 
 impl<'a> Checker<'a> {
@@ -222,6 +236,7 @@ impl<'a> Checker<'a> {
             problems: Vec::new(),
             stop_before: None,
             sum_currencies: Vec::new(),
+            where_fields: Vec::new(),
         }
     }
 
@@ -428,15 +443,7 @@ impl<'a> Checker<'a> {
                 self.defined.pop();
                 self.restore(saved);
             }
-            Statement::Function {
-                name,
-                name_span,
-                params,
-                result,
-                fails,
-                body,
-                ..
-            } => return self.function(name, *name_span, params, result, fails, body),
+            Statement::Function { .. } => return self.function(statement),
             Statement::Return { value, span } => self.return_value(value.as_ref(), *span),
             Statement::Call {
                 name,
@@ -491,15 +498,21 @@ impl<'a> Checker<'a> {
     }
 
     /// Checks a function, then keeps it for later calls.
-    fn function(
-        &mut self,
-        name: &str,
-        name_span: Span,
-        params: &[Param],
-        result: &Option<SigKind>,
-        fails: &[(String, Span)],
-        body: &[Statement],
-    ) -> bool {
+    fn function(&mut self, function: &Statement) -> bool {
+        let Statement::Function {
+            name,
+            name_span,
+            params,
+            result,
+            fails,
+            contracts,
+            body,
+            ..
+        } = function
+        else {
+            return false;
+        };
+        let (name, name_span) = (name.as_str(), *name_span);
         if let Some(first) = self.functions.iter().find(|func| func.name == name) {
             self.problems.push(Diagnostic::new(
                 name_span,
@@ -539,6 +552,14 @@ impl<'a> Checker<'a> {
                 ),
             });
         }
+        for param in params {
+            if let Some(rule) = &param.rule {
+                self.rule(param, rule);
+            }
+        }
+        for contract in contracts {
+            self.contract(name, contract, known.result.as_ref(), params);
+        }
         let mut stopped = false;
         for statement in body {
             if self.statement(statement) {
@@ -567,6 +588,138 @@ impl<'a> Checker<'a> {
             self.in_function = None;
         }
         stopped
+    }
+
+    /// `where 1..500` on a parameter: both ends match its kind, and the smaller comes first.
+    fn rule(&mut self, param: &Param, rule: &Rule) {
+        let name = &param.name;
+        let kind = sig_kind(&param.kind);
+        if !matches!(kind, Kind::Number | Kind::Money(_)) {
+            self.problems.push(Diagnostic::new(
+                rule.span,
+                format!(
+                    "where gives the smallest and largest a number or an amount of money can be, \
+                     but {name} is {}.\n\
+                     For other rules, write require under the fn line.",
+                    kind.written_kind()
+                ),
+            ));
+            return;
+        }
+        let mut fits = true;
+        for bound in [&rule.low, &rule.high] {
+            let bound_kind = amount_kind(bound);
+            if bound_kind == kind {
+                continue;
+            }
+            fits = false;
+            let problem = Diagnostic::new(
+                bound.span,
+                format!(
+                    "{name} is {}, so each end of its range is too, but {bound} is {}.\n\
+                     A rule can only compare values of the same kind.",
+                    kind.written_kind(),
+                    bound_kind.written_kind()
+                ),
+            );
+            let amount = bound.written_amount().map(|amount| amount.to_string());
+            self.problems.push(match (&kind, amount) {
+                (Kind::Money(code), Some(amount)) => problem.suggest(format!("{amount} {code}")),
+                (Kind::Number, Some(amount)) => problem.suggest(amount),
+                _ => problem,
+            });
+        }
+        let (Some(low), Some(high)) = (rule.low.written_amount(), rule.high.written_amount())
+        else {
+            return;
+        };
+        if fits && low > high {
+            self.problems.push(
+                Diagnostic::new(
+                    rule.span,
+                    format!(
+                        "{name} {rule} starts above where it ends, so no value fits it.\n\
+                         Write the smallest value first, then .., then the largest."
+                    ),
+                )
+                .suggest(format!("where {}..{}", rule.high, rule.low)),
+            );
+        }
+    }
+
+    /// A `require` or `ensure` line: a condition about the parameters, and for
+    /// `ensure`, about `result`, the value the function gives back.
+    fn contract(
+        &mut self,
+        name: &str,
+        contract: &Contract,
+        result: Option<&Kind>,
+        params: &[Param],
+    ) {
+        let word = contract.keyword();
+        let condition = &contract.condition;
+        let mut added_result = false;
+        if contract.ensure {
+            let Some(result_kind) = result else {
+                self.problems.push(Diagnostic::new(
+                    contract.span,
+                    format!(
+                        "ensure promises something about the value {name} gives back, \
+                         but {name} gives nothing back.\n\
+                         Add -> and a kind to the fn line, or use require for what has to be \
+                         true when {name} is called."
+                    ),
+                ));
+                return;
+            };
+            if let Some(param) = params.iter().find(|param| param.name == "result") {
+                self.problems.push(Diagnostic::new(
+                    param.name_span,
+                    format!(
+                        "In an ensure, result is the value {name} gives back, \
+                         so a parameter can't be called result.\n\
+                         Give the parameter another name."
+                    ),
+                ));
+                return;
+            }
+            self.defined.push(KnownValue {
+                name: "result".to_string(),
+                span: contract.span,
+                kind: result_kind.clone(),
+                mutable: false,
+                loop_counter: false,
+                created: format!("the value {name} gives back"),
+            });
+            added_result = true;
+        } else if condition.names().iter().any(|used| used == "result")
+            && !params.iter().any(|param| param.name == "result")
+        {
+            self.problems.push(Diagnostic::new(
+                contract.span,
+                format!(
+                    "result is the value {name} gives back, and it doesn't exist yet when \
+                     {name} is called.\n\
+                     Check result with ensure instead of require."
+                ),
+            ));
+            return;
+        }
+        let kind = self.value(condition, None, &|fixed| format!("{word} {fixed}"));
+        if added_result {
+            self.defined.pop();
+        }
+        if kind.known() && kind != Kind::Bool {
+            self.problems.push(Diagnostic::new(
+                condition.span,
+                format!(
+                    "{word} needs a condition that is true or false, but {condition} is {}.\n\
+                     Compare it to something, like {}.",
+                    kind.with_article(),
+                    condition_example(condition, &kind)
+                ),
+            ));
+        }
     }
 
     fn return_value(&mut self, value: Option<&Expr>, span: Span) {
@@ -768,7 +921,119 @@ impl<'a> Checker<'a> {
         else {
             return;
         };
-        self.cover_failures(&func, *name_span, handlers);
+        let gives = func.result.clone();
+        self.cover_failures(&func, *name_span, handlers, gives.as_ref());
+    }
+
+    /// `on Declined -> "declined"`: the value takes the place of the call's answer.
+    fn recovery_value(
+        &mut self,
+        func: &KnownFn,
+        handler: &Handler,
+        value: &Expr,
+        gives: Option<&Kind>,
+    ) {
+        let failure = &handler.name;
+        let Some(expected) = gives else {
+            self.problems.push(
+                Diagnostic::new(
+                    value.span,
+                    format!(
+                        "{} gives nothing back, so on {failure} can't give a value in its place.\n\
+                         Write what to do instead, like say.",
+                        func.name
+                    ),
+                )
+                .suggest(format!("on {failure} -> say \"{failure}\"")),
+            );
+            return;
+        };
+        let kind = self.value(value, None, &|fixed| format!("on {failure} -> {fixed}"));
+        if matches!(value.kind, ExprKind::Missing) && matches!(expected, Kind::Maybe(_)) {
+            return;
+        }
+        if kind.known() && &kind != expected {
+            self.problems.push(Diagnostic::new(
+                value.span,
+                format!(
+                    "{} gives back {}, but {value} is {}.\n\
+                     The value after -> takes the place of the call's answer, \
+                     so it has to be {} too.",
+                    func.name,
+                    expected.with_article(),
+                    kind.with_article(),
+                    expected.written_kind()
+                ),
+            ));
+        }
+    }
+
+    /// A `when` that gives a value: every condition is true/false, and every case
+    /// gives the same kind of value.
+    fn when_kind(&mut self, arms: &[ValueArm], context: &Context) -> Kind {
+        let mut first: Option<(Kind, &Expr)> = None;
+        let mut saw_missing = false;
+        for arm in arms {
+            if let Some(condition) = &arm.condition {
+                let kind = self.infer(condition, context);
+                if kind.known() && kind != Kind::Bool {
+                    self.problems.push(Diagnostic::new(
+                        condition.span,
+                        format!(
+                            "A case of a when needs a condition that is true or false, \
+                             but {condition} is {}.\n\
+                             Compare it to something, like {}.",
+                            kind.with_article(),
+                            condition_example(condition, &kind)
+                        ),
+                    ));
+                }
+            }
+            let kind = self.infer(&arm.value, context);
+            if matches!(arm.value.kind, ExprKind::Missing) {
+                saw_missing = true;
+                continue;
+            }
+            if !kind.known() {
+                continue;
+            }
+            match &first {
+                None => first = Some((kind, &arm.value)),
+                Some((expected, earlier)) if &kind != expected => {
+                    self.problems.push(Diagnostic::new(
+                        arm.value.span,
+                        format!(
+                            "Every case of this when has to give the same kind of value.\n\
+                             {earlier} on line {} is {}, but {} is {}.",
+                            earlier.span.line,
+                            expected.with_article(),
+                            arm.value,
+                            kind.with_article()
+                        ),
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        match first {
+            Some((Kind::Maybe(inner), _)) => Kind::Maybe(inner),
+            Some((_, value)) if saw_missing => {
+                let span = arms
+                    .iter()
+                    .find(|arm| matches!(arm.value.kind, ExprKind::Missing))
+                    .map_or(value.span, |arm| arm.value.span);
+                self.problems.push(Diagnostic::new(
+                    span,
+                    format!(
+                        "missing only fits a when whose other cases are maybe values.\n\
+                         Write found before the other values, like found {value}."
+                    ),
+                ));
+                Kind::Unknown
+            }
+            Some((kind, _)) => kind,
+            None => Kind::Unknown,
+        }
     }
 
     fn check_call_handlers(&mut self, name: &str, handlers: &[Handler]) {
@@ -784,10 +1049,17 @@ impl<'a> Checker<'a> {
             .first()
             .map(|handler| handler.span)
             .unwrap_or(func.span);
-        self.cover_failures(&func, span, handlers);
+        self.cover_failures(&func, span, handlers, None);
     }
 
-    fn cover_failures(&mut self, func: &KnownFn, span: Span, handlers: &[Handler]) {
+    /// `gives` is the kind the call gives back, when its answer is kept with `=` or `set`.
+    fn cover_failures(
+        &mut self,
+        func: &KnownFn,
+        span: Span,
+        handlers: &[Handler],
+        gives: Option<&Kind>,
+    ) {
         if func.fails.is_empty() {
             if !handlers.is_empty() {
                 self.problems.push(Diagnostic::new(
@@ -826,6 +1098,13 @@ impl<'a> Checker<'a> {
             } else {
                 seen.push(handler.name.clone());
             }
+            let body = match &handler.body {
+                Recovery::Stop(body) => body,
+                Recovery::Value(value) => {
+                    self.recovery_value(func, handler, value, gives);
+                    continue;
+                }
+            };
             if self.in_function.is_some() {
                 if let Some(result) = self
                     .functions
@@ -833,7 +1112,7 @@ impl<'a> Checker<'a> {
                     .find(|outer| self.in_function.as_deref() == Some(outer.name.as_str()))
                     .and_then(|outer| outer.result.clone())
                 {
-                    if !always_returns(&handler.body) {
+                    if !always_returns(body) {
                         self.problems.push(Diagnostic::new(
                             handler.span,
                             format!(
@@ -845,7 +1124,7 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
-            let _ = self.statement(&handler.body);
+            let _ = self.statement(body);
         }
         for name in &func.fails {
             if !seen.contains(name) {
@@ -1028,11 +1307,21 @@ impl<'a> Checker<'a> {
 
     fn missing_function(&mut self, name: &str, span: Span) {
         if let Some(later) = self.function_later(name, span.line) {
+            let in_example = self.program.statements.iter().any(|statement| {
+                matches!(statement, Statement::Check { example: true, span: at, .. } if at.line == span.line)
+            });
+            let fix = if in_example {
+                format!(
+                    "An example runs after the fn right below it. Move this example \
+                     directly above fn {name}, with no other lines between them."
+                )
+            } else {
+                "Write the function above the line that calls it.".to_string()
+            };
             self.problems.push(Diagnostic::new(
                 span,
                 format!(
-                    "{name} is used here, but the function isn't written until line {}.\n\
-                     Write the function above the line that calls it.",
+                    "{name} is used here, but the function isn't written until line {}.\n{fix}",
                     later.line
                 ),
             ));
@@ -1089,6 +1378,26 @@ impl<'a> Checker<'a> {
                             func.written
                         ),
                     ));
+                    continue;
+                }
+                let rule = func.rules.get(index).and_then(Option::as_ref);
+                if let (Some(rule), Some(given)) = (rule, arg.written_amount()) {
+                    let low = rule.low.written_amount();
+                    let high = rule.high.written_amount();
+                    let outside =
+                        low.is_some_and(|low| given < low) || high.is_some_and(|high| given > high);
+                    if outside {
+                        self.problems.push(Diagnostic::new(
+                            arg.span,
+                            format!(
+                                "{name} takes {param} {}, but this call gives {arg}.\n\
+                                 Line {} says {param} {rule}. \
+                                 Give {name} a value in that range.",
+                                rule.range(),
+                                func.span.line
+                            ),
+                        ));
+                    }
                 }
             }
         }
@@ -1413,6 +1722,12 @@ impl<'a> Checker<'a> {
                 ..
             } => self.sum_kind(expr.span, field, *field_span, list, context),
             ExprKind::Get { fields, list, .. } => self.get_kind(fields, list, context),
+            ExprKind::When(arms) => self.when_kind(arms, context),
+            ExprKind::Where {
+                list,
+                condition,
+                where_span,
+            } => self.where_kind(expr.span, list, condition, *where_span, context),
             ExprKind::GetWith {
                 field,
                 field_span,
@@ -1657,6 +1972,108 @@ impl<'a> Checker<'a> {
         } else {
             Kind::List(Box::new(record))
         }
+    }
+
+    /// `students where score >= 50`: the same list, keeping the records whose condition is
+    /// true. Each field of the records is a name inside the condition.
+    fn where_kind(
+        &mut self,
+        span: Span,
+        list: &Expr,
+        condition: &Expr,
+        where_span: Span,
+        context: &Context,
+    ) -> Kind {
+        let list_kind = self.infer(list, context);
+        let fields = match &list_kind {
+            Kind::List(item) => match item.as_ref() {
+                Kind::Record(fields) => fields.clone(),
+                Kind::Unknown => return Kind::Unknown,
+                other => {
+                    self.problems.push(Diagnostic::new(
+                        where_span,
+                        format!(
+                            "where keeps the records whose fields match, but {list} holds {}.\n\
+                             Use where on a list of records, like students where score >= 50. \
+                             To pick from other lists, use for and when.",
+                            other.name()
+                        ),
+                    ));
+                    return Kind::Unknown;
+                }
+            },
+            Kind::Unknown => return Kind::Unknown,
+            other => {
+                self.problems.push(Diagnostic::new(
+                    where_span,
+                    format!(
+                        "where keeps the records whose fields match, but {list} is {}.\n\
+                         Use where on a list of records, like students where score >= 50.",
+                        other.name()
+                    ),
+                ));
+                return Kind::Unknown;
+            }
+        };
+        let used = condition.names();
+        let field_names = || fields.iter().map(|field| field.name.as_str());
+        if let Some(unknown) = used
+            .iter()
+            .find(|name| !field_names().any(|field| field == *name) && self.lookup(name).is_none())
+        {
+            let problem = Diagnostic::new(
+                where_span,
+                format!(
+                    "The records in {list} have no field called {unknown}, \
+                     and there's no value called {unknown}.\n\
+                     Their fields are {}.",
+                    field_names().collect::<Vec<_>>().join(", ")
+                ),
+            );
+            self.problems
+                .push(match closest_match(unknown, field_names()) {
+                    Some(field) => problem.suggest(field.to_string()),
+                    None => problem,
+                });
+            return Kind::Unknown;
+        }
+        let mut hidden = Vec::new();
+        let mut read = Vec::new();
+        for field in &fields {
+            hidden.push(self.hide(&field.name));
+            self.defined.push(KnownValue {
+                name: field.name.clone(),
+                span: where_span,
+                kind: field.kind.clone(),
+                mutable: false,
+                loop_counter: false,
+                created: format!("a field of each record in {list}"),
+            });
+            if used.contains(&field.name) {
+                read.push(field.name.clone());
+            }
+        }
+        let kind = self.infer(condition, context);
+        for _ in &fields {
+            self.defined.pop();
+        }
+        for saved in hidden.into_iter().rev() {
+            self.restore(saved);
+        }
+        self.where_fields.push((span, read));
+        if kind.known() && kind != Kind::Bool {
+            self.problems.push(Diagnostic::new(
+                condition.span,
+                format!(
+                    "where needs a condition that is true or false, but {condition} is {}.\n\
+                     Compare a field to something, like {}.",
+                    kind.with_article(),
+                    condition_example(condition, &kind)
+                ),
+            ));
+            return Kind::Unknown;
+        }
+        list_kind
     }
 
     /// `sum fee of roster`: a number, or money in one currency. One record gives that one amount.
@@ -2058,6 +2475,7 @@ fn known_function(
             .iter()
             .map(|param| (param.name.clone(), sig_kind(&param.kind)))
             .collect(),
+        rules: params.iter().map(|param| param.rule.clone()).collect(),
         result: result.as_ref().map(sig_kind),
         fails: fails.iter().map(|(name, _)| name.clone()).collect(),
         written: format!("{name}({})", written_params.join(", ")),
@@ -2083,6 +2501,16 @@ fn function_signatures(program: &Program) -> Vec<KnownFn> {
             Some(known_function(name, *name_span, params, result, fails))
         })
         .collect()
+}
+
+/// The kind of a written number or amount of money, like `500` or `0 USD`.
+fn amount_kind(expr: &Expr) -> Kind {
+    match &expr.kind {
+        ExprKind::Number(_) => Kind::Number,
+        ExprKind::Money { currency, .. } => Kind::Money(currency.clone()),
+        ExprKind::Negate(inner) | ExprKind::Group(inner) => amount_kind(inner),
+        _ => Kind::Unknown,
+    }
 }
 
 fn sig_kind(kind: &SigKind) -> Kind {
@@ -2401,6 +2829,15 @@ fn replace(expr: &Expr, span: Span, with: &Expr) -> Expr {
             name: name.clone(),
             name_span: *name_span,
             args: args.iter().map(|arg| replace(arg, span, with)).collect(),
+        },
+        ExprKind::Where {
+            list,
+            condition,
+            where_span,
+        } => ExprKind::Where {
+            list: swap(list),
+            condition: swap(condition),
+            where_span: *where_span,
         },
         other => other.clone(),
     };
@@ -2813,5 +3250,194 @@ say get bookings with guest in roster
 ",
         );
         assert!(found.message.contains("no field called guest"));
+    }
+
+    #[test]
+    fn contracts_read_the_parameters_and_result() {
+        assert_eq!(
+            problems(
+                "fn withdraw(balance: USD, amount: USD) -> USD\n  require amount > 0 USD and amount <= balance\n  ensure result >= 0 USD\n  return balance - amount\n"
+            ),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn a_contract_must_be_true_or_false() {
+        let found = problem("fn f(n: number) -> number\n  require n\n  return n\n");
+        assert!(found
+            .message
+            .starts_with("require needs a condition that is true or false"));
+    }
+
+    #[test]
+    fn ensure_needs_a_value_given_back() {
+        let found = problem("fn greet(name: text)\n  ensure name != \"\"\n  say name\n");
+        assert!(found.message.contains("but greet gives nothing back"));
+    }
+
+    #[test]
+    fn require_cant_read_result() {
+        let found = problem("fn f(n: number) -> number\n  require result > 0\n  return n\n");
+        assert!(found
+            .message
+            .contains("Check result with ensure instead of require."));
+    }
+
+    #[test]
+    fn a_parameter_called_result_clashes_with_ensure() {
+        let found = problem("fn f(result: number) -> number\n  ensure result > 0\n  return 1\n");
+        assert!(found.message.contains("a parameter can't be called result"));
+    }
+
+    #[test]
+    fn result_only_exists_inside_ensure() {
+        let found = problem("fn f(n: number) -> number\n  ensure result > 0\n  return result\n");
+        assert!(
+            found.message.contains("no value called result"),
+            "{}",
+            found.message
+        );
+    }
+
+    #[test]
+    fn a_contract_checks_its_kinds() {
+        let found = problem("fn f(amount: USD) -> USD\n  require amount > 0\n  return amount\n");
+        assert_eq!(found.line, 2);
+    }
+
+    #[test]
+    fn a_range_fits_its_parameter() {
+        assert!(problems(
+            "fn f(a: USD where 0 USD..10 USD, n: number where -3..3) -> USD\n  return a\n"
+        )
+        .is_empty());
+        let text = problem("fn f(name: text where 1..5) -> text\n  return name\n");
+        assert!(text.message.contains("but name is text"));
+        let kinds = problem("fn f(a: USD where 0..10 USD) -> USD\n  return a\n");
+        assert!(kinds.message.contains("but 0 is a number"));
+        assert_eq!(kinds.suggestion.as_deref(), Some("0 USD"));
+        let backwards = problem("fn f(n: number where 500..1) -> number\n  return n\n");
+        assert!(backwards.message.contains("starts above where it ends"));
+        assert_eq!(backwards.suggestion.as_deref(), Some("where 1..500"));
+    }
+
+    #[test]
+    fn a_written_value_outside_the_range_is_caught_before_running() {
+        let source = "fn book(guests: number where 1..500) -> text\n  return \"ok\"\nsay book(500)\nsay book(600)\n";
+        let found = problem(source);
+        assert_eq!(found.line, 4);
+        assert_eq!(
+            found.message,
+            "book takes guests from 1 through 500, but this call gives 600.\n\
+             Line 1 says guests where 1..500. Give book a value in that range."
+        );
+        let below = problem("fn t(c: number where -40..60) -> number\n  return c\nsay t(-41)\n");
+        assert!(below.message.contains("but this call gives -41"));
+    }
+
+    #[test]
+    fn where_reads_the_fields_of_records() {
+        let roster = "a = record name = \"Amina\", score = 80, fee = 500 USD, paid = true\no = record name = \"Omar\", score = 64, fee = 300 USD, paid = false\nj = record name = \"John\", score = 45, fee = 200 USD, paid = false\nstudents = list a, o, j\n";
+        assert!(problems(&format!(
+            "{roster}say students where score >= 50 and paid\n"
+        ))
+        .is_empty());
+        let numbers = problem("n = list 1, 2\nsay n where n > 1\n");
+        assert!(numbers.message.contains("but n holds Number"));
+        let typo = problem(&format!("{roster}say students where scor > 1\n"));
+        assert!(typo.message.contains("have no field called scor"));
+        assert!(typo
+            .message
+            .contains("Their fields are name, score, fee, paid."));
+        assert_eq!(typo.suggestion.as_deref(), Some("score"));
+        let not_a_condition = problem(&format!("{roster}say students where score\n"));
+        assert!(not_a_condition
+            .message
+            .starts_with("where needs a condition that is true or false"));
+        let outer = problems(&format!(
+            "{roster}mark = 60\nsay students where score >= mark\n"
+        ));
+        assert!(outer.is_empty());
+    }
+
+    const CHARGE: &str = "fn charge(amount: USD) -> text
+  fails Declined, NetworkDown
+  when
+    amount <= 0 USD -> fail Declined
+    amount > 1000 USD -> fail NetworkDown
+  return \"paid\"
+";
+
+    #[test]
+    fn a_value_after_on_matches_the_call() {
+        assert_eq!(
+            problems(&format!(
+                "{CHARGE}r = charge(1 USD)\n  on Declined -> \"declined\"\n  on NetworkDown -> say \"later\"\n"
+            )),
+            vec![]
+        );
+        let found = problem(&format!(
+            "{CHARGE}r = charge(1 USD)\n  on Declined -> 0\n  on NetworkDown -> \"later\"\n"
+        ));
+        assert!(found
+            .message
+            .starts_with("charge gives back Text, but 0 is a Number."));
+    }
+
+    #[test]
+    fn a_call_that_gives_nothing_back_cant_take_a_value() {
+        let found = problem(
+            "fn greet(n: text)\n  fails Oops\n  fail Oops\ngreet(\"a\")\n  on Oops -> \"x\"\n",
+        );
+        assert!(found.message.contains("greet gives nothing back"));
+    }
+
+    #[test]
+    fn an_on_with_a_value_needs_no_return_in_a_function() {
+        assert_eq!(
+            problems(&format!(
+                "{CHARGE}fn safe(amount: USD) -> text\n  r = charge(amount)\n    on Declined -> \"no\"\n    on NetworkDown -> \"later\"\n  return r\n"
+            )),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn every_case_of_a_when_value_gives_the_same_kind() {
+        let found = problem("x = when\n  1 > 0 -> \"a\"\n  else -> 2\n");
+        assert!(found
+            .message
+            .contains("\"a\" on line 2 is Text, but 2 is a Number."));
+    }
+
+    #[test]
+    fn a_when_value_needs_true_or_false_conditions() {
+        let found = problem("x = when\n  1 -> \"a\"\n  else -> \"b\"\n");
+        assert!(found
+            .message
+            .contains("needs a condition that is true or false"));
+    }
+
+    #[test]
+    fn missing_needs_found_in_the_other_cases() {
+        let found = problem("x = when\n  1 > 0 -> 1\n  else -> missing\n");
+        assert!(found.message.contains("like found 1"));
+    }
+
+    #[test]
+    fn a_when_value_has_the_kind_of_its_cases() {
+        let found = problem("x = when\n  1 > 0 -> \"a\"\n  else -> \"b\"\ny = x + 1\n");
+        assert!(found.message.contains("Text"), "{}", found.message);
+    }
+
+    #[test]
+    fn an_example_far_from_its_function_says_to_move_it() {
+        let found = problem(
+            "--- example: double(2) == 4\nsay 1\nfn double(n: number) -> number\n  return n * 2\n",
+        );
+        assert!(found
+            .message
+            .contains("Move this example directly above fn double"));
     }
 }

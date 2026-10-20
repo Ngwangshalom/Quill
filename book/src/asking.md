@@ -247,6 +247,90 @@ This record has no field called guest.
 Its fields are place, acts.
 ```
 
+## Only some records: where
+
+Often you want only some of the records: the students who passed, the fees that are not paid yet. `where` keeps the records whose condition is true, in the same order:
+
+```quill
+amina = record name = "Amina", score = 80, fee = 500 USD, paid = true
+omar = record name = "Omar", score = 64, fee = 300 USD, paid = false
+john = record name = "John", score = 45, fee = 200 USD, paid = false
+students = list amina, omar, john
+
+passed = students where score >= 50
+say get name of passed
+```
+
+```output
+Amina, Omar
+```
+
+Read it as: "the students where the score is 50 or more." Inside the condition, `score` is the field of each record. You don't write `student.score`, and you don't write the loop.
+
+`where` works right inside `get` and `sum`, so one line can pick the records and ask for their data:
+
+```quill
+amina = record name = "Amina", score = 80, fee = 500 USD, paid = true
+omar = record name = "Omar", score = 64, fee = 300 USD, paid = false
+john = record name = "John", score = 45, fee = 200 USD, paid = false
+students = list amina, omar, john
+
+say get name of students where score >= 50
+say sum fee of students where paid == false
+```
+
+```output
+Amina, Omar
+500 USD
+```
+
+Join conditions with `and` and `or`, or write `where` again. Both lines below keep only Omar:
+
+```quill
+amina = record name = "Amina", score = 80, fee = 500 USD, paid = true
+omar = record name = "Omar", score = 64, fee = 300 USD, paid = false
+john = record name = "John", score = 45, fee = 200 USD, paid = false
+students = list amina, omar, john
+
+say get name of students where score >= 50 and paid == false
+say get name of students where score >= 50 where paid == false
+```
+
+```output
+Omar
+Omar
+```
+
+The condition can read values from outside, too. A field comes first: if the records have a `score`, then `score` in the condition is the record's score.
+
+```quill
+amina = record name = "Amina", score = 80
+omar = record name = "Omar", score = 64
+students = list amina, omar
+
+pass_mark = 70
+say get name of students where score >= pass_mark
+```
+
+```output
+Amina
+```
+
+When no record matches, the answer is an empty list, not a problem:
+
+```quill
+amina = record name = "Amina", score = 80
+students = list amina
+
+say students where score > 100
+```
+
+```output
+an empty list
+```
+
+`for` can walk the records that match: `for s in students where paid == false`.
+
 ## When each row needs its own step
 
 `for` still walks every item. Use it when the work is different for each one: say the name, or decide that this booking is declined.
@@ -265,7 +349,7 @@ Nchang Sisters
 Bamenda Brass
 ```
 
-Ask with `get` or `sum` when you want the data or the total. Repeat with `for` when each record needs a step of its own. A program can use both.
+Ask with `get` or `sum` when you want the data or the total, and add `where` to keep only some records. Repeat with `for` when each record needs a step of its own. A program can use both.
 
 ## Common mistakes
 
@@ -289,9 +373,58 @@ A dot reads a field of a record, like address.city.
 
 Give the record a name first: `person = people at 1`, then `say person.name`.
 
+A name in a `where` condition has to be a field of the records, or a value you made:
+
+```quill,error
+amina = record name = "Amina", score = 80
+students = list amina
+
+say students where scor >= 50
+```
+
+```output
+Problem on line 4 of example.ql:
+
+    say students where scor >= 50
+                 ^^^^^
+The records in students have no field called scor, and there's no value called scor.
+Their fields are name, score.
+
+Did you mean:  score
+```
+
+A `where` condition runs to the end of the line. In a `check`, name the answer first, so the comparison isn't read as part of the condition:
+
+```quill
+amina = record name = "Amina", score = 80
+omar = record name = "Omar", score = 64
+students = list amina, omar
+
+pass_total = sum score of students where score >= 50
+check pass_total == 144
+```
+
+`where` keeps records, so it needs a list of records. For a list of numbers or text, use `for` and `when`:
+
+```quill,error
+scores = list 80, 64, 45
+
+say scores where scores > 50
+```
+
+```output
+Problem on line 3 of example.ql:
+
+    say scores where scores > 50
+               ^^^^^
+where keeps the records whose fields match, but scores holds Number.
+Use where on a list of records, like students where score >= 50. To pick from other lists, use for and when.
+```
+
 ## Try it
 
 1. Make two records with a `fee` in USD, put them in a list, and `say` the `sum`.
 2. `get` the fees into their own list and `say` that list.
 3. Add a record whose fee is `missing`, and check that the sum left it out.
 4. Put two bookings on a desk and `say get place of desk.bookings`.
+5. Give each record a `paid` field. `say sum fee of roster where paid == false` to see what is still owed.

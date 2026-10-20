@@ -1,6 +1,6 @@
 # Quill Language Specification
 
-**Version 0.1 draft**, describing Quill as implemented in release v0.3.1.
+**Version 0.1 draft**, describing Quill as implemented in release v0.4.0.
 
 This document says exactly what Quill programs mean. The [README](https://github.com/Ngwangshalom/Quill#readme) shows where the language is going; this spec covers what works today, and marks planned features clearly in [§12](#12-planned-not-yet-implemented). When the implementation and this document disagree, that is a bug in one of them. Please [open an issue](https://github.com/Ngwangshalom/Quill/issues).
 
@@ -83,7 +83,7 @@ A name can't start with a digit: `2x` is a mistake.
 These words have a meaning in Quill and can't be used as names:
 
 ```
-say  check  var  set  when  else  for  in  list  record  of  at  get  sum  with  fn  return  maybe  found  missing  fails  fail  on  try  true  false  and  or  not
+say  check  var  set  when  else  for  in  list  record  of  at  get  sum  with  fn  return  maybe  found  missing  fails  fail  on  try  require  ensure  where  true  false  and  or  not
 ```
 
 ## 4. Kinds of values
@@ -332,7 +332,9 @@ Old Town
 - `get NAME { "," NAME } of LIST` gives a list of records. Each record keeps only the named fields, in the order they were written. The same field twice is a mistake. When the value after `of` is one record, one field comes back as that value, and several fields come back as one record. A dot after `of` reaches a field further in: `get gpa of school.acceptances`, `get place of desk.bookings`. `record = list at 1` then `record.name` reads a field of that item. `(list at 1).name` is the same value.
 - A field that is `maybe` contributes only when it is `found`. `missing` is left out. When every money amount is missing, `sum` is `0` in that currency.
 - `get NAME with NESTED in SOURCE` gives the list `NAME`. Each record in that list has the field `NESTED`. `SOURCE` is one record, or a list of records that each hold `NAME`. A list of records is gathered into one list.
-- The field names are checked before anything runs. A missing field, a list that is not records, or a `sum` of text is a mistake, and nothing runs.
+- `LIST where CONDITION` gives the records of `LIST` whose `CONDITION` is true, in their order. Inside `CONDITION`, each field of the records is a name, and it hides a value of the same name; other values are read as usual. `CONDITION` must be true/false. When nothing matches, the result is an empty list. `where` may follow again: `students where score >= 50 where paid` keeps records for which both are true.
+- `where` binds after a whole value, so its condition takes in `and` and `or`: `students where score >= 50 and paid`. After `of`, a `where` applies to the list before `get` or `sum` reads it: `sum fee of roster where paid == false` adds the unpaid fees.
+- The field names are checked before anything runs. A missing field, a list that is not records, or a `sum` of text is a mistake, and nothing runs. In a `where`, a name that is neither a field nor a value, a list that is not records, or a condition that is not true/false is a mistake.
 
 ## 6. Calculations and conditions
 
@@ -485,7 +487,7 @@ when
   else -> say "Please log in"
 ```
 
-A case **can't create a value** (`name = ...` or `var name = ...`), because the value would only exist when that case runs. Create it before the `when` with `var`, then change it inside with `set`:
+A case **can't create a value** (`name = ...` or `var name = ...`), because the value would only exist when that case runs. Create it before the `when` with `var`, then change it inside with `set`, or use a `when` that gives a value (§8.4.1):
 
 ```quill
 var label = ""
@@ -500,6 +502,24 @@ say label
 - A `when` must have at least one case.
 - A `when` whose cases are conditions stands on its own line. `when VALUE` on one line opens a maybe (§8.8).
 - A case that comes after `else` can never run, so it is a mistake.
+
+#### 8.4.1 A `when` that gives a value
+
+`when` at the end of a line, in the place of a value, chooses a value instead of a statement:
+
+```quill
+delivery = when
+  total > 100 -> 0
+  total > 30  -> 5
+  else        -> 10
+```
+
+- It can stand wherever a whole value is written at the end of a line: after `=`, `var NAME =`, `set NAME =`, `say` and `return`. The cases are on the lines below, indented.
+- Each case is `CONDITION -> VALUE` or `else -> VALUE`. The value is an expression, not a statement: `say`, `set` and the other statement words are a mistake there.
+- The last case must be `else`, so there is always a value. A case after `else` is a mistake.
+- Every condition must be true/false. Every case must give the same kind of value. `missing` fits only when the other cases give `found` values; the `when` is then a maybe.
+- The cases are tested in order, and the value of the first true case is the value of the `when`. Only that case's value is worked out.
+- `when VALUE` on one line still opens a maybe (§8.8); it does not give a value.
 
 ### 8.5 `for`
 
@@ -554,7 +574,7 @@ This shows `42`.
 fn NAME "(" [ parameter { "," parameter } ] ")" [ "->" kind ]
   STATEMENT
 
-parameter = NAME ":" kind
+parameter = NAME ":" kind [ "where" bound ".." bound ]
 kind      = "text" | "number" | "true/false" | "list" "of" kind
 ```
 
@@ -604,10 +624,36 @@ fn charge(amount: USD) -> text
     else -> return "paid"
 ```
 
-- `fails` is the first line under `fn`.
-- `var name = charge(...)`, then indented `on NAME -> STATEMENT` for every declared failure. On success the variable is set and the program continues. On failure the `on` line runs and the program stops, so later lines cannot use a value the call never gave back.
+- `fails` goes at the top of the function, with any `require` and `ensure` lines (§8.10).
+- `var name = charge(...)` (or `name =`, or `set name =`), then indented `on NAME -> ...` for every declared failure. On success the value is stored and the program continues. On failure the matching `on` line decides:
+  - `on NAME -> STATEMENT` (`say`, `set`, `check`, `when`, `fail`, `return`, ...): the statement runs and the program stops, so later lines cannot use a value the call never gave back. Inside a function, it leaves the function, and a function that gives a value back must `return` on that line.
+  - `on NAME -> VALUE`: the value is stored in place of the call's answer, and the program continues. It must be the kind the call gives back (`missing` fits a maybe).
+  - Each `on` line chooses for itself, so one failure can give a value while another stops.
+- A call on its own line gives nothing back, so the `on` lines under it run statements. A call after `->` there, like `on Oops -> log("x")`, is run as a statement; any other value is a mistake.
 - `try call` is an expression inside a function whose `fails` list includes every failure of that call. It passes those failures upward.
 - A call that can fail, with no `on` and no `try`, is a mistake.
+
+### 8.10 Contracts: `require`, `ensure` and `where`
+
+A function can state what has to be true when it is called, and what it promises is true when it gives back.
+
+```quill
+fn withdraw(balance: USD, amount: USD) -> USD
+  require amount > 0 USD
+  ensure result >= 0 USD
+  return balance - amount
+```
+
+- `require VALUE` and `ensure VALUE` go at the top of the function, before its first other line. They may be mixed with `fails` in any order. A function can have any number of each.
+- `VALUE` is a condition: it must be true/false (§6). Only one condition fits on a line; join conditions with `and`.
+- `require` can read the parameters. Every `require` is tested in order when the function is called, before its first line runs.
+- `ensure` can read the parameters and `result`, the value the function gives back. Every `ensure` is tested in order at each `return`, after the value is worked out and before the function leaves. A function that leaves with `fail` does not test its `ensure` lines.
+- `result` is defined only inside `ensure`. Elsewhere it is an ordinary name.
+- A parameter can carry a range: `guests: number where 1..500`. The parameter's kind must be `number` or a currency. Each end is a written number or amount, optionally with a leading `-` (`-40`, `0 USD`), of the same kind as the parameter, and the first is not larger than the second. The range includes both ends. When the function is called, each parameter's range is tested in order, before every `require`.
+- When a call passes a written number or amount outside a range, that is a mistake found before running (§10.1). Any other value outside the range stops the program (§10.2) with the function's name, the parameter, the range, its value, and the line of the call.
+- When a contract is true, nothing happens. When it is false, the program stops (§10.2) with the function's name, the condition, and the value of every name it read. A broken `require` also names the line of the call.
+- These are mistakes: `ensure` on a function with no `->`; `require` that reads `result`; a parameter called `result` in a function with an `ensure`; a condition that isn't true/false; `require` or `ensure` outside a function or below its first other line; a second `fails` line; `where` on a parameter that isn't a number or a currency, on the kind after `->`, with an end that isn't a written value, with an end of another kind, or with its ends in the wrong order.
+- Contracts are not tests: `quill test` does not count them.
 
 ## 9. Tests: `check` and doc examples
 
@@ -635,6 +681,14 @@ Both sides of a `check` are calculations. A `check` can't use `and`, `or` or `no
 
 A doc example is a `check` written inside documentation. It runs exactly like `check`, so examples in documentation can't drift out of date.
 
+An example runs where it is written, with one exception: examples directly above a `fn` (with only comments and blank lines between) document that function, and run just after the function is written, so they can call it. When an example fails, Quill points at the line where it was written.
+
+```quill
+--- example: with_vat(100 USD) == 105 USD
+fn with_vat(price: USD) -> USD
+  return price * 1.05
+```
+
 ### 9.3 Running tests
 
 `check` lines run whenever the program runs. `quill test` (§11) runs every file in a folder that contains tests.
@@ -652,6 +706,7 @@ Quill reads the whole program and checks it before running anything. If there ar
 - operations on the wrong kinds of values, like `price + "5"`
 - division by a written `0`
 - `when` conditions that aren't true/false
+- `require`, `ensure` and `where` that break the rules in §8.10, and a written value passed outside a parameter's `where` range
 - a `for` range whose ends aren't numbers, a `for` that doesn't walk a list, or `set` on the loop's own name
 - a list whose items aren't the same kind, a list position that isn't a whole number from 1, or a record field that isn't there
 
@@ -662,6 +717,7 @@ A few mistakes can only be found while running. When one happens, the program st
 - dividing by a value that turns out to be zero
 - a calculation whose result is too big for a number (§4.1)
 - a `check` or `--- example:` that is false
+- a `require` or `ensure` that is false, or a value outside a parameter's `where` range (§8.10)
 - a list position past the end, or a position in an empty list
 
 ### 10.3 How mistakes are reported
@@ -679,6 +735,8 @@ Quill won't guess which one you meant.
 Did you mean:  total = price + 5
 ```
 
+Integer remainder overflow produces an arithmetic diagnostic rather than a host panic.
+
 Quill never crashes on a mistake in a program. If it ever does, that is a bug in Quill.
 
 ## 11. The `quill` tool
@@ -689,6 +747,7 @@ Quill never crashes on a mistake in a program. If it ever does, that is a bug in
 | `quill FILE.ql` | Same as `quill run` |
 | `quill check FILE.ql` | Check for mistakes without running anything |
 | `quill lsp` | Speak the Language Server Protocol on standard input and output. Report the same mistakes as `quill check`, so an editor can underline them. Do not run the program. |
+| `quill test FILE.ql` | Run the selected file, including files with no checks. Missing files and non-`.ql` paths are errors. |
 | `quill test` | Run every `.ql` file in this folder and its subfolders that contains a `check` or `--- example:`, and report how many passed. Folders starting with `.`, and `target`, are skipped. |
 | `quill explain FILE.ql:N` | Show how Quill read line N: what each part means, its kind, and where names were created |
 | `quill new NAME` | Create a folder `NAME` holding a starter `hello.ql` |
@@ -696,6 +755,8 @@ Quill never crashes on a mistake in a program. If it ever does, that is a bug in
 | `quill update [VERSION]` | Install a release of Quill. With no version, shows a menu of every release to choose from with the arrow keys (or installs the latest when there's no terminal). `VERSION` is a version like `0.2.0`, or `latest`. Works for copies installed with the installer; a copy built from source explains how to update it with `cargo`. `quill upgrade` is another name for this command. |
 | `quill help` | Show help |
 | `quill version` | Show the version |
+
+Test reports count successful assertions actually executed, including doc examples, function calls and each loop iteration. Unexecuted assertions do not count. A failing file stops at its first failure; its earlier passes remain in the summary. Project testing continues with other files.
 
 `quill` exits with code `0` on success and `1` when it reports a problem.
 
@@ -707,11 +768,10 @@ The README describes these features. They are part of Quill's design but not of 
 
 | Feature | README section |
 |---|---|
-| `when` as a value | No null: `maybe` |
 | Parameter kinds written as `Int` or `Text` | Functions, `when` and tests |
-| Named types such as `User`, and `Money<USD>` as a type | Constrained types and exact money |
-| Types (`type`), fields and `where` constraints | Constrained types and exact money |
-| Contracts: `require` and `ensure` | Contracts |
+| Named types such as `User` | Constrained types and exact money |
+| Types (`type`) and fields, with `where` on a field | Constrained types and exact money |
+| `require` and `ensure` proven before running (static verification) | Contracts |
 | Permissions: `permit` | Permissions |
 | Modules: `use`, `web`, `db`, `route`, `respond` | A small web API |
 
@@ -729,11 +789,16 @@ change      = "set" NAME { "." NAME | "at" sum } "=" value ;
 check       = ( "check" | "--- example:" ) sum COMPARE sum ;
 when        = "when" NEWLINE INDENT case { case } DEDENT ;
 case        = ( value | "else" ) "->" case_body NEWLINE ;
+when_value  = "when" NEWLINE INDENT value_case { value_case } DEDENT ;   (the last case is else)
+value_case  = ( value | "else" ) "->" value NEWLINE ;
+handler     = "on" NAME "->" ( statement | value ) NEWLINE ;
 case_body   = say | change | check | when | for ;
 for         = "for" NAME "in" ( value ".." value | value ) NEWLINE INDENT { for_body } DEDENT ;
 for_body    = say | change | check | when | for | return ;
-function    = "fn" NAME "(" [ parameter { "," parameter } ] ")" [ "->" kind ] NEWLINE INDENT { fn_body } DEDENT ;
-parameter   = NAME ":" kind ;
+function    = "fn" NAME "(" [ parameter { "," parameter } ] ")" [ "->" kind ] NEWLINE INDENT { header } { fn_body } DEDENT ;
+header      = ( "fails" NAME { "," NAME } | "require" value | "ensure" value ) NEWLINE ;
+parameter   = NAME ":" kind [ "where" bound ".." bound ] ;
+bound       = [ "-" ] NUMBER [ CURRENCY ] ;
 kind        = "text" | "number" | "true/false" | CURRENCY | "maybe" kind | "list" "of" kind ;
 match       = "when" value NEWLINE INDENT catch { catch } DEDENT ;
 catch       = ( "found" NAME | "missing" ) "->" statement ;
@@ -743,7 +808,7 @@ fn_body     = say | create | change | check | when | for | return ;
 return      = "return" [ value ] ;
 call        = NAME "(" [ value { "," value } ] ")" ;
 
-value       = or ;
+value       = or { "where" or } ;
 or          = and { "or" and } ;
 and         = not { "and" not } ;
 not         = "not" not | comparison ;
@@ -751,9 +816,9 @@ comparison  = sum [ COMPARE sum ] ;
 sum         = product { ( "+" | "-" ) product } ;
 product     = negative { ( "*" | "/" | "%" ) negative } ;
 negative    = "-" negative | atom { "." NAME | "at" sum } ;
-atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | ask | total ;
-ask         = "get" NAME { "," NAME } "of" negative | "get" NAME "with" NAME "in" negative ;
-total       = "sum" NAME "of" negative ;
+atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | ask | total | when_value ;
+ask         = "get" NAME { "," NAME } "of" negative { "where" or } | "get" NAME "with" NAME "in" negative ;
+total       = "sum" NAME "of" negative { "where" or } ;
 list        = "list" ( "of" ( "text" | "number" | "true/false" ) | sum { "," sum } ) ;
 record      = "record" ( NEWLINE INDENT field { field } DEDENT | field { "," field } ) ;
 field       = NAME "=" value ;

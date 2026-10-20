@@ -35,6 +35,7 @@ Many languages let small mistakes slip through until a program is already runnin
 - **Ask for the data.** `sum fee of roster` adds each fee. `get place of desk.bookings` reads a field of a list on a record, and `get gpa of school.acceptances` reads a field of a nested record. [Asking for data](asking.md) shows each form. `for` stays when each record needs its own step.
 - **A missing answer has to be handled.** `maybe` says a value might not be there. `found` and `missing` are both required.
 - **A failure has to be handled.** `fails Declined` names it, `fail Declined` leaves with it, and the caller writes `on Declined`.
+- **Functions state their rules.** `require amount > 0 USD` says what a function needs, and `ensure result >= 0 USD` says what it promises. `guests: number where 1..500` gives a parameter its range. When one is broken, the program stops and says which value broke it.
 - **Nothing changes by accident.** A value can only change if you mark it with `var`, so every change is visible when you read the code.
 - **Mistakes are found before anything runs.** If you add text to a number, Quill tells you before the program starts.
 - **Errors teach.** Every error says what went wrong, why, and usually what you probably meant.

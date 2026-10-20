@@ -30,7 +30,10 @@
         "fails": "failures.html#failures",
         "fail": "failures.html#failures",
         "on": "failures.html#failures",
-        "try": "failures.html#failures"
+        "try": "failures.html#failures",
+        "require": "contracts.html#contracts",
+        "ensure": "contracts.html#contracts",
+        "where": "asking.html#only-some-records-where"
     };
 
     var search = elasticlunr.Index.prototype.search;

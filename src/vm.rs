@@ -2,7 +2,7 @@
 
 use std::io::Write;
 
-use crate::compiler::{Chunk, Op};
+use crate::compiler::{Chunk, ContractInfo, Op};
 use crate::decimal::{Decimal, MathError};
 use crate::diagnostic::{Diagnostic, Span};
 use crate::parser::Comparison;
@@ -17,6 +17,21 @@ struct Frame {
 
 /// Runs `chunk`, writing everything `say` prints to `out`.
 pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
+    run_with_stats(chunk, out, &mut RunStats::default())
+}
+
+/// Counts successful assertions, including those before a runtime failure.
+#[derive(Default)]
+pub struct RunStats {
+    pub checks_passed: usize,
+}
+
+/// Runs a program and adds each successful assertion to `stats`.
+pub fn run_with_stats(
+    chunk: &Chunk,
+    out: &mut impl Write,
+    stats: &mut RunStats,
+) -> Result<(), Diagnostic> {
     let mut stack: Vec<Value> = Vec::new();
     let mut frames = vec![Frame {
         function: None,
@@ -118,6 +133,7 @@ pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
                 if let Some(message) = check_failure(op, example, &left, &right) {
                     return Err(Diagnostic::new(span, message));
                 }
+                stats.checks_passed += 1;
             }
             Op::Add | Op::Subtract | Op::Multiply | Op::Divide | Op::Remainder => {
                 let right = pop(&mut stack, span)?;
@@ -203,6 +219,17 @@ pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
                     return Err(internal(span, "the length of something that isn't a list"));
                 };
                 stack.push(Value::Number(Decimal::from_int(items.len() as i128)));
+            }
+            Op::Append => {
+                let item = pop(&mut stack, span)?;
+                let Value::List(mut items) = pop(&mut stack, span)? else {
+                    return Err(internal(
+                        span,
+                        "an item added to something that isn't a list",
+                    ));
+                };
+                items.push(item);
+                stack.push(Value::List(items));
             }
             Op::GetAt => {
                 let index = pop_number(&mut stack, span)?;
@@ -364,6 +391,18 @@ pub fn run(chunk: &Chunk, out: &mut impl Write) -> Result<(), Diagnostic> {
                     next = target;
                 }
             }
+            Op::Contract(contract) => {
+                if !pop_bool(&mut stack, span)? {
+                    let contract = chunk
+                        .contracts
+                        .get(contract)
+                        .ok_or_else(|| internal(span, "a contract is missing"))?;
+                    return Err(Diagnostic::new(
+                        span,
+                        broken_contract(contract, &frames[index].slots, call_line(chunk, &frames)),
+                    ));
+                }
+            }
         }
         if let Some(frame) = frames.get_mut(index) {
             frame.next = next;
@@ -459,7 +498,11 @@ fn compare(op: Comparison, left: &Value, right: &Value) -> Option<bool> {
 
 /// `None` when the check passes. Otherwise a message saying why it failed.
 fn check_failure(op: Comparison, example: bool, left: &Value, right: &Value) -> Option<String> {
-    let word = if example { "example" } else { "check" };
+    let (word, a) = if example {
+        ("example", "An")
+    } else {
+        ("check", "A")
+    };
     match compare(op, left, right) {
         Some(true) => None,
         Some(false) => {
@@ -467,7 +510,7 @@ fn check_failure(op: Comparison, example: bool, left: &Value, right: &Value) -> 
             let why = match op {
                 Comparison::Equal => format!(
                     "One side is {l} and the other is {r}.\n\
-                     A {word} passes only when both sides are the same value, so change one of them to match."
+                     {a} {word} passes only when both sides are the same value, so change one of them to match."
                 ),
                 Comparison::NotEqual => format!(
                     "Both sides are {l}, but this {word} expects them to be different."
@@ -488,6 +531,72 @@ fn check_failure(op: Comparison, example: bool, left: &Value, right: &Value) -> 
             right.kind_name(),
             right.written()
         )),
+    }
+}
+
+/// The line that called the function running now.
+fn call_line(chunk: &Chunk, frames: &[Frame]) -> Option<usize> {
+    let caller = frames.get(frames.len().checked_sub(2)?)?;
+    let spans = match caller.function {
+        None => &chunk.spans,
+        Some(fn_index) => &chunk.functions.get(fn_index)?.spans,
+    };
+    spans.get(caller.next.checked_sub(1)?).map(|span| span.line)
+}
+
+/// What a broken `require` or `ensure` says: the rule, the values it read, and whose
+/// mistake it is.
+fn broken_contract(
+    contract: &ContractInfo,
+    slots: &[Option<Value>],
+    call_line: Option<usize>,
+) -> String {
+    let ContractInfo {
+        function,
+        ensure,
+        condition,
+        rule,
+        names,
+    } = contract;
+    let values: Vec<String> = names
+        .iter()
+        .filter_map(|(name, slot)| {
+            let value = slots.get(*slot)?.as_ref()?;
+            Some(format!("{name} is {}", value.written()))
+        })
+        .collect();
+    let found = match values.as_slice() {
+        [] => "it was false".to_string(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+    };
+    if let Some((param, range)) = rule {
+        let call = match call_line {
+            Some(line) => format!("The call on line {line}"),
+            None => "The call".to_string(),
+        };
+        return format!(
+            "{function} takes {param} {range}, but {found}.\n\
+             {call} gave {function} a value outside that range. \
+             Check the value before calling {function}."
+        );
+    }
+    if *ensure {
+        format!(
+            "{function} ensures {condition}, but {found}.\n\
+             The mistake is inside {function}: it was about to give back a value \
+             that breaks its own ensure."
+        )
+    } else {
+        let call = match call_line {
+            Some(line) => format!("The call on line {line}"),
+            None => "The call".to_string(),
+        };
+        format!(
+            "{function} requires {condition}, but {found}.\n\
+             {call} gave {function} a value it doesn't accept. \
+             Check the value before calling {function}."
+        )
     }
 }
 
@@ -819,6 +928,7 @@ mod tests {
             records: Vec::new(),
             picks: Vec::new(),
             functions: Vec::new(),
+            contracts: Vec::new(),
             slot_count,
         }
     }
@@ -1270,5 +1380,226 @@ roster = list quiet
 say sum fee of roster
 ";
         assert_eq!(run_source(source).unwrap(), "0 USD\n");
+    }
+
+    const WITHDRAW: &str = "\
+fn withdraw(balance: USD, amount: USD) -> USD
+  require amount > 0 USD
+  ensure result >= 0 USD
+  return balance - amount
+";
+
+    #[test]
+    fn contracts_that_hold_change_nothing() {
+        let source = format!("{WITHDRAW}say withdraw(100 USD, 30 USD)\n");
+        assert_eq!(run_source(&source).unwrap(), "70 USD\n");
+    }
+
+    #[test]
+    fn a_broken_require_names_the_value_and_the_call() {
+        let source = format!("{WITHDRAW}say \"before\"\nsay withdraw(100 USD, -5 USD)\n");
+        let problem = run_source(&source).unwrap_err();
+        assert_eq!(problem.line, 2);
+        assert_eq!(
+            problem.message,
+            "withdraw requires amount > 0 USD, but amount is -5 USD.\n\
+             The call on line 6 gave withdraw a value it doesn't accept. \
+             Check the value before calling withdraw."
+        );
+    }
+
+    #[test]
+    fn a_value_outside_a_range_stops_the_call() {
+        let source = "fn book(guests: number where 1..500) -> text\n  return \"Booked {guests}\"\nsay book(1)\nsay book(500)\nn = 501\nsay book(n)\n";
+        let problem = run_source(source).unwrap_err();
+        assert_eq!(problem.line, 1);
+        assert_eq!(
+            problem.message,
+            "book takes guests from 1 through 500, but guests is 501.\n\
+             The call on line 6 gave book a value outside that range. \
+             Check the value before calling book."
+        );
+        let money = "fn pay(amount: USD where 1 USD..100 USD) -> USD\n  return amount\nbig = 101 USD\nsay pay(big)\n";
+        let problem = run_source(money).unwrap_err();
+        assert!(problem
+            .message
+            .starts_with("pay takes amount from 1 USD through 100 USD"));
+    }
+
+    #[test]
+    fn where_keeps_the_records_that_match() {
+        let roster = "a = record name = \"Amina\", score = 80, fee = 500 USD, paid = true\no = record name = \"Omar\", score = 64, fee = 300 USD, paid = false\nj = record name = \"John\", score = 45, fee = 200 USD, paid = false\nstudents = list a, o, j\n";
+        let source = format!(
+            "{roster}say get name of students where score >= 50\n\
+             say sum fee of students where paid == false\n\
+             say get name of students where score >= 50 where paid == false\n\
+             say students where score > 100\n\
+             score = 1000\n\
+             say get name of students where score >= 70\n\
+             say score\n\
+             for s in students where paid\n  say s.name\n"
+        );
+        assert_eq!(
+            run_source(&source).unwrap(),
+            "Amina, Omar\n500 USD\nOmar\nan empty list\nAmina\n1000\nAmina\n"
+        );
+    }
+
+    #[test]
+    fn a_broken_ensure_blames_the_function() {
+        let source = format!("{WITHDRAW}say withdraw(10 USD, 30 USD)\n");
+        let problem = run_source(&source).unwrap_err();
+        assert_eq!(problem.line, 3);
+        assert_eq!(
+            problem.message,
+            "withdraw ensures result >= 0 USD, but result is -20 USD.\n\
+             The mistake is inside withdraw: it was about to give back a value \
+             that breaks its own ensure."
+        );
+    }
+
+    #[test]
+    fn ensure_is_checked_at_every_return() {
+        let source = "\
+fn grade(score: number) -> text
+  ensure result != \"\"
+  when
+    score >= 50 -> return \"pass\"
+  return \"\"
+say grade(80)
+say grade(10)
+";
+        let problem = run_source(source).unwrap_err();
+        assert_eq!(problem.line, 2);
+        assert!(
+            problem.message.contains("but result is \"\""),
+            "{}",
+            problem.message
+        );
+    }
+
+    #[test]
+    fn a_broken_contract_lists_every_name_it_read() {
+        let source = "\
+fn split(total: number, people: number) -> number
+  require people > 0 and total >= people
+  return total / people
+say split(3, 5)
+";
+        let problem = run_source(source).unwrap_err();
+        assert!(
+            problem.message.starts_with(
+                "split requires people > 0 and total >= people, but people is 5 and total is 3.\n"
+            ),
+            "{}",
+            problem.message
+        );
+    }
+
+    #[test]
+    fn a_value_called_result_in_the_body_is_left_alone() {
+        let source = "\
+fn double(n: number) -> number
+  ensure result == n * 2
+  result = n + n
+  return result
+say double(4)
+";
+        assert_eq!(run_source(source).unwrap(), "8\n");
+    }
+
+    const CHARGE: &str = "fn charge(amount: USD) -> text
+  fails Declined, NetworkDown
+  when
+    amount <= 0 USD -> fail Declined
+    amount > 1000 USD -> fail NetworkDown
+  return \"paid\"
+";
+
+    #[test]
+    fn on_with_a_value_carries_on() {
+        let source = format!(
+            "{CHARGE}receipt = charge(0 USD)\n  on Declined -> \"declined\"\n  on NetworkDown -> \"offline\"\nsay receipt\nsay \"after\"\n"
+        );
+        assert_eq!(run_source(&source).unwrap(), "declined\nafter\n");
+    }
+
+    #[test]
+    fn on_with_a_value_is_skipped_when_the_call_succeeds() {
+        let source = format!(
+            "{CHARGE}var receipt = \"none\"\nset receipt = charge(5 USD)\n  on Declined -> \"declined\"\n  on NetworkDown -> \"offline\"\nsay receipt\n"
+        );
+        assert_eq!(run_source(&source).unwrap(), "paid\n");
+    }
+
+    #[test]
+    fn a_value_and_a_stop_can_share_a_call() {
+        let source = format!(
+            "{CHARGE}receipt = charge(2000 USD)\n  on Declined -> \"declined\"\n  on NetworkDown -> say \"Try again\"\nsay \"never\"\n"
+        );
+        assert_eq!(run_source(&source).unwrap(), "Try again\n");
+    }
+
+    #[test]
+    fn on_with_a_value_inside_a_function() {
+        let source = format!(
+            "{CHARGE}fn safe(amount: USD) -> text\n  receipt = charge(amount)\n    on Declined -> \"no\"\n    on NetworkDown -> \"later\"\n  return receipt\nsay safe(0 USD)\nsay safe(2000 USD)\nsay safe(5 USD)\n"
+        );
+        assert_eq!(run_source(&source).unwrap(), "no\nlater\npaid\n");
+    }
+
+    #[test]
+    fn when_gives_the_value_of_the_first_true_case() {
+        let source = "\
+fn grade(score: number) -> text
+  return when
+    score >= 70 -> \"A\"
+    score >= 50 -> \"Pass\"
+    else -> \"Fail\"
+say grade(90)
+say grade(64)
+say grade(10)
+fee = when
+  grade(90) == \"A\" -> 100 USD
+  else -> 0 USD
+say fee
+say when
+  fee > 50 USD -> \"high\"
+  else -> \"low\"
+";
+        assert_eq!(
+            run_source(source).unwrap(),
+            "A\nPass\nFail\n100 USD\nhigh\n"
+        );
+    }
+
+    #[test]
+    fn when_can_give_a_maybe() {
+        let source = "\
+fn positive(n: number) -> maybe number
+  return when
+    n > 0 -> found n
+    else -> missing
+when positive(-2)
+  found n -> say n
+  missing -> say \"none\"
+";
+        assert_eq!(run_source(source).unwrap(), "none\n");
+    }
+
+    #[test]
+    fn an_example_above_a_function_tests_it() {
+        let source = "\
+--- Adds 5% VAT to a price.
+--- example: with_vat(100 USD) == 105 USD
+fn with_vat(price: USD) -> USD
+  return price * 1.05
+say with_vat(20 USD)
+";
+        assert_eq!(run_source(source).unwrap(), "21.00 USD\n");
+        let wrong = source.replace("== 105 USD", "== 106 USD");
+        let problem = run_source(&wrong).unwrap_err();
+        assert_eq!(problem.line, 2);
+        assert!(problem.message.contains("An example passes only when"));
     }
 }

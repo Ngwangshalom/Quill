@@ -27,6 +27,7 @@ Useful commands while you work:
 | `cargo run -- run FILE.ql` | Run a Quill program |
 | `cargo run -- check FILE.ql` | Find problems without running |
 | `cargo run -- test` | Run every `check` and doc example in the folder |
+| `cargo run -- test FILE.ql` | Run one file and count executed checks and doc examples |
 | `cargo run -- tokens FILE.ql` | See how the lexer read a file |
 | `cargo run -- explain FILE.ql:N` | See how Quill understood line N |
 
@@ -177,7 +178,7 @@ Look for the [`good first issue`](../../labels/good%20first%20issue) label. Some
 
 - **Number separators:** let `1_000_000` be written for readability (lexer only).
 - **Comparing text:** let `<` and `>` put text in alphabetical order (checker and VM).
-- **`when` as a value:** `label = when ...`, where every case gives a value and `else` is required.
+- **`var` that never changes:** warn when a value is marked `var` but never changed with `set` (checker only).
 - **Better suggestions:** find an error message that confused you and improve it.
 - **Example programs:** add small, well-commented `.ql` files.
 - **Editor coloring:** when a function or other syntax lands, paint it with the color reserved for it in the book, in `editors/vscode` and in the Vim, Emacs, and Sublime files.

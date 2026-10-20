@@ -9,7 +9,6 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use quill::compiler::Op;
 use quill::diagnostic::{closest_match, Diagnostic};
 use quill::explain;
 use quill::lexer;
@@ -23,6 +22,7 @@ Usage:
   quill check FILE.ql       Find problems without running anything
   quill lsp                 Report those problems to an editor
   quill test                Run every check and doc example in this folder
+  quill test FILE.ql        Run one file and report its checks
   quill explain FILE.ql:N   Show how Quill read line N
   quill new NAME            Create a folder NAME with hello.ql inside
   quill tokens FILE.ql      Show how Quill reads a file, token by token
@@ -50,6 +50,12 @@ when runs the first case whose condition is true:
     total > 100 -> say \"Free delivery\"
     else -> say \"Delivery: 5\"
 
+when can also give a value. The last case is else, so there is always one:
+
+  delivery = when
+    total > 100 -> 0
+    else -> 5
+
 A block is indented by exactly 2 spaces. A tab is a mistake.
 
 for repeats the lines under it for each number from the first through the last,
@@ -70,6 +76,11 @@ needs its own step. A missing amount is left out:
   roster = list sisters, brass
   say sum fee of roster
   say get fee of roster
+
+where keeps the records that match. Inside it, a field is read by its name:
+
+  say get name of roster where fee > 100000 USD
+  say sum fee of roster where paid == false
 
 get place of desk.bookings reads a field of a list on a record.
 get gpa of school.acceptances reads a field of a nested record.
@@ -110,6 +121,25 @@ A function can fail, and the caller has to handle it:
       else -> return \"paid\"
   var receipt = charge(250 USD)
     on Declined -> say \"Card declined\"
+
+A statement after on, like say, runs and then stops the program. A value takes
+the place of the call's answer, and the program carries on:
+
+  receipt = charge(0 USD)
+    on Declined -> \"declined\"
+
+require says what has to be true when a function is called. ensure says what
+is true when it gives back, and result is the value it gives back. When one
+is false, the program stops and says which values broke it:
+
+  fn withdraw(balance: USD, amount: USD) -> USD
+    require amount > 0 USD
+    ensure result >= 0 USD
+    return balance - amount
+
+where gives a parameter its range, including both ends:
+
+  fn book(guests: number where 1..500) -> text
 
 A quote inside text needs no backslash when the text uses three quotes:
 
@@ -187,12 +217,13 @@ fn command(args: &[&str]) -> ExitCode {
         ["run", path] => run(path),
         ["check", path] => check(path),
         ["tokens", path] => tokens(path),
-        ["test"] => test(),
+        ["test"] => test(None),
+        ["test", path] => test(Some(path)),
         ["explain", target] => explain_file(target),
         ["new", name] => new_project(name),
         ["test", ..] => fail(
-            "quill test looks through the project for checks and examples.\n\
-             It doesn't take a file. Run it from the project folder."
+            "quill test accepts at most one file.\n\
+             Run it without a file to test the project folder."
                 .to_string(),
             Some("quill test".to_string()),
         ),
@@ -253,7 +284,7 @@ fn check(path: &str) -> ExitCode {
     finish(path, &source, result)
 }
 
-fn test() -> ExitCode {
+fn test(target: Option<&str>) -> ExitCode {
     let root = match env::current_dir() {
         Ok(root) => root,
         Err(err) => {
@@ -267,7 +298,9 @@ fn test() -> ExitCode {
         }
     };
     let mut files = Vec::new();
-    if let Err(message) = collect_tests(&root, &mut files) {
+    if let Some(path) = target {
+        files.push(PathBuf::from(path));
+    } else if let Err(message) = collect_tests(&root, &mut files) {
         return fail(message, None);
     }
     files.sort();
@@ -293,17 +326,15 @@ fn test() -> ExitCode {
                 failed += 1;
             }
             Ok(chunk) => {
-                let checks = chunk
-                    .code
-                    .iter()
-                    .filter(|op| matches!(op, Op::Check { .. }))
-                    .count();
+                let mut stats = quill::vm::RunStats::default();
                 let mut sink = Vec::new();
-                match quill::vm::run(&chunk, &mut sink) {
+                let result = quill::vm::run_with_stats(&chunk, &mut sink, &mut stats);
+                let checks = stats.checks_passed;
+                passed += checks;
+                match result {
                     Ok(()) => {
                         let word = if checks == 1 { "check" } else { "checks" };
                         println!("{shown}: {checks} {word} passed");
-                        passed += checks;
                     }
                     Err(problem) => {
                         eprintln!("{shown}");

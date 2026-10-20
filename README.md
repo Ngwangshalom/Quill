@@ -18,7 +18,7 @@
 
 ---
 
-> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs the first features so far: `say`, values, `var` / `set`, exact arithmetic, `{values}` inside text, `when`, `for` loops, `get` and `sum`, lists, records, `check` and doc examples, functions (`fn`, `return`), money (`100 USD`), `maybe`, and failures (`fails`, `on`, `try`). Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
+> ⚠️ **Quill is in early development.** The design is being written down, and the interpreter runs the first features so far: `say`, values, `var` / `set`, exact arithmetic, `{values}` inside text, `when`, `for` loops, `get` and `sum`, lists, records, `check` and doc examples, functions (`fn`, `return`), money (`100 USD`), `maybe`, failures (`fails`, `on`, `try`), and contracts (`require`, `ensure`, `where`). Nothing here is ready for production. If you care about how a language should feel, this is the best moment to help shape it.
 
 ## Why Quill?
 
@@ -32,9 +32,10 @@ What works now:
 
 - **Code reads like what it means.** Indentation-based, no semicolons, no braces.
 - **Money is exact.** `100 USD + 50 USD` is `150 USD`. `0.1 + 0.2` is `0.3`. Dollars and euros cannot be added.
-- **Ask for the data.** `sum fee of roster` adds each fee. `get fee of roster` takes that field. `get place of desk.bookings` reads a field of a list on a record. A missing amount is left out. `for` remains when each record needs its own step.
+- **Ask for the data.** `sum fee of roster` adds each fee. `get fee of roster` takes that field. `get place of desk.bookings` reads a field of a list on a record. `students where score >= 50` keeps only the records that match, and `sum fee of roster where paid == false` adds what is still owed. A missing amount is left out. `for` remains when each record needs its own step.
 - **Nothing is missing by surprise.** There is no `null`. A `maybe` says the value might be missing, and both cases have to be handled.
-- **Failures are part of the function.** `fails Declined` names the failure, `fail Declined` leaves with it, and the caller handles it with `on` or passes it on with `try`.
+- **Failures are part of the function.** `fails Declined` names the failure, `fail Declined` leaves with it, and the caller handles it with `on` (stop, or carry on with a value in its place) or passes it on with `try`.
+- **Functions state their rules.** `require` says what a function needs and `ensure` says what it promises. `where 1..500` gives a parameter its range. A broken one stops the program and names the value that broke it.
 - **Errors teach.** Every error explains what went wrong, why, and how to fix it. `quill explain` shows how Quill read the code.
 - **Tests live with the code.** `check` lines are tests, and examples in doc comments run as tests too.
 
@@ -112,7 +113,7 @@ fn greet(name: text)
 greet("Amina")
 ```
 
-A parameter's kind is `text`, `number`, `true/false`, or `list of` one of those. Kind names such as `Int` and `Text`, and a `when` that gives a value back, come later.
+A parameter's kind is `text`, `number`, `true/false`, or `list of` one of those. Kind names such as `Int` and `Text` come later.
 
 `when` follows one simple rule: matching on a fixed set of cases (like `maybe` or failures) must cover every case, and matching on numbers or text must end with `else`.
 
@@ -150,7 +151,26 @@ fn checkout(amount: USD) -> text
   return try charge(amount)
 ```
 
-`respond` arrives with the web module. Today the `on` line is a statement, such as `say`.
+A statement after `on`, like `say`, runs and then stops the program. A value takes the place of the call's answer, and the program carries on:
+
+```quill
+var receipt = charge(250 USD)
+  on Declined -> "declined"
+  on NetworkDown -> "try again"
+```
+
+`respond` arrives with the web module.
+
+### `when` gives a value
+
+```quill
+label = when
+  score >= 70 -> "A"
+  score >= 50 -> "Pass"
+  else -> "Fail"
+```
+
+The first true case gives the value. `else` is required, so there is always one.
 
 ### Constrained types and exact money
 
@@ -158,11 +178,11 @@ fn checkout(amount: USD) -> text
 total = 100 USD + 50 USD
 ```
 
-That is `150 USD`. `100 USD + 20 EUR` is a mistake: Quill will not mix currencies. Named types such as `Money<USD>` and `where` arrive later. Today the currency itself is the kind: `amount: USD`.
+That is `150 USD`. `100 USD + 20 EUR` is a mistake: Quill will not mix currencies. The currency itself is the kind: `amount: USD`. `amount: USD where 1 USD..10000 USD` also gives it a range.
 
 ### Asking for data
 
-`sum` adds one field. `get` takes that field, including a field further in. A missing amount is left out. `for` stays when each record needs its own step.
+`sum` adds one field. `get` takes that field, including a field further in. `where` keeps only the records that match. A missing amount is left out. `for` stays when each record needs its own step.
 
 ```quill
 sisters = record name = "Nchang Sisters", fee = 80000 USD
@@ -171,6 +191,7 @@ roster = list sisters, brass
 
 say sum fee of roster
 say get fee of roster
+say get name of roster where fee > 100000 USD
 
 up = record place = "Up Station", acts = list "Bamenda Brass", "Hilltop Duo"
 old = record place = "Old Town", acts = list "Market Drums"
@@ -184,18 +205,43 @@ person = people at 1
 say person.name
 ```
 
-`sum fee of roster` is `230000 USD`. `sum fees of school` is that one amount. `get fee of roster` is `80000 USD, 150000 USD`. `get place of desk.bookings` is `Up Station, Old Town`. `first.acts` is `Bamenda Brass, Hilltop Duo`. `get name, fee of roster` keeps those two fields together, so `person.name` is `Nchang Sisters`.
+`sum fee of roster` is `230000 USD`. `sum fees of school` is that one amount. `get fee of roster` is `80000 USD, 150000 USD`. `get name of roster where fee > 100000 USD` is `Bamenda Brass`, the records whose condition is true. `get place of desk.bookings` is `Up Station, Old Town`. `first.acts` is `Bamenda Brass, Hilltop Duo`. `get name, fee of roster` keeps those two fields together, so `person.name` is `Nchang Sisters`.
 
 ### Contracts
 
-Functions can state what they require and what they guarantee. Quill checks these at runtime today and proves them before running wherever it can.
+A function states what it needs and what it promises. `require` is checked when the function is called. `ensure` is checked each time it gives back, and `result` is the value it gives back.
 
 ```quill
-fn withdraw(account: Account, amount: Money<USD>) -> Account
+fn withdraw(balance: USD, amount: USD) -> USD
   require amount > 0 USD
-  ensure result.balance >= 0 USD
+  ensure result >= 0 USD
   fails InsufficientFunds
+  when
+    amount > balance -> fail InsufficientFunds
+  return balance - amount
 ```
+
+A range goes right on the parameter with `where`. Both ends are included:
+
+```quill
+fn book(guests: number where 1..500) -> text
+  return "Booked for {guests} guests"
+```
+
+`book(600)` is caught before the program runs. A value worked out while it runs is checked when `book` is called.
+
+A broken contract stops the program and says which value broke it, and whose mistake it was:
+
+```
+Problem on line 2 of bank.ql:
+
+      require amount > 0 USD
+      ^^^^^^^^^^^^^^^^^^^^^^
+withdraw requires amount > 0 USD, but amount is -5 USD.
+The call on line 9 gave withdraw a value it doesn't accept. Check the value before calling withdraw.
+```
+
+Proving contracts before the program runs comes later.
 
 ### Permissions
 
@@ -215,7 +261,7 @@ Examples in doc comments are real tests, so documentation can't drift out of dat
 ```quill
 --- Adds 5% VAT to a price.
 --- example: with_vat(100 USD) == 105 USD
-fn with_vat(price: Money<USD>) -> Money<USD>
+fn with_vat(price: USD) -> USD
   return price * 1.05
 ```
 
@@ -250,10 +296,8 @@ Problem on line 4 of shop.ql:
 
     total = price + "5"
                     ^^^
-You're adding Money<USD> (price) to Text ("5").
-Quill won't guess which one you meant.
-
-Did you mean:  total = price + 5 USD
+You're adding money in USD (price) and Text ("5").
+Add or subtract two amounts in the same currency, like 100 USD + 50 USD.
 ```
 
 And when you want to see how Quill understood your code:
@@ -263,10 +307,13 @@ $ quill explain shop.ql:4
 
 Line 4:  total = price + "5"
 
-  total   a new value (can't change; not marked var)
-  price   Money<USD>, declared on line 2
-  "5"     Text
-  +       Money<USD> + Text is not defined
+  total         a new value (can't change)
+  =             store the value on the right in total
+  price + "5"   a calculation, a value
+  price         money in USD, created on line 2
+
+You're adding money in USD (price) and Text ("5").
+Add or subtract two amounts in the same currency, like 100 USD + 50 USD.
 
 Quill stopped here before running anything.
 ```
@@ -278,7 +325,8 @@ Quill stopped here before running anything.
 | `quill run file.ql` | Run a program |
 | `quill check file.ql` | Find errors without running anything |
 | `quill lsp` | Underline those errors in an editor |
-| `quill test` | Run every `check` and doc example in the project |
+| `quill test` | Run project test files and count executed checks and doc examples |
+| `quill test file.ql` | Run one file and count its executed checks and doc examples |
 | `quill explain file.ql:LINE` | Show how the compiler read a line |
 | `quill new NAME` | Start a new project |
 | `quill update` | Choose a version of Quill to install (also `quill upgrade`) |
@@ -307,14 +355,14 @@ Quill is for backend engineering, financial software, automation, reliable busin
 - [x] [Language specification](docs/spec.md) (v0.1 draft)
 - [x] Lexer and parser
 - [x] `say`, values, `var` / `set`, expressions
-- [x] `when` with conditions
+- [x] `when` with conditions, and `when` that gives a value
 - [x] Loops (`for i in 1..3`, and `for hobby in hobbies`)
 - [x] Asking for data (`sum fee of roster`, `get fee of roster`, `get place of desk.bookings`)
 - [x] Lists and records
 - [x] Functions (`fn double(n: number) -> number`, `return`, and calls)
 
 **Safety**
-- [ ] Type checker with friendly errors
+- [x] Type checker with friendly errors
 - [x] `maybe`, `found`, `missing`, and exhaustive `when`
 - [x] `fails`, `fail`, `on` and `try`
 - [x] `quill explain`
@@ -324,8 +372,9 @@ Quill is for backend engineering, financial software, automation, reliable busin
 - [x] `check` tests and executable doc examples
 - [x] Exact `Decimal` numbers
 - [x] Money (`100 USD + 50 USD`; mixed currencies are a mistake)
-- [ ] Constrained types (`where`)
-- [ ] `require` / `ensure` contracts (runtime)
+- [x] Ranges on parameters (`guests: number where 1..500`)
+- [ ] Constrained types (`type` with `where` on its fields)
+- [x] `require` / `ensure` contracts (runtime)
 
 **Ecosystem**
 - [ ] Permissions (`permit`)

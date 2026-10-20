@@ -31,6 +31,7 @@ He chose a short name that would be easy to remember: Quill. The feather in the 
 | 13 October 2026 | The Quill book and the language specification are published, and every change to Quill is documented in them from now on. |
 | 13 October 2026 | **v0.3.0** adds `quill update`, to choose and install any version from a menu, and a notice when a new version is out. |
 | 14 October 2026 | **v0.3.1** adds lists, records, loops, functions, exact money, maybe, and failures. |
+| 20 October 2026 | **v0.4.0** adds contracts (`require`, `ensure`), `where` for ranges and for filtering records, `get` and `sum` for asking data without a loop, a `when` that gives a value, `on` that carries on, and examples that test a function. |
 
 ## Where Quill is going
 

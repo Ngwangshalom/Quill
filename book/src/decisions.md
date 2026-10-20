@@ -170,6 +170,86 @@ delivery would only exist when this case runs. Create it before the when with va
 Did you mean:  set delivery = 0
 ```
 
+## A when that gives a value
+
+Often a `when` only exists to choose a value. Then you don't need `var` and `set` at all. Put `when` where the value goes, and give a value after each `->`:
+
+```quill
+total = 120
+
+delivery = when
+  total > 100 -> 0
+  total > 30  -> 5
+  else        -> 10
+
+say "Delivery: {delivery}"
+```
+
+```output
+Delivery: 0
+```
+
+Read it out loud: "delivery is, when total is over 100, 0; when it's over 30, 5; otherwise 10." Quill picks the first case whose condition is true and uses its value. `delivery` never changes after that, so it doesn't need `var`.
+
+This works anywhere a value fits on its own: after `=`, after `set`, after `say`, and after `return`. A function that chooses between values can return the `when` directly:
+
+```quill
+fn grade(score: number) -> text
+  return when
+    score >= 70 -> "A"
+    score >= 50 -> "Pass"
+    else        -> "Fail"
+
+say grade(85)
+say grade(40)
+```
+
+```output
+A
+Fail
+```
+
+Two rules keep the value certain to exist:
+
+- **The last case is `else`.** Without it, no case might be true, and there would be no value:
+
+```quill,error
+total = 20
+delivery = when
+  total > 100 -> 0
+```
+
+```output
+Problem on line 2 of example.ql:
+
+    delivery = when
+               ^^^^
+A when that gives a value needs else as its last case.
+Without else, no case might be true, and there would be no value.
+
+Did you mean:  else -> "..."
+```
+
+- **Every case gives the same kind of value.** `delivery` can't be a number in one case and text in another:
+
+```quill,error
+total = 20
+delivery = when
+  total > 100 -> 0
+  else        -> "ten"
+```
+
+```output
+Problem on line 4 of example.ql:
+
+      else        -> "ten"
+                     ^^^^^
+Every case of this when has to give the same kind of value.
+0 on line 3 is a Number, but "ten" is Text.
+```
+
+When each case should *do* something, like `say`, keep `when` on its own line as before. When each case should *be* something, put `when` after `=`.
+
 ## A when inside a when
 
 A case can hold another `when`, indented further:
@@ -233,3 +313,4 @@ Compare it to something, like count > 0.
 1. Make a value `age` and use `when` to say "child" under 13, "teenager" under 18, and "adult" otherwise. Change `age` and run it again.
 2. A shop gives 10% off orders over 200. Make a `var price` and use `when` to reduce it with `set` when it qualifies.
 3. Rewrite FizzBuzz for a different number. What happens if you move the `FizzBuzz` case to the bottom?
+4. Rewrite exercise 1 as `stage = when ...`, then `say stage`. Remove the `else` case and read what Quill says.

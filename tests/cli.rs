@@ -318,3 +318,61 @@ fn scratch(name: &str) -> std::path::PathBuf {
     std::fs::create_dir_all(&path).unwrap();
     path
 }
+
+#[test]
+fn targeted_tests_count_executed_assertions() {
+    let dir = scratch("executed-checks");
+    std::fs::write(dir.join("selected.ql"), "fn verify()\n  check 1 == 1\nverify()\nfor i in 1..3\n  check i > 0\nwhen\n  false -> check 1 == 2\n  else -> say \"ok\"\n--- example: 2 == 2\n").unwrap();
+    std::fs::write(dir.join("other.ql"), "check 1 == 2\n").unwrap();
+    let output = quill_in(&dir, &["test", "selected.ql"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        "selected.ql: 5 checks passed\n\n5 checks passed.\n"
+    );
+    let output = quill_in(&dir, &["test"]);
+    assert_reported_problem(&output);
+    assert!(stdout(&output).contains("5 checks passed, 1 file failed."));
+}
+
+#[test]
+fn targeted_tests_keep_passes_before_failure() {
+    let dir = scratch("partial-checks");
+    std::fs::write(
+        dir.join("case.ql"),
+        "check 1 == 1\ncheck 1 == 2\ncheck 2 == 2\n",
+    )
+    .unwrap();
+    let output = quill_in(&dir, &["test", "case.ql"]);
+    assert_reported_problem(&output);
+    assert!(stdout(&output).contains("1 check passed, 1 file failed."));
+}
+
+#[test]
+fn targeted_tests_validate_files_and_accept_zero_checks() {
+    let dir = scratch("test-paths");
+    std::fs::write(dir.join("empty.ql"), "say \"hello\"\n").unwrap();
+    let output = quill_in(&dir, &["test", "empty.ql"]);
+    assert!(output.status.success());
+    assert!(stdout(&output).contains("0 checks passed."));
+    for args in [
+        &["test", "missing.ql"][..],
+        &["test", "empty.txt"],
+        &["test", "a.ql", "b.ql"],
+    ] {
+        assert_reported_problem(&quill_in(&dir, args));
+    }
+}
+
+#[test]
+fn remainder_overflow_reports_a_problem_without_panicking() {
+    let dir = scratch("remainder-overflow");
+    std::fs::write(
+        dir.join("case.ql"),
+        "var n = -170141183460469231731687303715884105727 - 1\nsay n % -1\n",
+    )
+    .unwrap();
+    let output = quill_in(&dir, &["run", "case.ql"]);
+    assert_reported_problem(&output);
+    assert!(!stderr(&output).contains("panicked"));
+}

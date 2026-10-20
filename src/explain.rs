@@ -2,7 +2,7 @@
 
 use crate::checker::{self, KnownValue};
 use crate::lexer;
-use crate::parser::{self, Arm, Expr, ExprKind, Part, Program, Statement};
+use crate::parser::{self, Arm, Contract, Expr, ExprKind, Program, Statement, ValueArm};
 
 /// Describes line `line` (1-based) of `source`.
 ///
@@ -61,6 +61,8 @@ pub fn explain(source: &str, line: usize) -> String {
     let rows = match found {
         Found::Statement(statement) => describer.statement(statement),
         Found::Arm(arm) => describer.arm(arm),
+        Found::Contract(function, contract) => describer.contract(function, contract),
+        Found::ValueArm(arm) => describer.value_arm(arm),
     };
     let mut body = header;
     body.push('\n');
@@ -79,6 +81,10 @@ enum Found<'a> {
     Statement(&'a Statement),
     /// A case of a `when`, which has its own line.
     Arm(&'a Arm),
+    /// A `require` or `ensure` line, with the name of its function.
+    Contract(&'a str, &'a Contract),
+    /// A case of a `when` that gives a value.
+    ValueArm(&'a ValueArm),
 }
 
 fn find(statements: &[Statement], line: usize) -> Option<Found<'_>> {
@@ -93,8 +99,28 @@ fn find(statements: &[Statement], line: usize) -> Option<Found<'_>> {
     None
 }
 
+/// A case of a `when` that gives a value, inside `expr`.
+fn find_value_arm(expr: &Expr, line: usize) -> Option<Found<'_>> {
+    let ExprKind::When(arms) = &expr.kind else {
+        return None;
+    };
+    arms.iter().find_map(|arm| {
+        if arm.span.line == line {
+            Some(Found::ValueArm(arm))
+        } else {
+            find_value_arm(&arm.value, line)
+        }
+    })
+}
+
 fn find_in(statement: &Statement, line: usize) -> Option<Found<'_>> {
     match statement {
+        Statement::Let { value, .. }
+        | Statement::Set { value, .. }
+        | Statement::Say { value, .. }
+        | Statement::Return {
+            value: Some(value), ..
+        } => find_value_arm(value, line),
         Statement::When { arms, .. } => {
             for arm in arms {
                 if arm.span.line == line {
@@ -106,7 +132,15 @@ fn find_in(statement: &Statement, line: usize) -> Option<Found<'_>> {
             }
             None
         }
-        Statement::Function { body, .. } => {
+        Statement::Function {
+            name,
+            contracts,
+            body,
+            ..
+        } => {
+            if let Some(contract) = contracts.iter().find(|c| c.span.line == line) {
+                return Some(Found::Contract(name, contract));
+            }
             for statement in body {
                 if statement.line() == line {
                     return Some(Found::Statement(statement));
@@ -225,6 +259,16 @@ impl Describer<'_> {
                         format!("{}: {}", param.name, param.kind.written()),
                         "a parameter".to_string(),
                     ));
+                    if let Some(rule) = &param.rule {
+                        rows.push((
+                            rule.to_string(),
+                            format!(
+                                "{} has to be {}, checked each time {name} is called",
+                                param.name,
+                                rule.range()
+                            ),
+                        ));
+                    }
                 }
                 rows
             }
@@ -336,13 +380,55 @@ impl Describer<'_> {
         rows
     }
 
+    fn value_arm(&self, arm: &ValueArm) -> Vec<(String, String)> {
+        let mut rows = match &arm.condition {
+            Some(condition) => {
+                let mut rows = self.value(condition);
+                rows.push((
+                    "->".to_string(),
+                    "when that is true, the value is:".to_string(),
+                ));
+                rows
+            }
+            None => vec![
+                (
+                    "else".to_string(),
+                    "when none of the cases above are true".to_string(),
+                ),
+                ("->".to_string(), "the value is:".to_string()),
+            ],
+        };
+        rows.extend(self.value(&arm.value));
+        rows
+    }
+
+    fn contract(&self, function: &str, contract: &Contract) -> Vec<(String, String)> {
+        let head = if contract.ensure {
+            format!("checked each time {function} gives back; the program stops unless it is true")
+        } else {
+            format!("checked each time {function} is called; the program stops unless it is true")
+        };
+        let condition = &contract.condition;
+        let mut rows = vec![
+            (contract.keyword().to_string(), head),
+            (condition.to_string(), self.meaning(condition)),
+        ];
+        for name in condition.names() {
+            let meaning = if contract.ensure && name == "result" {
+                format!("the value {function} gives back")
+            } else {
+                self.name_meaning(&name)
+            };
+            rows.push((name, meaning));
+        }
+        rows
+    }
+
     /// A row for a value, then a row for each name used inside it.
     fn value(&self, expr: &Expr) -> Vec<(String, String)> {
         let mut rows = vec![(expr.to_string(), self.meaning(expr))];
         if !matches!(expr.kind, ExprKind::Name(_)) {
-            let mut names = Vec::new();
-            names_in(expr, &mut names);
-            for name in names {
+            for name in expr.names() {
                 rows.push((name.clone(), self.name_meaning(&name)));
             }
         }
@@ -370,11 +456,16 @@ impl Describer<'_> {
             }
             ExprKind::Get { .. } => format!("those fields of each record, {kind}"),
             ExprKind::GetWith { .. } => format!("records and the data embedded in them, {kind}"),
+            ExprKind::Where { .. } => format!("the records whose condition is true, {kind}"),
             ExprKind::Call { name, .. } => format!("a call of {name}, {kind}"),
             ExprKind::Money { .. } => kind,
             ExprKind::Found(_) => format!("a maybe that holds a value, {kind}"),
             ExprKind::Missing => "a maybe that holds nothing".to_string(),
             ExprKind::Try(inner) => format!("{}, passing failures upward", self.meaning(inner)),
+            ExprKind::When(arms) => format!(
+                "the value of the first of the {} cases below whose condition is true, {kind}",
+                arms.len()
+            ),
         }
     }
 
@@ -387,61 +478,6 @@ impl Describer<'_> {
 
     fn lookup(&self, name: &str) -> Option<&KnownValue> {
         self.known.iter().find(|known| known.name == name)
-    }
-}
-
-/// The distinct names used inside `expr`, in order.
-fn names_in(expr: &Expr, names: &mut Vec<String>) {
-    match &expr.kind {
-        ExprKind::Name(name) => {
-            if !names.contains(name) {
-                names.push(name.clone());
-            }
-        }
-        ExprKind::Template(parts) => {
-            for part in parts {
-                if let Part::Value(value) = part {
-                    names_in(value, names);
-                }
-            }
-        }
-        ExprKind::Negate(inner) | ExprKind::Not(inner) | ExprKind::Group(inner) => {
-            names_in(inner, names)
-        }
-        ExprKind::Arithmetic { left, right, .. }
-        | ExprKind::Compare { left, right, .. }
-        | ExprKind::Logic { left, right, .. } => {
-            names_in(left, names);
-            names_in(right, names);
-        }
-        ExprKind::List { items, .. } => {
-            for item in items {
-                names_in(item, names);
-            }
-        }
-        ExprKind::Record { fields } => {
-            for field in fields {
-                names_in(&field.value, names);
-            }
-        }
-        ExprKind::At { list, index, .. } => {
-            names_in(list, names);
-            names_in(index, names);
-        }
-        ExprKind::Field { record, .. } => names_in(record, names),
-        ExprKind::Sum { list, .. } | ExprKind::Get { list, .. } => names_in(list, names),
-        ExprKind::GetWith { source, .. } => names_in(source, names),
-        ExprKind::Call { args, .. } => {
-            for arg in args {
-                names_in(arg, names);
-            }
-        }
-        ExprKind::Found(inner) | ExprKind::Try(inner) => names_in(inner, names),
-        ExprKind::Text(_)
-        | ExprKind::Number(_)
-        | ExprKind::Money { .. }
-        | ExprKind::Bool(_)
-        | ExprKind::Missing => {}
     }
 }
 
@@ -623,5 +659,42 @@ mod tests {
         assert!(text.contains("including the first number and the last"));
         let body = explain("for i in 1..3\n  say i\n", 2);
         assert!(body.contains("Number, created on line 1"));
+    }
+
+    #[test]
+    fn explains_require_and_ensure() {
+        let source = "fn withdraw(amount: USD) -> USD\n  require amount > 0 USD\n  ensure result >= 0 USD\n  return amount\n";
+        let require = explain(source, 2);
+        assert!(require.contains("checked each time withdraw is called"));
+        assert!(require.contains("money in USD, created on line 1"));
+        let ensure = explain(source, 3);
+        assert!(ensure.contains("checked each time withdraw gives back"));
+        assert!(ensure.contains("the value withdraw gives back"));
+    }
+
+    #[test]
+    fn explains_a_range() {
+        let source = "fn book(guests: number where 1..500) -> text\n  return \"ok\"\n";
+        let line = explain(source, 1);
+        assert!(line.contains("where 1..500"));
+        assert!(
+            line.contains("guests has to be from 1 through 500, checked each time book is called")
+        );
+    }
+
+    #[test]
+    fn explains_where() {
+        let source = "a = record name = \"A\", score = 80\nstudents = list a\npassed = students where score >= 50\n";
+        let line = explain(source, 3);
+        assert!(line.contains("the records whose condition is true"));
+    }
+
+    #[test]
+    fn explains_a_when_that_gives_a_value() {
+        let source = "score = 64\nlabel = when\n  score >= 50 -> \"Pass\"\n  else -> \"Fail\"\n";
+        assert!(explain(source, 2).contains("the value of the first of the 2 cases below"));
+        let case = explain(source, 3);
+        assert!(case.contains("when that is true, the value is:"));
+        assert!(explain(source, 4).contains("when none of the cases above are true"));
     }
 }

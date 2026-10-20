@@ -24,6 +24,11 @@ when
 
 check total == 25.00            -- a test
 
+size = when                     -- a when that gives a value
+  total > 20 -> "big"
+  else       -> "small"
+say size
+
 for i in 1..3                   -- 1, then 2, then 3
   say i
 
@@ -37,10 +42,21 @@ fn double(n: number) -> number
   return n * 2
 say double(21)
 
+fn half(n: number) -> number
+  require n >= 0                -- what the caller must pass
+  ensure result <= n            -- what half promises to give back
+  return n / 2
+say half(21)
+
+fn book(guests: number where 1..500) -> text   -- 1 through 500
+  return "{guests} guests"
+say book(120)
+
 act = record name = "Brass", fee = 150000 USD
 roster = list act
 say sum fee of roster
 say get fee of roster
+say get name of roster where fee > 100000 USD   -- only some records
 
 up = record place = "Up Station", acts = list "Bamenda Brass"
 old = record place = "Old Town", acts = list "Market Drums"
@@ -52,14 +68,18 @@ say get place of desk.bookings
 Hi Amina, total 25.00
 She said "hi".
 Delivery: 5
+big
 1
 2
 3
 coding
 Anytown
 42
+10.5
+120 guests
 150000 USD
 150000 USD
+Brass
 Up Station, Old Town
 ```
 
@@ -94,15 +114,15 @@ Blocks (`when`, `for`, `fn`, `record`) are indented by exactly 2 spaces.
 
 ## Reserved words
 
-`say` `check` `var` `set` `when` `else` `for` `in` `list` `record` `of` `at` `get` `sum` `with` `fn` `return` `maybe` `found` `missing` `fails` `fail` `on` `try` `true` `false` `and` `or` `not`
+`say` `check` `var` `set` `when` `else` `for` `in` `list` `record` `of` `at` `get` `sum` `with` `fn` `return` `maybe` `found` `missing` `fails` `fail` `on` `try` `require` `ensure` `where` `true` `false` `and` `or` `not`
 
 `fn double(n: number) -> number` names a calculation. `return n * 2` is the value the call becomes, and `double(21)` calls it. Leave off `->` when the function only does work, and call it on its own line. Each parameter has its own kind (`text`, `number`, `true/false`, a currency such as `USD`, `maybe` one of those, or `list of` one of those). The kind after `->` is the only kind `return` may give back.
 
-`100 USD + 50 USD` is money. Two currencies cannot be added. `-> maybe number` might be `found` or `missing`, and `when` has to handle both. `fails Declined` names a failure, `fail Declined` leaves with it, and the caller writes `on Declined` or `try`.
+`100 USD + 50 USD` is money. Two currencies cannot be added. `-> maybe number` might be `found` or `missing`, and `when` has to handle both. `fails Declined` names a failure, `fail Declined` leaves with it, and the caller writes `on Declined` or `try`. `on Declined -> say "..."` runs and stops; `on Declined -> "declined"` uses that value and carries on. `require` says what has to be true when a function is called, and `ensure` says what is true when it gives back; `result` is the value it gives back. `guests: number where 1..500` gives a parameter its range, ends included.
 
 `at` picks one list item: `hobbies at 1` reads the first, and `set hobbies at 2 = "writing"` changes that one item. `of` is required only for an empty list: `list of text`, `list of number`, or `list of true/false`. A list that already has items leaves `of` out.
 
-`sum fee of roster` adds the fee of each record. `get fee of roster` takes that field as a list. `get place of desk.bookings` reads a field of a list on a record, and `get gpa of school.acceptances` reads a field of a nested record. Give that record a name before the dot: `first = desk.bookings at 1`, then `first.place`. `get bookings with acts in desk` is the longer form: it names the list and the field embedded in it. A missing amount is left out. `for` stays when each record needs its own step.
+`sum fee of roster` adds the fee of each record. `get fee of roster` takes that field as a list. `get place of desk.bookings` reads a field of a list on a record, and `get gpa of school.acceptances` reads a field of a nested record. Give that record a name before the dot: `first = desk.bookings at 1`, then `first.place`. `get bookings with acts in desk` is the longer form: it names the list and the field embedded in it. `roster where fee > 100000 USD` keeps the records whose condition is true; inside it, a field is read by its name, and it works after `get ... of` and `sum ... of`. A missing amount is left out. `for` stays when each record needs its own step.
 
 ## Commands
 

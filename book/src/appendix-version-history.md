@@ -6,7 +6,21 @@ What changed in each version of Quill. The newest version is at the top.
 
 Changes that are finished but not yet in a release.
 
+Nothing yet.
+
+## v0.4.0 (20 October 2026)
+
+- **Contracts.** `require amount > 0 USD` under `fn` says what has to be true when the function is called. `ensure result >= 0 USD` says what is true each time it gives back, and `result` is the value it gives back. A broken one stops the program, names the values it read, and says whose mistake it was; a broken `require` names the line of the call. `require`, `ensure`, and `fails` go at the top of the function in any order. `quill explain` describes contract lines. `require`, `ensure`, and `result` inside an `ensure` are brass (`#C8A06A` on a dark editor, `#7A5A20` on a light one).
+- **Ranges with `where`.** `fn book(guests: number where 1..500)` takes 1 through 500 guests, both ends included. Money works too: `amount: USD where 1 USD..10000 USD`. A written value outside the range, like `book(600)`, is caught before the program runs; any other value stops the call and names the value and the line of the call. Both ends are written values of the parameter's kind, smallest first. `quill explain` describes the range. `where` is steel (`#6AA8C8` on a dark editor, `#1A5270` on a light one), the color saved for rules on types.
+- **Filtering with `where`.** `students where score >= 50` keeps the records whose condition is true, like Laravel's `where`. Inside the condition a field is read by its name. It works inside `get` and `sum` (`sum fee of roster where paid == false`), after `for ... in`, and again after itself (`where score >= 50 where paid`). No match gives an empty list. A misspelled field names the record's fields.
 - **Asking for data.** `sum fee of roster` adds the fee of each record. `get fee of roster` takes that field as a list. `get name, age, fee of roster` keeps those fields together on each record. The same line reads one record: `get name, fees of school` is one record with those fields. `sum fees of school` is that one amount. A dot after `of` reads a field further in: `get place of desk.bookings`, `get gpa of school.acceptances`. Name the record before the dot: `first = desk.bookings at 1`, then `first.place`. `get bookings with acts in roster` is the longer form, for a list and the field embedded in it. A missing amount is left out of a single field. `for` remains when each record needs its own step. `get`, `sum`, and `with` are sea (`#6EC1D6` on a dark editor, `#15556A` on a light one).
+- **`when` gives a value.** `delivery = when`, then indented cases like `total > 100 -> 0`, ending with `else -> 10`. The first true case gives the value. It works after `=`, `set`, `say`, and `return`. `else` is required, and every case gives the same kind of value. `quill explain` describes each case.
+- **`on` can carry on.** `on Declined -> "declined"` uses that value in place of the call's answer, and the program continues. `on Declined -> say "..."` still runs and then stops. Each `on` line chooses for itself.
+- **Examples above a function test it.** `--- example: with_vat(100 USD) == 105 USD` directly above `fn with_vat` runs once the function is written, so a function's documentation and its tests sit together above it. A failed example says "An example", not "A example".
+- `quill test FILE.ql` runs one file. Test reports count executed checks, including functions, loops, and passes before a failure.
+- Remainder overflow reports a Quill arithmetic problem instead of crashing.
+- The README marks the type checker and contracts as implemented.
+- The README writes money as `USD`, the way Quill does, instead of `Money<USD>`. Contracts stay `require` and `ensure`. Its error and `quill explain` examples show Quill's real output.
 - Money examples use dollars. `100 USD + 50 USD` is `150 USD`.
 - Quill's public description is this: intent is clear, failures are explicit, and correctness is part of the code. It is for backend engineering, financial software, automation, reliable business applications, and AI and machine learning. Asking a model and training one are part of that. Operating systems, device drivers, and 3D games stay with Rust and C++.
 

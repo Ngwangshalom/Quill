@@ -23,6 +23,7 @@
 
 use std::fmt;
 
+use crate::decimal::Decimal;
 use crate::diagnostic::{closest_match, Diagnostic, Span};
 use crate::lexer::{Piece, Token, TokenKind};
 
@@ -88,6 +89,8 @@ pub enum Statement {
         result: Option<SigKind>,
         /// Failures this function can leave with, written `fails Declined, NetworkDown`.
         fails: Vec<(String, Span)>,
+        /// `require` and `ensure` lines, in the order they were written.
+        contracts: Vec<Contract>,
         body: Vec<Statement>,
         span: Span,
     },
@@ -112,6 +115,27 @@ pub enum Statement {
     Fail { name: String, span: Span },
 }
 
+/// `require amount > 0 USD` or `ensure result >= 0 USD`, under a `fn`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Contract {
+    /// `true` for `ensure`, checked when the function gives back.
+    /// `false` for `require`, checked when the function is called.
+    pub ensure: bool,
+    pub condition: Expr,
+    /// Covers the whole line, so a broken contract can underline it.
+    pub span: Span,
+}
+
+impl Contract {
+    pub fn keyword(&self) -> &'static str {
+        if self.ensure {
+            "ensure"
+        } else {
+            "require"
+        }
+    }
+}
+
 /// A function parameter: `n: number`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
@@ -119,6 +143,60 @@ pub struct Param {
     pub name_span: Span,
     pub kind: SigKind,
     pub kind_span: Span,
+    /// `where 1..500`, the smallest and largest value the parameter takes.
+    pub rule: Option<Rule>,
+}
+
+/// `where 1..500` after a parameter's kind. Both ends are written values, and both
+/// are included.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rule {
+    pub low: Expr,
+    pub high: Expr,
+    /// Covers `where` through the last value.
+    pub span: Span,
+}
+
+impl Rule {
+    /// `from 1 through 500`, as a broken rule says it.
+    pub fn range(&self) -> String {
+        format!("from {} through {}", self.low, self.high)
+    }
+
+    /// The rule as a condition on the parameter: `guests >= 1 and guests <= 500`.
+    pub fn condition(&self, name: &str) -> Expr {
+        let span = self.span;
+        let param = || {
+            Box::new(Expr {
+                kind: ExprKind::Name(name.to_string()),
+                span,
+            })
+        };
+        let compare = |op, bound: &Expr| Expr {
+            kind: ExprKind::Compare {
+                op,
+                left: param(),
+                right: Box::new(bound.clone()),
+                op_span: span,
+            },
+            span,
+        };
+        Expr {
+            kind: ExprKind::Logic {
+                op: Logic::And,
+                left: Box::new(compare(Comparison::GreaterEqual, &self.low)),
+                right: Box::new(compare(Comparison::LessEqual, &self.high)),
+                op_span: span,
+            },
+            span,
+        }
+    }
+}
+
+impl fmt::Display for Rule {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "where {}..{}", self.low, self.high)
+    }
 }
 
 /// The kind written in a function: `text`, `number`, `true/false`, or `list of` one of those.
@@ -157,13 +235,24 @@ pub struct Catch {
     pub span: Span,
 }
 
-/// `on Declined -> say "Card declined"`.
+/// `on Declined -> say "Card declined"`, or `on Declined -> "declined"`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Handler {
     pub name: String,
     pub name_span: Span,
-    pub body: Box<Statement>,
+    pub body: Recovery,
     pub span: Span,
+}
+
+/// What an `on` line does when its failure happens.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Recovery {
+    /// `on Declined -> say "Card declined"`: run the line, then stop the program
+    /// (or leave the function).
+    Stop(Box<Statement>),
+    /// `on Declined -> "declined"`: use this value in place of the call's answer,
+    /// and carry on.
+    Value(Expr),
 }
 
 /// A currency code is three capital letters, as in `USD`.
@@ -225,9 +314,35 @@ fn attach_handlers(statement: Statement, handlers: Vec<Handler>) -> Statement {
             name_span,
             args,
             span,
-            handlers,
+            // A call on its own line gives nothing back, so `on ... -> greet("x")`
+            // runs that call.
+            handlers: handlers.into_iter().map(call_as_statement).collect(),
         },
         other => other,
+    }
+}
+
+fn call_as_statement(handler: Handler) -> Handler {
+    let Recovery::Value(Expr {
+        kind: ExprKind::Call {
+            name,
+            name_span,
+            args,
+        },
+        span,
+    }) = handler.body
+    else {
+        return handler;
+    };
+    Handler {
+        body: Recovery::Stop(Box::new(Statement::Call {
+            name,
+            name_span,
+            args,
+            span,
+            handlers: Vec::new(),
+        })),
+        ..handler
     }
 }
 
@@ -445,6 +560,15 @@ pub enum ExprKind {
         of_span: Span,
         list: Box<Expr>,
     },
+    /// `when` with indented cases that each give a value. The last case is `else`.
+    When(Vec<ValueArm>),
+    /// `students where score >= 50`. The records whose condition is true, in order.
+    /// Inside the condition, a field of the records is read by its name.
+    Where {
+        list: Box<Expr>,
+        condition: Box<Expr>,
+        where_span: Span,
+    },
     /// `get bookings with acts in roster`. The bookings, each with its acts, from one place.
     GetWith {
         field: String,
@@ -453,6 +577,16 @@ pub enum ExprKind {
         nested_span: Span,
         source: Box<Expr>,
     },
+}
+
+/// One case of a `when` that gives a value: `score >= 70 -> "A"`, or `else -> "Fail"`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValueArm {
+    /// `None` for `else`.
+    pub condition: Option<Expr>,
+    pub value: Expr,
+    /// Covers the condition, or the `else` keyword.
+    pub span: Span,
 }
 
 /// A field named by `get`: `name` in `get name, fee of roster`.
@@ -478,6 +612,95 @@ pub enum Part {
 }
 
 impl Expr {
+    /// The names this expression reads, each once, in the order they are written.
+    /// Field names and called functions are not included.
+    pub fn names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        self.collect_names(&mut names);
+        names
+    }
+
+    fn collect_names(&self, names: &mut Vec<String>) {
+        match &self.kind {
+            ExprKind::Name(name) => {
+                if !names.contains(name) {
+                    names.push(name.clone());
+                }
+            }
+            ExprKind::Template(parts) => {
+                for part in parts {
+                    if let Part::Value(value) = part {
+                        value.collect_names(names);
+                    }
+                }
+            }
+            ExprKind::Negate(inner)
+            | ExprKind::Not(inner)
+            | ExprKind::Group(inner)
+            | ExprKind::Found(inner)
+            | ExprKind::Try(inner) => inner.collect_names(names),
+            ExprKind::Arithmetic { left, right, .. }
+            | ExprKind::Compare { left, right, .. }
+            | ExprKind::Logic { left, right, .. } => {
+                left.collect_names(names);
+                right.collect_names(names);
+            }
+            ExprKind::At { list, index, .. } => {
+                list.collect_names(names);
+                index.collect_names(names);
+            }
+            ExprKind::List { items, .. } => {
+                for item in items {
+                    item.collect_names(names);
+                }
+            }
+            ExprKind::Record { fields } => {
+                for field in fields {
+                    field.value.collect_names(names);
+                }
+            }
+            ExprKind::Call { args, .. } => {
+                for arg in args {
+                    arg.collect_names(names);
+                }
+            }
+            ExprKind::Field { record, .. } => record.collect_names(names),
+            ExprKind::Sum { list, .. } | ExprKind::Get { list, .. } => list.collect_names(names),
+            ExprKind::GetWith { source, .. } => source.collect_names(names),
+            ExprKind::Where {
+                list, condition, ..
+            } => {
+                list.collect_names(names);
+                condition.collect_names(names);
+            }
+            ExprKind::When(arms) => {
+                for arm in arms {
+                    if let Some(condition) = &arm.condition {
+                        condition.collect_names(names);
+                    }
+                    arm.value.collect_names(names);
+                }
+            }
+            ExprKind::Text(_)
+            | ExprKind::Number(_)
+            | ExprKind::Money { .. }
+            | ExprKind::Bool(_)
+            | ExprKind::Missing => {}
+        }
+    }
+
+    /// The amount of a written number or money, like `500`, `-5` or `0 USD`.
+    /// `None` for anything that has to be worked out.
+    pub fn written_amount(&self) -> Option<Decimal> {
+        match &self.kind {
+            ExprKind::Number(number) => Decimal::parse(number),
+            ExprKind::Money { amount, .. } => Decimal::parse(amount),
+            ExprKind::Negate(inner) => inner.written_amount()?.checked_neg().ok(),
+            ExprKind::Group(inner) => inner.written_amount(),
+            _ => None,
+        }
+    }
+
     /// The expression inside any parentheses.
     pub fn ungrouped(&self) -> &Expr {
         match &self.kind {
@@ -573,6 +796,10 @@ impl fmt::Display for Expr {
                 source,
                 ..
             } => write!(f, "get {field} with {nested} in {source}"),
+            ExprKind::When(_) => write!(f, "when"),
+            ExprKind::Where {
+                list, condition, ..
+            } => write!(f, "{list} where {condition}"),
         }
     }
 }
@@ -693,7 +920,32 @@ pub fn parse(tokens: &[Token]) -> Result<Program, Diagnostic> {
             _ => statements.push(parser.full_statement()?),
         }
     }
-    Ok(Program { statements })
+    Ok(Program {
+        statements: examples_after_their_function(statements),
+    })
+}
+
+/// Doc examples written directly above a `fn` document that function, so they run
+/// just after it is written, once it can be called. Their spans don't change, so a
+/// failure still points at the line where the example was written.
+fn examples_after_their_function(statements: Vec<Statement>) -> Vec<Statement> {
+    let mut ordered = Vec::with_capacity(statements.len());
+    let mut examples = Vec::new();
+    for statement in statements {
+        match statement {
+            Statement::Check { example: true, .. } => examples.push(statement),
+            Statement::Function { .. } => {
+                ordered.push(statement);
+                ordered.append(&mut examples);
+            }
+            other => {
+                ordered.append(&mut examples);
+                ordered.push(other);
+            }
+        }
+    }
+    ordered.append(&mut examples);
+    ordered
 }
 
 struct Parser<'a> {
@@ -755,10 +1007,29 @@ impl<'a> Parser<'a> {
             TokenKind::Fail => self.fail_statement(),
             TokenKind::Fails => Err(Diagnostic::new(
                 token.span(),
-                "fails names how a function can fail, on the first line under fn.\n\
+                "fails names how a function can fail, at the top of the function, under fn.\n\
                  fn charge(amount: USD) -> text, then fails Declined.",
             )
             .suggest("fails Declined")),
+            TokenKind::Require | TokenKind::Ensure => {
+                let word = describe(&token.kind);
+                let why = "require says what has to be true when the function is called, \
+                           and ensure says what is true when it gives back.";
+                if self.in_function {
+                    return Err(Diagnostic::new(
+                        token.span(),
+                        format!(
+                            "{word} goes at the top of a function, right under the fn line.\n\
+                             {why} Move this line up, above the function's other lines."
+                        ),
+                    ));
+                }
+                Err(Diagnostic::new(
+                    token.span(),
+                    format!("{word} goes inside a function, at the top.\n{why}"),
+                )
+                .suggest("fn withdraw(amount: USD) -> USD\n  require amount > 0 USD"))
+            }
             TokenKind::On => Err(Diagnostic::new(
                 token.span(),
                 "on handles one failure of the call above it.\n\
@@ -829,13 +1100,14 @@ impl<'a> Parser<'a> {
     fn check_statement(&mut self, example: bool) -> Result<Statement, Diagnostic> {
         let keyword = self.advance();
         let word = if example { "example" } else { "check" };
+        let a = if example { "An" } else { "A" };
         let written = if example { "--- example:" } else { "check" };
         if self.at_end_of_line() {
             return Err(Diagnostic::new(
                 keyword.span(),
                 format!(
                     "{word} needs two values with == between them.\n\
-                     A {word} passes when both sides are the same value."
+                     {a} {word} passes when both sides are the same value."
                 ),
             )
             .suggest(format!("{written} name == \"Hello\"")));
@@ -1367,7 +1639,19 @@ impl<'a> Parser<'a> {
                 )
                 .suggest(format!("fn {name}() -> number")));
             }
-            Some(self.signature_kind()?)
+            let kind = self.signature_kind()?;
+            if self.peek().kind == TokenKind::Where {
+                return Err(Diagnostic::new(
+                    self.peek().span(),
+                    format!(
+                        "where goes on a parameter, not on the kind {name} gives back.\n\
+                         To promise something about the value it gives back, write ensure \
+                         under the fn line."
+                    ),
+                )
+                .suggest("ensure result >= 0"));
+            }
+            Some(kind)
         } else {
             None
         };
@@ -1393,11 +1677,29 @@ impl<'a> Parser<'a> {
             .suggest(format!("fn {name}() -> number\n  return 1")));
         }
         self.advance();
-        let fails = if self.peek().kind == TokenKind::Fails {
-            self.failure_list()?
-        } else {
-            Vec::new()
-        };
+        // `fails`, `require` and `ensure` lines come first, in any order.
+        let mut fails = Vec::new();
+        let mut contracts = Vec::new();
+        loop {
+            match self.peek().kind {
+                TokenKind::Fails if fails.is_empty() => fails = self.failure_list()?,
+                TokenKind::Fails => {
+                    return Err(Diagnostic::new(
+                        self.peek().span(),
+                        format!(
+                            "fn {name} already has a fails line.\n\
+                             Name every failure on one line, separated by commas."
+                        ),
+                    )
+                    .suggest("fails Declined, NetworkDown"));
+                }
+                TokenKind::Require | TokenKind::Ensure => contracts.push(self.contract()?),
+                TokenKind::Newline => {
+                    self.advance();
+                }
+                _ => break,
+            }
+        }
         self.in_function = true;
         let mut body = Vec::new();
         let body_result = self.function_body(&mut body);
@@ -1419,8 +1721,54 @@ impl<'a> Parser<'a> {
             params,
             result,
             fails,
+            contracts,
             body,
             span: keyword.span(),
+        })
+    }
+
+    /// `require CONDITION` or `ensure CONDITION`, at the top of a function.
+    fn contract(&mut self) -> Result<Contract, Diagnostic> {
+        let keyword = self.advance().clone();
+        let ensure = keyword.kind == TokenKind::Ensure;
+        let word = if ensure { "ensure" } else { "require" };
+        if self.at_end_of_line() {
+            let (what, example) = if ensure {
+                (
+                    "what is true when the function gives back",
+                    "ensure result >= 0",
+                )
+            } else {
+                (
+                    "what has to be true when the function is called",
+                    "require amount > 0",
+                )
+            };
+            return Err(Diagnostic::new(
+                keyword.span(),
+                format!("{word} needs a condition: {what}."),
+            )
+            .suggest(example));
+        }
+        let condition = self.expression()?;
+        let span = cover(
+            keyword.span(),
+            self.tokens[self.pos.saturating_sub(1)].span(),
+        );
+        if !self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "Quill expected the line to end after `{word} {condition}`, but found {}.\n\
+                     Each {word} line holds one condition. Join two with and.",
+                    describe(&self.peek().kind)
+                ),
+            ));
+        }
+        Ok(Contract {
+            ensure,
+            condition,
+            span,
         })
     }
 
@@ -1471,12 +1819,83 @@ impl<'a> Parser<'a> {
             kind_span_start,
             self.tokens[self.pos.saturating_sub(1)].span(),
         );
+        let rule = if self.peek().kind == TokenKind::Where {
+            Some(self.rule(&name)?)
+        } else {
+            None
+        };
         Ok(Param {
             name,
             name_span: name_token.span(),
             kind,
             kind_span,
+            rule,
         })
+    }
+
+    /// `where 1..500` after a parameter's kind.
+    fn rule(&mut self, name: &str) -> Result<Rule, Diagnostic> {
+        let keyword = self.advance().clone();
+        let example = format!("{name}: number where 1..500");
+        let why = "where gives the smallest and the largest value, with .. between them.";
+        if matches!(
+            self.peek().kind,
+            TokenKind::Comma | TokenKind::RightParen | TokenKind::Newline
+        ) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                format!("where needs a range after it.\n{why}"),
+            )
+            .suggest(example));
+        }
+        let low = self.rule_value()?;
+        if self.peek().kind != TokenKind::DotDot {
+            let found = self.peek();
+            return Err(Diagnostic::new(
+                found.span(),
+                format!(
+                    "This range needs .. after {low}, but found {}.\n{why}",
+                    describe(&found.kind)
+                ),
+            )
+            .suggest(example));
+        }
+        let dots = self.advance().clone();
+        if matches!(
+            self.peek().kind,
+            TokenKind::Comma | TokenKind::RightParen | TokenKind::Newline
+        ) {
+            return Err(Diagnostic::new(
+                dots.span(),
+                format!(
+                    "This range is missing the largest value, after ..\n\
+                     where {low}..500 takes {low} through 500, including both ends."
+                ),
+            )
+            .suggest(example));
+        }
+        let high = self.rule_value()?;
+        let span = cover(
+            keyword.span(),
+            self.tokens[self.pos.saturating_sub(1)].span(),
+        );
+        Ok(Rule { low, high, span })
+    }
+
+    /// One end of a `where` range: a written number or amount of money.
+    fn rule_value(&mut self) -> Result<Expr, Diagnostic> {
+        let value = self.unary()?;
+        if value.written_amount().is_none() {
+            return Err(Diagnostic::new(
+                value.span,
+                format!(
+                    "Each end of a where range is a written value, like 1 or 0 USD, \
+                     but {value} has to be worked out.\n\
+                     For a rule that reads other values, write require under the fn line."
+                ),
+            ));
+        }
+        Ok(value)
     }
 
     /// `text`, `number`, `true/false`, or `list of` one of those.
@@ -1743,6 +2162,132 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `when` in the place of a value, with indented cases that each give one.
+    fn when_value(&mut self) -> Result<Expr, Diagnostic> {
+        let when = self.advance().clone();
+        let example = "label = when\n                 score >= 50 -> \"Pass\"\n                 else -> \"Fail\"";
+        if !self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                when.span(),
+                "A when that gives a value has its cases on the lines below it.\n\
+                 Each case is a condition, then ->, then the value. else comes last.",
+            )
+            .suggest(example));
+        }
+        while self.peek().kind == TokenKind::Newline {
+            self.advance();
+        }
+        if self.peek().kind != TokenKind::Indent {
+            return Err(Diagnostic::new(
+                when.span(),
+                "This when has no cases.\n\
+                 Its cases go on the lines below it, indented further than the line with when.",
+            )
+            .suggest(example));
+        }
+        self.advance();
+        let mut arms: Vec<ValueArm> = Vec::new();
+        loop {
+            match self.peek().kind {
+                TokenKind::Newline => {
+                    self.advance();
+                    continue;
+                }
+                TokenKind::Dedent => {
+                    self.advance();
+                    break;
+                }
+                TokenKind::EndOfFile => break,
+                _ => {}
+            }
+            let arm = self.value_arm()?;
+            if arms.last().is_some_and(|last| last.condition.is_none()) {
+                return Err(Diagnostic::new(
+                    arm.span,
+                    "This case comes after else, so it can never be chosen.\n\
+                     else catches everything the cases above it didn't, so it must be last.",
+                ));
+            }
+            arms.push(arm);
+        }
+        if arms.last().is_some_and(|last| last.condition.is_some()) {
+            return Err(Diagnostic::new(
+                when.span(),
+                "A when that gives a value needs else as its last case.\n\
+                 Without else, no case might be true, and there would be no value.",
+            )
+            .suggest("else -> \"...\""));
+        }
+        let span = when.span();
+        Ok(Expr {
+            kind: ExprKind::When(arms),
+            span,
+        })
+    }
+
+    /// `condition -> value` or `else -> value`, in a when that gives a value.
+    fn value_arm(&mut self) -> Result<ValueArm, Diagnostic> {
+        let (condition, span, written) = if self.peek().kind == TokenKind::Else {
+            let token = self.advance();
+            (None, token.span(), "else".to_string())
+        } else {
+            let condition = self.expression()?;
+            let span = condition.span;
+            let written = condition.to_string();
+            (Some(condition), span, written)
+        };
+        if self.peek().kind != TokenKind::Arrow {
+            let at = if self.at_end_of_line() {
+                span
+            } else {
+                self.peek().span()
+            };
+            return Err(Diagnostic::new(
+                at,
+                format!(
+                    "This case needs -> after {written}, then the value it gives.\n\
+                     Each case is a condition, then ->, then a value on the same line."
+                ),
+            )
+            .suggest(format!("{written} -> \"...\"")));
+        }
+        let arrow = self.advance();
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                arrow.span(),
+                "-> needs the value this case gives, on the same line.",
+            )
+            .suggest(format!("{written} -> \"...\"")));
+        }
+        if starts_statement(&self.peek().kind) {
+            let word = describe(&self.peek().kind);
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "This when gives a value, so each case gives a value after ->, not {word}.\n\
+                     To run a statement in each case instead, put when on its own line."
+                ),
+            )
+            .suggest(format!("{written} -> \"...\"")));
+        }
+        let value = self.expression()?;
+        if !self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "Quill expected the case to end after `{written} -> {value}`, but found {}.\n\
+                     Each case gives one value.",
+                    describe(&self.peek().kind)
+                ),
+            ));
+        }
+        Ok(ValueArm {
+            condition,
+            value,
+            span,
+        })
+    }
+
     /// `name = value` or `var name = value` after `->`, which isn't allowed.
     fn value_created_in_case(&mut self, start: &Token) -> Diagnostic {
         let name = match &self.peek().kind {
@@ -1768,7 +2313,35 @@ impl<'a> Parser<'a> {
     }
 
     fn expression(&mut self) -> Result<Expr, Diagnostic> {
-        self.or()
+        let value = self.or()?;
+        self.filters(value)
+    }
+
+    /// `students where score >= 50`, and any further `where` after it.
+    fn filters(&mut self, mut list: Expr) -> Result<Expr, Diagnostic> {
+        while self.peek().kind == TokenKind::Where {
+            let keyword = self.advance().clone();
+            if !starts_value(&self.peek().kind) {
+                return Err(Diagnostic::new(
+                    keyword.span(),
+                    format!(
+                        "where needs a condition after it.\n\
+                         {list} where score >= 50 keeps the records whose score is 50 or more."
+                    ),
+                )
+                .suggest(format!("{list} where score >= 50")));
+            }
+            let condition = self.or()?;
+            list = Expr {
+                span: cover(list.span, condition.span),
+                kind: ExprKind::Where {
+                    list: Box::new(list),
+                    condition: Box::new(condition),
+                    where_span: keyword.span(),
+                },
+            };
+        }
+        Ok(list)
     }
 
     fn or(&mut self) -> Result<Expr, Diagnostic> {
@@ -1994,6 +2567,7 @@ impl<'a> Parser<'a> {
             TokenKind::Identifier(name) => ExprKind::Name(name.clone()),
             TokenKind::List => return self.list_expr(),
             TokenKind::Record => return self.record_expr(),
+            TokenKind::When => return self.when_value(),
             TokenKind::Get | TokenKind::Sum => return self.ask_expr(),
             TokenKind::LeftParen => return self.group(),
             TokenKind::Of => {
@@ -2130,6 +2704,7 @@ impl<'a> Parser<'a> {
                     )));
                 }
                 let list = self.unary()?;
+                let list = self.filters(list)?;
                 let kind = if summing {
                     ExprKind::Sum {
                         field,
@@ -2885,11 +3460,29 @@ impl<'a> Parser<'a> {
             )
             .suggest(format!("on {name} -> say \"{name}\"")));
         }
-        let body = self.full_statement()?;
+        let gives_value = !starts_statement(&self.peek().kind)
+            && !(matches!(self.peek().kind, TokenKind::Identifier(_))
+                && self.peek_at(1).kind == TokenKind::Equals);
+        let body = if gives_value {
+            let value = self.expression()?;
+            if !self.at_end_of_line() {
+                return Err(Diagnostic::new(
+                    self.peek().span(),
+                    format!(
+                        "Quill expected the line to end after `on {name} -> {value}`, but found {}.\n\
+                         The value after -> takes the place of the call's answer.",
+                        describe(&self.peek().kind)
+                    ),
+                ));
+            }
+            Recovery::Value(value)
+        } else {
+            Recovery::Stop(Box::new(self.full_statement()?))
+        };
         Ok(Handler {
             name,
             name_span,
-            body: Box::new(body),
+            body,
             span: keyword.span(),
         })
     }
@@ -3023,7 +3616,8 @@ fn write_steps_string(steps: &[Access]) -> String {
     out
 }
 
-/// Whether this statement's value includes a record, which already ended its line.
+/// Whether this statement's value includes a record or a `when` block, which already
+/// ended its line.
 fn contains_record(statement: &Statement) -> bool {
     match statement {
         Statement::Say { value, .. }
@@ -3044,7 +3638,7 @@ fn contains_record(statement: &Statement) -> bool {
 
 fn contains_record_expr(expr: &Expr) -> bool {
     match &expr.kind {
-        ExprKind::Record { .. } => true,
+        ExprKind::Record { .. } | ExprKind::When(_) => true,
         ExprKind::List { items, .. } => items.iter().any(contains_record_expr),
         ExprKind::At { list, index, .. } => {
             contains_record_expr(list) || contains_record_expr(index)
@@ -3052,6 +3646,9 @@ fn contains_record_expr(expr: &Expr) -> bool {
         ExprKind::Field { record, .. } => contains_record_expr(record),
         ExprKind::Sum { list, .. } | ExprKind::Get { list, .. } => contains_record_expr(list),
         ExprKind::GetWith { source, .. } => contains_record_expr(source),
+        ExprKind::Where {
+            list, condition, ..
+        } => contains_record_expr(list) || contains_record_expr(condition),
         ExprKind::Call { args, .. } => args.iter().any(contains_record_expr),
         ExprKind::Negate(inner) | ExprKind::Not(inner) | ExprKind::Group(inner) => {
             contains_record_expr(inner)
@@ -3073,6 +3670,27 @@ fn contains_record_expr(expr: &Expr) -> bool {
         | ExprKind::Name(_)
         | ExprKind::Missing => false,
     }
+}
+
+/// Words that start a statement, not a value.
+fn starts_statement(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Say
+            | TokenKind::Check
+            | TokenKind::Example
+            | TokenKind::Var
+            | TokenKind::Set
+            | TokenKind::When
+            | TokenKind::For
+            | TokenKind::Fn
+            | TokenKind::Return
+            | TokenKind::Fail
+            | TokenKind::Fails
+            | TokenKind::Require
+            | TokenKind::Ensure
+            | TokenKind::On
+    )
 }
 
 fn describe(kind: &TokenKind) -> String {
@@ -3630,5 +4248,194 @@ mod tests {
         let err = error("say -> \"Hello\"");
         assert!(err.message.contains("belongs inside a when"));
         assert_eq!(err.suggestion.as_deref(), Some("say \"Hello\""));
+    }
+
+    #[test]
+    fn contracts_and_fails_come_first_in_any_order() {
+        let program = parse_source(
+            "fn withdraw(amount: USD) -> USD\n  require amount > 0 USD\n  fails Declined\n  ensure result >= 0 USD\n  return amount\n",
+        )
+        .unwrap();
+        let Statement::Function {
+            fails,
+            contracts,
+            body,
+            ..
+        } = &program.statements[0]
+        else {
+            panic!("expected a function");
+        };
+        assert_eq!(fails.len(), 1);
+        assert_eq!(contracts.len(), 2);
+        assert!(!contracts[0].ensure);
+        assert!(contracts[1].ensure);
+        assert_eq!(contracts[1].condition.to_string(), "result >= 0 USD");
+        assert_eq!(body.len(), 1);
+    }
+
+    #[test]
+    fn a_contract_after_the_first_line_of_work_is_a_mistake() {
+        let err = error("fn f(n: number) -> number\n  say n\n  require n > 0\n  return n\n");
+        assert!(err
+            .message
+            .contains("require goes at the top of a function"));
+        let outside = error("require 1 > 0\n");
+        assert!(outside.message.contains("require goes inside a function"));
+    }
+
+    #[test]
+    fn a_contract_needs_one_condition() {
+        let empty = error("fn f(n: number) -> number\n  ensure\n  return n\n");
+        assert!(empty.message.starts_with("ensure needs a condition"));
+        let extra = error("fn f(n: number) -> number\n  require n > 0 n\n  return n\n");
+        assert!(extra.message.contains("Join two with and."));
+        let twice = error("fn f(n: number) -> number\n  fails A\n  fails B\n  return n\n");
+        assert!(twice.message.contains("already has a fails line"));
+    }
+
+    #[test]
+    fn a_parameter_can_have_a_range() {
+        let program =
+            parse_source("fn book(guests: number where 1..500) -> text\n  return \"ok\"\n")
+                .unwrap();
+        let Statement::Function { params, .. } = &program.statements[0] else {
+            panic!("expected a function");
+        };
+        let rule = params[0].rule.as_ref().unwrap();
+        assert_eq!(rule.to_string(), "where 1..500");
+        assert_eq!(rule.range(), "from 1 through 500");
+        let money = parse_source("fn f(a: USD where -5 USD..0 USD) -> USD\n  return a\n").unwrap();
+        let Statement::Function { params, .. } = &money.statements[0] else {
+            panic!("expected a function");
+        };
+        assert_eq!(
+            params[0].rule.as_ref().unwrap().to_string(),
+            "where -5 USD..0 USD"
+        );
+    }
+
+    #[test]
+    fn a_range_is_two_written_values() {
+        let empty = error("fn f(n: number where) -> number\n  return n\n");
+        assert!(empty.message.starts_with("where needs a range after it."));
+        let one = error("fn f(n: number where 5) -> number\n  return n\n");
+        assert!(one.message.starts_with("This range needs .. after 5"));
+        let open = error("fn f(n: number where 5..) -> number\n  return n\n");
+        assert!(open
+            .message
+            .starts_with("This range is missing the largest value"));
+        let worked = error("fn f(n: number, m: number where 0..n) -> number\n  return n\n");
+        assert!(worked.message.contains("but n has to be worked out"));
+        let result = error("fn f(n: number) -> number where 0..5\n  return n\n");
+        assert!(result.message.starts_with("where goes on a parameter"));
+    }
+
+    #[test]
+    fn where_filters_a_list_and_can_follow_get_and_sum() {
+        let program = parse_source("say students where score >= 50 and paid\n").unwrap();
+        let Statement::Say { value, .. } = &program.statements[0] else {
+            panic!("expected say");
+        };
+        assert!(matches!(value.kind, ExprKind::Where { .. }));
+        assert_eq!(value.to_string(), "students where score >= 50 and paid");
+        let program = parse_source("say sum fee of roster where paid == false\n").unwrap();
+        let Statement::Say { value, .. } = &program.statements[0] else {
+            panic!("expected say");
+        };
+        let ExprKind::Sum { list, .. } = &value.kind else {
+            panic!("expected sum");
+        };
+        assert!(matches!(list.kind, ExprKind::Where { .. }));
+        let chained = parse_source("say s where a > 1 where b < 2\n").unwrap();
+        let Statement::Say { value, .. } = &chained.statements[0] else {
+            panic!("expected say");
+        };
+        let ExprKind::Where { list, .. } = &value.kind else {
+            panic!("expected where");
+        };
+        assert!(matches!(list.kind, ExprKind::Where { .. }));
+        let empty = error("say students where\n");
+        assert!(empty
+            .message
+            .starts_with("where needs a condition after it."));
+    }
+
+    #[test]
+    fn when_gives_a_value() {
+        let program =
+            parse_source("label = when\n  1 > 0 -> \"a\"\n  else -> \"b\"\nsay label\n").unwrap();
+        let Statement::Let { value, .. } = &program.statements[0] else {
+            panic!("expected a value");
+        };
+        let ExprKind::When(arms) = &value.kind else {
+            panic!("expected a when");
+        };
+        assert_eq!(arms.len(), 2);
+        assert!(arms[1].condition.is_none());
+        assert_eq!(program.statements.len(), 2);
+    }
+
+    #[test]
+    fn a_when_value_needs_else_last() {
+        let err = error("x = when\n  1 > 0 -> \"a\"\n");
+        assert!(err
+            .message
+            .starts_with("A when that gives a value needs else"));
+        let after = error("x = when\n  else -> \"b\"\n  1 > 0 -> \"a\"\n");
+        assert!(after.message.contains("comes after else"));
+    }
+
+    #[test]
+    fn a_when_value_gives_values_not_statements() {
+        let err = error("x = when\n  1 > 0 -> say \"a\"\n  else -> \"b\"\n");
+        assert!(err
+            .message
+            .contains("each case gives a value after ->, not say"));
+        let same_line = error("x = when 5\n");
+        assert!(same_line.message.contains("cases on the lines below it"));
+    }
+
+    #[test]
+    fn on_takes_a_statement_or_a_value() {
+        let program = parse_source(
+            "fn f() -> text\n  fails A, B\n  fail A\nx = f()\n  on A -> \"a\"\n  on B -> say \"b\"\n",
+        )
+        .unwrap();
+        let Statement::Let { handlers, .. } = &program.statements[1] else {
+            panic!("expected a value");
+        };
+        assert!(matches!(handlers[0].body, Recovery::Value(_)));
+        assert!(matches!(handlers[1].body, Recovery::Stop(_)));
+    }
+
+    #[test]
+    fn a_call_after_on_under_a_call_statement_runs_it() {
+        let program =
+            parse_source("fn f()\n  fails A\n  fail A\nfn log()\n  say 1\nf()\n  on A -> log()\n")
+                .unwrap();
+        let Statement::Call { handlers, .. } = &program.statements[2] else {
+            panic!("expected a call");
+        };
+        assert!(matches!(handlers[0].body, Recovery::Stop(_)));
+    }
+
+    #[test]
+    fn examples_above_a_function_run_after_it() {
+        let program = parse_source(
+            "--- Doubles n.\n--- example: double(2) == 4\n--- example: double(0) == 0\nfn double(n: number) -> number\n  return n * 2\nsay double(1)\n",
+        )
+        .unwrap();
+        let lines: Vec<usize> = program.statements.iter().map(Statement::line).collect();
+        assert_eq!(lines, vec![4, 2, 3, 6]);
+    }
+
+    #[test]
+    fn examples_not_directly_above_a_function_stay_where_they_are() {
+        let program = parse_source(
+            "--- example: 1 + 1 == 2\nsay 1\nfn double(n: number) -> number\n  return n * 2\n",
+        )
+        .unwrap();
+        let lines: Vec<usize> = program.statements.iter().map(Statement::line).collect();
+        assert_eq!(lines, vec![1, 2, 3]);
     }
 }

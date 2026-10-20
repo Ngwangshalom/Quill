@@ -42,6 +42,13 @@ contexts:
       scope: keyword.other.maybe.quill
     - match: '\b(fails|fail|on|try)\b'
       scope: keyword.other.failure.quill
+    - match: '\b(ensure)\b'
+      scope: keyword.other.contract.quill
+      push: ensure
+    - match: '\b(require)\b'
+      scope: keyword.other.contract.quill
+    - match: '\b(where)\b'
+      scope: keyword.other.rule.quill
     - match: '\b(true|false)\b'
       scope: constant.language.quill
     - match: '\b\d+(\.\d+)?'
@@ -50,6 +57,12 @@ contexts:
       scope: keyword.operator.quill
     - match: '\b[A-Za-z_][A-Za-z0-9_]*\b'
       scope: variable.other.quill
+  ensure:
+    - match: '$'
+      pop: true
+    - match: '\bresult\b'
+      scope: variable.language.result.quill
+    - include: main
   string:
     - meta_scope: string.quoted.double.quill
     - match: '\\.'

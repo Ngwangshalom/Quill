@@ -19,7 +19,7 @@ say receipt
 paid
 ```
 
-`fails Declined` is the first line under `fn`. A failure's name starts with a capital letter. `fail Declined` leaves the function with that failure. It does not give the text back.
+`fails Declined` goes at the top of the function, right under `fn`. A failure's name starts with a capital letter. `fail Declined` leaves the function with that failure. It does not give the text back.
 
 Under the call, `on Declined` says what to do. Every failure named in `fails` needs its own `on`. When the call succeeds, Quill skips the `on` lines and continues. `receipt` holds `"paid"`, and the next line says it.
 
@@ -43,6 +43,74 @@ Card declined
 ```
 
 There is no `paid` line. The charge was declined, the `on` line said so, and the program stopped.
+
+## Carrying on with a value
+
+Stopping is right when nothing sensible can happen next. Often something can: a declined card still deserves a receipt that says so. Put a value after `->` instead of a statement. That value takes the place of the call's answer, and the program carries on:
+
+```quill
+fn charge(amount: USD) -> text
+  fails Declined
+  when
+    amount <= 0 USD -> fail Declined
+    else -> return "paid"
+
+receipt = charge(0 USD)
+  on Declined -> "declined"
+
+say "Receipt: {receipt}"
+say "Thank you for shopping"
+```
+
+```output
+Receipt: declined
+Thank you for shopping
+```
+
+Read it out loud: "receipt is the charge, or on Declined, `declined`." The value has to be the same kind the call gives back. `charge` gives back text, so `on Declined -> 0` is a mistake:
+
+```quill,error
+fn charge(amount: USD) -> text
+  fails Declined
+  when
+    amount <= 0 USD -> fail Declined
+    else -> return "paid"
+
+receipt = charge(0 USD)
+  on Declined -> 0
+```
+
+```output
+Problem on line 8 of example.ql:
+
+      on Declined -> 0
+                     ^
+charge gives back Text, but 0 is a Number.
+The value after -> takes the place of the call's answer, so it has to be text too.
+```
+
+Each `on` chooses for itself. One failure can give a value while another stops:
+
+```quill
+fn charge(amount: USD) -> text
+  fails Declined, NetworkDown
+  when
+    amount <= 0 USD -> fail Declined
+    amount > 1000 USD -> fail NetworkDown
+  return "paid"
+
+receipt = charge(5000 USD)
+  on Declined -> "declined"
+  on NetworkDown -> say "The bank is offline. Try again later."
+
+say "Receipt: {receipt}"
+```
+
+```output
+The bank is offline. Try again later.
+```
+
+So the rule after `->` is: a statement like `say` runs and then stops, and a value is used and the program carries on. A call on its own line gives nothing back, so under it `on` always runs a statement.
 
 A function can pass a failure upward instead of handling it. `try` is allowed only inside a function that fails the same way:
 
@@ -76,3 +144,4 @@ Calling `charge` with no `on` and no `try` is a mistake. Quill names the failure
 1. Charge `0 USD` and handle `Declined`.
 2. Add `fails NetworkDown` and a second `on`. Forget one of them and read what Quill says.
 3. Move the charge into a second function with `try`, and handle `Declined` at the call.
+4. Change `on Declined -> say "Card declined"` to `on Declined -> "declined"`, and add a `say` line after the call. Which version reaches that line?

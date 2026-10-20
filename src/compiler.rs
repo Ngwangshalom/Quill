@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 use crate::decimal::Decimal;
 use crate::diagnostic::{Diagnostic, Span};
-use crate::parser::{Arithmetic, Comparison, Expr, ExprKind, Logic, Part, Program, Statement};
+use crate::parser::{
+    Arithmetic, Comparison, Contract, Expr, ExprKind, Logic, Part, Program, Recovery, Statement,
+};
 use crate::value::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -47,6 +49,8 @@ pub enum Op {
     Record(usize),
     /// Pop a list and push how many items it has.
     Length,
+    /// Pop an item and a list, and push the list with the item added at the end.
+    Append,
     /// Pop an index and a list, and push the item. Position 1 is the first item.
     GetAt,
     /// Pop a new item, an index and a list, and push the list with that item replaced.
@@ -92,6 +96,24 @@ pub enum Op {
     Fail,
     /// If the top value is the failure named by this constant, pop it and jump.
     OnFail(usize, usize),
+    /// Pop true/false, and stop the program unless it is true.
+    /// `contracts[index]` says which `require` or `ensure` it was.
+    Contract(usize),
+}
+
+/// A `require` or `ensure` line, kept so a broken one can say what happened.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContractInfo {
+    /// The function the contract belongs to.
+    pub function: String,
+    /// `true` for `ensure`, `false` for `require`.
+    pub ensure: bool,
+    /// The condition as it was written.
+    pub condition: String,
+    /// For a parameter's `where`, its name and range: `("guests", "from 1 through 500")`.
+    pub rule: Option<(String, String)>,
+    /// The names the condition reads, with their slot in the function's frame.
+    pub names: Vec<(String, usize)>,
 }
 
 /// A compiled function. Its jumps point into `code`, not the main program.
@@ -122,11 +144,14 @@ pub struct Chunk {
     /// How many named values the program creates.
     pub slot_count: usize,
     pub functions: Vec<Function>,
+    /// Every `require` and `ensure`, for `Op::Contract`.
+    pub contracts: Vec<ContractInfo>,
 }
 
 pub fn compile(program: &Program) -> Result<Chunk, Diagnostic> {
     let mut compiler = Compiler {
         sum_currencies: crate::checker::sum_currencies(program),
+        where_fields: crate::checker::where_fields(program),
         chunk: Chunk::default(),
         code: Vec::new(),
         spans: Vec::new(),
@@ -134,6 +159,9 @@ pub fn compile(program: &Program) -> Result<Chunk, Diagnostic> {
         slot_count: 0,
         functions: HashMap::new(),
         fn_returns: None,
+        fn_name: String::new(),
+        ensures: Vec::new(),
+        result_slot: None,
         halts: Vec::new(),
     };
     for statement in &program.statements {
@@ -154,6 +182,8 @@ pub fn compile(program: &Program) -> Result<Chunk, Diagnostic> {
 struct Compiler {
     /// Currency of each money `sum`, keyed by the span of the whole `sum`.
     sum_currencies: Vec<(Span, String)>,
+    /// The fields each `where` condition reads, found by the checker.
+    where_fields: Vec<(Span, Vec<String>)>,
     chunk: Chunk,
     /// Instructions for the code being compiled: the main program, or one function.
     code: Vec<Op>,
@@ -164,6 +194,12 @@ struct Compiler {
     functions: HashMap<String, usize>,
     /// `Some` while compiling a function: whether that function gives a value back.
     fn_returns: Option<bool>,
+    /// The name of the function being compiled, for its broken contracts.
+    fn_name: String,
+    /// The `ensure` lines of the function being compiled, checked at each `return`.
+    ensures: Vec<Contract>,
+    /// Where `return` keeps its value while the `ensure` lines read it as `result`.
+    result_slot: Option<usize>,
     /// Jumps that should leave the whole program, patched once `code` is finished.
     halts: Vec<usize>,
 }
@@ -313,15 +349,7 @@ impl Compiler {
                     }
                 }
             }
-            Statement::Function {
-                name,
-                params,
-                result,
-                fails,
-                body,
-                span,
-                ..
-            } => self.function(name, params, result.is_some(), fails, body, *span)?,
+            Statement::Function { .. } => self.function(statement)?,
             Statement::Match {
                 subject,
                 arms,
@@ -334,6 +362,11 @@ impl Compiler {
             Statement::Return { value, span } => match value {
                 Some(value) => {
                     self.expression(value)?;
+                    if let Some(slot) = self.result_slot {
+                        self.emit(Op::Store(slot), *span);
+                        self.ensures()?;
+                        self.emit(Op::Load(slot), *span);
+                    }
                     self.emit(Op::Return(true), *span);
                 }
                 None => {
@@ -357,6 +390,26 @@ impl Compiler {
     fn expression(&mut self, expr: &Expr) -> Result<(), Diagnostic> {
         let span = expr.span;
         match &expr.kind {
+            ExprKind::When(arms) => {
+                // Like a `when` statement, but each case leaves its value on the stack.
+                // The checker makes sure the last case is `else`.
+                let mut to_end = Vec::new();
+                for arm in arms {
+                    match &arm.condition {
+                        Some(condition) => {
+                            self.expression(condition)?;
+                            let skip = self.emit(Op::JumpIfFalse(0), arm.span);
+                            self.expression(&arm.value)?;
+                            to_end.push(self.emit(Op::Jump(0), arm.span));
+                            self.patch(skip);
+                        }
+                        None => self.expression(&arm.value)?,
+                    }
+                }
+                for jump in to_end {
+                    self.patch(jump);
+                }
+            }
             ExprKind::Text(text) => self.constant(Value::Text(text.clone()), span),
             ExprKind::Money { amount, currency } => match Decimal::parse(amount) {
                 Some(amount) => self.constant(
@@ -501,6 +554,9 @@ impl Compiler {
                 let currency = currency.map(|code| self.field_name(&code));
                 self.emit(Op::SumField { name, currency }, span);
             }
+            ExprKind::Where {
+                list, condition, ..
+            } => self.filter(list, condition, span)?,
             ExprKind::GetWith {
                 field,
                 nested,
@@ -522,15 +578,21 @@ impl Compiler {
     }
 
     /// Compiles a function into `chunk.functions` and remembers its index.
-    fn function(
-        &mut self,
-        name: &str,
-        params: &[crate::parser::Param],
-        returns: bool,
-        fails: &[(String, Span)],
-        body: &[Statement],
-        span: Span,
-    ) -> Result<(), Diagnostic> {
+    fn function(&mut self, function: &Statement) -> Result<(), Diagnostic> {
+        let Statement::Function {
+            name,
+            params,
+            result,
+            fails,
+            contracts,
+            body,
+            span,
+            ..
+        } = function
+        else {
+            return Ok(());
+        };
+        let (name, returns, span) = (name.as_str(), result.is_some(), *span);
         let index = self.chunk.functions.len();
         self.functions.insert(name.to_string(), index);
         let saved_code = std::mem::take(&mut self.code);
@@ -545,9 +607,44 @@ impl Compiler {
             self.slot_count += 1;
             self.slots.insert(param.name.clone(), slot);
         }
-        for statement in body {
-            self.statement(statement)?;
+        // Each where, then each require, is tested before the first line runs.
+        for param in params {
+            if let Some(rule) = &param.rule {
+                let contract = Contract {
+                    ensure: false,
+                    condition: rule.condition(&param.name),
+                    span: rule.span,
+                };
+                self.contract(name, &contract)?;
+                if let Some(info) = self.chunk.contracts.last_mut() {
+                    info.condition = format!("{} {rule}", param.name);
+                    info.rule = Some((param.name.clone(), rule.range()));
+                }
+            }
         }
+        for contract in contracts.iter().filter(|contract| !contract.ensure) {
+            self.contract(name, contract)?;
+        }
+        let saved_ensures = std::mem::replace(
+            &mut self.ensures,
+            contracts
+                .iter()
+                .filter(|contract| contract.ensure)
+                .cloned()
+                .collect(),
+        );
+        let saved_result = self.result_slot.take();
+        let saved_name = std::mem::replace(&mut self.fn_name, name.to_string());
+        if returns && !self.ensures.is_empty() {
+            self.result_slot = Some(self.fresh_slot());
+        }
+        let compiled = body
+            .iter()
+            .try_for_each(|statement| self.statement(statement));
+        self.ensures = saved_ensures;
+        self.result_slot = saved_result;
+        self.fn_name = saved_name;
+        compiled?;
         if !returns {
             self.emit(Op::Return(false), span);
         }
@@ -566,6 +663,45 @@ impl Compiler {
         self.slots = saved_slots;
         self.slot_count = saved_count;
         self.chunk.functions.push(function);
+        Ok(())
+    }
+
+    /// Tests every `ensure` of the function being compiled, with `result` in its slot.
+    fn ensures(&mut self) -> Result<(), Diagnostic> {
+        let Some(slot) = self.result_slot else {
+            return Ok(());
+        };
+        let name = self.fn_name.clone();
+        let previous = self.slots.insert("result".to_string(), slot);
+        let ensures = self.ensures.clone();
+        let compiled = ensures
+            .iter()
+            .try_for_each(|contract| self.contract(&name, contract));
+        match previous {
+            Some(old) => self.slots.insert("result".to_string(), old),
+            None => self.slots.remove("result"),
+        };
+        compiled
+    }
+
+    /// Pushes the condition and tests it with `Op::Contract`.
+    fn contract(&mut self, function: &str, contract: &Contract) -> Result<(), Diagnostic> {
+        self.expression(&contract.condition)?;
+        let names = contract
+            .condition
+            .names()
+            .into_iter()
+            .filter_map(|name| self.slots.get(&name).map(|&slot| (name, slot)))
+            .collect();
+        let index = self.chunk.contracts.len();
+        self.chunk.contracts.push(ContractInfo {
+            function: function.to_string(),
+            ensure: contract.ensure,
+            condition: contract.condition.to_string(),
+            rule: None,
+            names,
+        });
+        self.emit(Op::Contract(index), contract.span);
         Ok(())
     }
 
@@ -650,6 +786,76 @@ impl Compiler {
         Ok(())
     }
 
+    /// `students where score >= 50`: walks the list and keeps each record whose condition
+    /// is true. The fields the condition reads are names while it is tested.
+    fn filter(&mut self, list: &Expr, condition: &Expr, span: Span) -> Result<(), Diagnostic> {
+        let fields = self
+            .where_fields
+            .iter()
+            .find(|(where_span, _)| *where_span == span)
+            .map(|(_, fields)| fields.clone())
+            .unwrap_or_default();
+        self.expression(list)?;
+        let list_slot = self.fresh_slot();
+        self.emit(Op::Store(list_slot), list.span);
+        self.emit(Op::List(0), span);
+        let kept_slot = self.fresh_slot();
+        self.emit(Op::Store(kept_slot), span);
+        let index_slot = self.fresh_slot();
+        self.constant(Value::Number(Decimal::from_int(1)), span);
+        self.emit(Op::Store(index_slot), span);
+        let item_slot = self.fresh_slot();
+
+        let loop_start = self.code.len();
+        self.emit(Op::Load(index_slot), span);
+        self.emit(Op::Load(list_slot), list.span);
+        self.emit(Op::Length, list.span);
+        self.emit(Op::Compare(Comparison::Greater), span);
+        let to_body = self.emit(Op::JumpIfFalse(0), span);
+        let leave = self.emit(Op::Jump(0), span);
+        self.patch(to_body);
+
+        self.emit(Op::Load(list_slot), list.span);
+        self.emit(Op::Load(index_slot), span);
+        self.emit(Op::GetAt, span);
+        self.emit(Op::Store(item_slot), span);
+        let mut previous = Vec::new();
+        for field in &fields {
+            let slot = self.fresh_slot();
+            self.emit(Op::Load(item_slot), span);
+            let name = self.field_name(field);
+            self.emit(Op::GetField(name), span);
+            self.emit(Op::Store(slot), span);
+            previous.push((field.clone(), self.slots.insert(field.clone(), slot)));
+        }
+        let tested = self.expression(condition);
+        for (field, old) in previous.into_iter().rev() {
+            match old {
+                Some(old) => self.slots.insert(field, old),
+                None => self.slots.remove(&field),
+            };
+        }
+        tested?;
+        let skip = self.emit(Op::JumpIfFalse(0), condition.span);
+        self.emit(Op::Load(kept_slot), span);
+        self.emit(Op::Load(item_slot), span);
+        self.emit(Op::Append, span);
+        self.emit(Op::Store(kept_slot), span);
+        self.patch(skip);
+
+        self.emit(Op::Load(index_slot), span);
+        self.constant(Value::Number(Decimal::from_int(1)), span);
+        self.emit(Op::Add, span);
+        self.emit(Op::Store(index_slot), span);
+        let back = self.emit(Op::Jump(0), span);
+        if let Some(Op::Jump(to)) = self.code.get_mut(back) {
+            *to = loop_start;
+        }
+        self.patch(leave);
+        self.emit(Op::Load(kept_slot), span);
+        Ok(())
+    }
+
     fn get_step(&mut self, step: &crate::parser::Access) -> Result<(), Diagnostic> {
         match step {
             crate::parser::Access::Field { name, span } => {
@@ -729,7 +935,8 @@ impl Compiler {
         }
     }
 
-    /// On failure, run the matching handler and leave. On success, the value stays.
+    /// On failure, run the matching handler and leave, or push its value and carry on.
+    /// On success, the value stays.
     fn handlers(
         &mut self,
         handlers: &[crate::parser::Handler],
@@ -744,10 +951,18 @@ impl Compiler {
             self.chunk.constants.push(Value::Text(handler.name.clone()));
             jumps.push(self.emit(Op::OnFail(name, 0), handler.span));
         }
-        let success = self.emit(Op::Jump(0), span);
+        let mut carry_on = vec![self.emit(Op::Jump(0), span)];
         for (handler, jump) in handlers.iter().zip(jumps) {
             self.patch(jump);
-            self.statement(&handler.body)?;
+            let body = match &handler.body {
+                Recovery::Stop(body) => body,
+                Recovery::Value(value) => {
+                    self.expression(value)?;
+                    carry_on.push(self.emit(Op::Jump(0), handler.span));
+                    continue;
+                }
+            };
+            self.statement(body)?;
             match self.fn_returns {
                 None => {
                     let halt = self.emit(Op::Jump(0), handler.span);
@@ -759,7 +974,9 @@ impl Compiler {
                 Some(true) => {}
             }
         }
-        self.patch(success);
+        for jump in carry_on {
+            self.patch(jump);
+        }
         Ok(())
     }
 

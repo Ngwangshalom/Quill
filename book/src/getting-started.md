@@ -38,8 +38,9 @@ Quill shows every version you can install. Move with the ↑ and ↓ keys, press
 
 ```text
 Which version of Quill do you want? (↑ ↓ to move, Enter to install, Esc to cancel):
-> 0.3.1     14 Oct 2026  latest
-  0.3.0     13 Oct 2026  installed
+> 0.4.0     20 Oct 2026  latest
+  0.3.1     14 Oct 2026  installed
+  0.3.0     13 Oct 2026
   0.2.0     13 Oct 2026
   0.1.0     13 Oct 2026
 ```
@@ -58,7 +59,7 @@ Choosing an older version is how you go back if a new release causes a problem. 
 You don't have to remember to check. At most once a day, Quill quietly asks whether a new version is out, and if one is, it tells you after your command finishes:
 
 ```text
-Quill 0.3.1 is available (you have 0.3.0). Run quill update to get it.
+Quill 0.4.0 is available (you have 0.3.1). Run quill update to get it.
 ```
 
 Quill never updates itself without asking, so a program that works today won't change behaviour tomorrow unless you choose to update. The check runs in the background and never slows Quill down. If you'd rather Quill didn't check at all, set `QUILL_NO_UPDATE_CHECK=1` in your environment.
@@ -166,18 +167,19 @@ On a dark editor:
 | `fn` and `return` | `#E8A0D4` pink | a function |
 | `maybe`, `found`, `missing` | `#F0B090` peach | a value that might be missing |
 | `fails`, `fail`, `on`, `try` | `#E08A8A` red | a failure the caller must handle |
+| `require`, `ensure`, and `result` in an `ensure` | `#C8A06A` brass | a function's rules |
+| `where` | `#6AA8C8` steel | which values fit: a range, or the records to keep |
 | Numbers | `#E7C98A` sand | counted things |
 | Text in quotes | `#F3E6D0` warm paper | the page |
 | Comments | `#9A9186` faded ink | ink, faded |
 
-On a light editor the same ideas use deeper shades, so they stay readable on paper: `say` `#C45C12`, `when` `#1D408A`, `true` `#157A42`, `list` `#8C4E32`, `record` `#3E5C32`, `of` `#8A5A00`, `at` `#5C2E9A`, `get` `#15556A`, `fn` `#8A3D78`, `maybe` `#A85A38`, `fails` `#A33B3B`, numbers `#9A4A12`, text `#6B3A22`. Where to write `of` and `at` is in [Lists and records](groups.md#where-of-and-at-are-used). Asking for a field is in [Asking for data](asking.md).
+On a light editor the same ideas use deeper shades, so they stay readable on paper: `say` `#C45C12`, `when` `#1D408A`, `true` `#157A42`, `list` `#8C4E32`, `record` `#3E5C32`, `of` `#8A5A00`, `at` `#5C2E9A`, `get` `#15556A`, `fn` `#8A3D78`, `maybe` `#A85A38`, `fails` `#A33B3B`, `require` `#7A5A20`, `where` `#1A5270`, numbers `#9A4A12`, text `#6B3A22`. Where to write `of` and `at` is in [Lists and records](groups.md#where-of-and-at-are-used). Asking for a field is in [Asking for data](asking.md).
 
 Some colors are waiting. Nothing uses them until that part of Quill exists, so a name you invent is never painted early. When the word arrives, it takes the color that was saved for it:
 
 | When Quill gains | Color on a dark editor |
 |---|---|
-| Types (`type`) | `#6AA8C8` |
-| Contracts (`require`, `ensure`) | `#C8A06A` |
+| Types (`type`) | `#6AA8C8`, the color `where` already uses |
 | Permissions (`permit`) | `#C47848` |
 | Modules (`use`, `route`, `respond`) | `#A8C0D8` |
 

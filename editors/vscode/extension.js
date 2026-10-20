@@ -6,8 +6,7 @@ const { spawn } = require("child_process");
 // or an editor that already saved the old set will keep it.
 //
 // Reserved until the language has the word. Do not paint these yet:
-//   type      type, where    #6AA8C8  /  #1A5270
-//   contract  require, ensure #C8A06A /  #7A5A20
+//   type      type           #6AA8C8  /  #1A5270  (shared with rule: where)
 //   permit    permit         #C47848  /  #8C4E20
 //   module    use, route, respond #A8C0D8 / #3D5270
 const DARK = {
@@ -26,6 +25,8 @@ const DARK = {
   fn: "#E8A0D4",
   maybe: "#F0B090",
   failure: "#E08A8A",
+  contract: "#C8A06A",
+  rule: "#6AA8C8",
   number: "#E7C98A",
   string: "#F3E6D0",
   name: "#F7F1E8",
@@ -50,6 +51,8 @@ const LIGHT = {
   fn: "#8A3D78",
   maybe: "#A85A38",
   failure: "#A33B3B",
+  contract: "#7A5A20",
+  rule: "#1A5270",
   number: "#9A4A12",
   string: "#6B3A22",
   name: "#1C1916",
@@ -58,7 +61,7 @@ const LIGHT = {
   escape: "#C45C12",
 };
 
-const PALETTE_MARK = { dark: "#6EC1D6", light: "#15556A" };
+const PALETTE_MARK = { dark: "#6AA8C8", light: "#1A5270" };
 
 const SCOPE = {
   say: "keyword.other.say.quill",
@@ -76,6 +79,8 @@ const SCOPE = {
   fn: "keyword.other.function.quill",
   maybe: "keyword.other.maybe.quill",
   failure: "keyword.other.failure.quill",
+  contract: "keyword.other.contract.quill, variable.language.result.quill",
+  rule: "keyword.other.rule.quill",
   number: "constant.numeric.quill",
   string:
     "string.quoted.double.quill, string.quoted.triple.quill, punctuation.definition.string.begin.quill, punctuation.definition.string.end.quill",

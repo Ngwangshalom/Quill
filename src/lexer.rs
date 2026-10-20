@@ -53,6 +53,12 @@ pub enum TokenKind {
     On,
     /// `try`, passing a call's failures up to the function that declared them.
     Try,
+    /// `require`, what has to be true when a function is called.
+    Require,
+    /// `ensure`, what a function promises is true when it gives back.
+    Ensure,
+    /// `where`, the smallest and largest a parameter can be: `guests: number where 1..500`.
+    Where,
     True,
     False,
     And,
@@ -174,6 +180,9 @@ impl fmt::Display for TokenKind {
             TokenKind::Fail => "fail",
             TokenKind::On => "on",
             TokenKind::Try => "try",
+            TokenKind::Require => "require",
+            TokenKind::Ensure => "ensure",
+            TokenKind::Where => "where",
             TokenKind::True => "true",
             TokenKind::False => "false",
             TokenKind::And => "and",
@@ -738,6 +747,9 @@ impl Lexer {
             "fail" => TokenKind::Fail,
             "on" => TokenKind::On,
             "try" => TokenKind::Try,
+            "require" => TokenKind::Require,
+            "ensure" => TokenKind::Ensure,
+            "where" => TokenKind::Where,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "and" => TokenKind::And,

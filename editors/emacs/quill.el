@@ -65,6 +65,14 @@
   '((((background light)) :foreground "#A33B3B")
     (t :foreground "#E08A8A"))
   "fails, fail, on, and try." :group 'quill)
+(defface quill-contract
+  '((((background light)) :foreground "#7A5A20")
+    (t :foreground "#C8A06A"))
+  "require, ensure, and result inside ensure." :group 'quill)
+(defface quill-rule
+  '((((background light)) :foreground "#1A5270")
+    (t :foreground "#6AA8C8"))
+  "where: a range, or the records to keep." :group 'quill)
 (defface quill-string
   '((((background light)) :foreground "#6B3A22")
     (t :foreground "#F3E6D0"))
@@ -95,6 +103,9 @@
     ("\\b\\(fn\\|return\\)\\b" . 'quill-fn)
     ("\\b\\(maybe\\|found\\|missing\\)\\b" . 'quill-maybe)
     ("\\b\\(fails\\|fail\\|on\\|try\\)\\b" . 'quill-fail)
+    ("\\b\\(require\\|ensure\\)\\b" . 'quill-contract)
+    ("\\b\\(where\\)\\b" . 'quill-rule)
+    ("\\bensure\\b" ("\\bresult\\b" nil nil (0 'quill-contract)))
     ("\\b\\(true\\|false\\)\\b" . 'quill-truth)
     ("\\b[0-9]+\\(\\.[0-9]+\\)?\\b" . 'quill-number)
     ("\"\\(\\\\.\\|[^\"]\\)*\"" . 'quill-string)))

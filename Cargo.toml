@@ -1,6 +1,6 @@
 [package]
 name = "quill"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2021"
 description = "A programming language where intent is clear, failures are explicit, and correctness is part of the code."
 license = "Apache-2.0"

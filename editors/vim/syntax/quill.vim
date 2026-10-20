@@ -17,13 +17,16 @@ syn keyword quillAsk get sum with
 syn keyword quillFn fn return
 syn keyword quillMaybe maybe found missing
 syn keyword quillFail fails fail on try
+syn keyword quillContract require ensure
+syn keyword quillRule where
+syn match quillResult "\(\<ensure\>.*\)\@<=\<result\>"
 syn keyword quillTruth true false
 syn match quillComment "--.*$" contains=@NoSpell
 syn match quillExample "---\s\+example:"
 syn region quillString start='"' skip='\\.' end='"' contains=quillEscape,quillInterpolation
 syn region quillString start='"""' end='"""' contains=quillEscape,quillInterpolation
 syn match quillEscape "\\." contained
-syn region quillInterpolation start="{" end="}" contained contains=quillSay,quillWhen,quillBind,quillCheck,quillLogic,quillLoop,quillList,quillRecord,quillOf,quillAt,quillAsk,quillFn,quillMaybe,quillFail,quillTruth,quillNumber,quillOperator
+syn region quillInterpolation start="{" end="}" contained contains=quillSay,quillWhen,quillBind,quillCheck,quillLogic,quillLoop,quillList,quillRecord,quillOf,quillAt,quillAsk,quillFn,quillMaybe,quillFail,quillContract,quillRule,quillTruth,quillNumber,quillOperator
 syn match quillNumber "\<\d\+\(\.\d\+\)\?"
 syn match quillOperator "->\|==\|!=\|<=\|>=\|[=+\-*/%<>]"
 
@@ -43,6 +46,8 @@ if &background == "light"
   hi def QuillFn guifg=#8A3D78 ctermfg=90
   hi def QuillMaybe guifg=#A85A38 ctermfg=130
   hi def QuillFail guifg=#A33B3B ctermfg=131
+  hi def QuillContract guifg=#7A5A20 ctermfg=94
+  hi def QuillRule guifg=#1A5270 ctermfg=24
   hi def QuillNumber guifg=#9A4A12 ctermfg=130
   hi def QuillString guifg=#6B3A22 ctermfg=94
   hi def QuillName guifg=#1C1916 ctermfg=234
@@ -65,6 +70,8 @@ else
   hi def QuillFn guifg=#E8A0D4 ctermfg=182
   hi def QuillMaybe guifg=#F0B090 ctermfg=180
   hi def QuillFail guifg=#E08A8A ctermfg=174
+  hi def QuillContract guifg=#C8A06A ctermfg=179
+  hi def QuillRule guifg=#6AA8C8 ctermfg=74
   hi def QuillNumber guifg=#E7C98A ctermfg=222
   hi def QuillString guifg=#F3E6D0 ctermfg=224
   hi def QuillName guifg=#F7F1E8 ctermfg=230
@@ -89,6 +96,9 @@ hi def link quillAsk QuillAsk
 hi def link quillFn QuillFn
 hi def link quillMaybe QuillMaybe
 hi def link quillFail QuillFail
+hi def link quillContract QuillContract
+hi def link quillResult QuillContract
+hi def link quillRule QuillRule
 hi def link quillNumber QuillNumber
 hi def link quillString QuillString
 hi def link quillEscape QuillEscape

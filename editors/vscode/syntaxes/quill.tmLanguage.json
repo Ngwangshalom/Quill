@@ -21,6 +21,8 @@
     { "include": "#fn" },
     { "include": "#maybe" },
     { "include": "#failure" },
+    { "include": "#contract" },
+    { "include": "#rule" },
     { "include": "#constant" },
     { "include": "#operator" },
     { "include": "#identifier" }
@@ -139,6 +141,27 @@
     "failure": {
       "match": "\\b(fails|fail|on|try)\\b",
       "name": "keyword.other.failure.quill"
+    },
+    "contract": {
+      "patterns": [
+        {
+          "begin": "\\b(ensure)\\b",
+          "beginCaptures": { "1": { "name": "keyword.other.contract.quill" } },
+          "end": "$",
+          "patterns": [
+            { "match": "\\bresult\\b", "name": "variable.language.result.quill" },
+            { "include": "$self" }
+          ]
+        },
+        {
+          "match": "\\b(require)\\b",
+          "name": "keyword.other.contract.quill"
+        }
+      ]
+    },
+    "rule": {
+      "match": "\\b(where)\\b",
+      "name": "keyword.other.rule.quill"
     },
     "constant": {
       "match": "\\b(true|false)\\b",
