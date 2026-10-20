@@ -139,6 +139,27 @@ paid
 
 Calling `charge` with no `on` and no `try` is a mistake. Quill names the failure you forgot.
 
+`try` goes where the call's answer is used: after `return`, `=` or `say`. A call that gives nothing back, like `write_file`, stands on its own line, and `try` can't stand there. Pass its failure upward with `on` instead:
+
+```quill,error
+permit write "out"
+
+fn save(note: text)
+  fails CantWrite
+  try write_file("out/note.txt", note)
+```
+
+```quill
+permit write "out"
+
+fn save(note: text)
+  fails CantWrite
+  write_file("out/note.txt", note)
+    on CantWrite -> fail CantWrite
+```
+
+`on CantWrite -> fail CantWrite` does what `try` would do: `save` leaves with the same failure, and its caller handles it.
+
 ## Try it
 
 1. Charge `0 USD` and handle `Declined`.

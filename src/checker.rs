@@ -8,9 +8,11 @@
 use crate::compiler::too_many_digits;
 use crate::decimal::Decimal;
 use crate::diagnostic::{closest_match, Diagnostic, Span};
+use crate::native;
+use crate::parser;
 use crate::parser::{
-    Access, Arithmetic, Catch, Comparison, Contract, Expr, ExprKind, Handler, Param, Part, Program,
-    Recovery, Rule, SigKind, Statement, ValueArm,
+    Access, Arithmetic, Catch, Comparison, Contract, Expr, ExprKind, Handler, Param, Part,
+    Permission, Program, Recovery, RoundTo, Rule, SigKind, Statement, ValueArm,
 };
 
 /// The kind of a value.
@@ -150,7 +152,7 @@ pub fn values_before(program: &Program, line: usize) -> Vec<KnownValue> {
     let mut checker = Checker::new(program);
     checker.stop_before = Some(line);
     for statement in &program.statements {
-        if statement.line() >= line {
+        if statement.file() == 0 && statement.line() >= line {
             break;
         }
         checker.statement(statement);
@@ -181,7 +183,7 @@ pub fn sum_currencies(program: &Program) -> Vec<(Span, String)> {
 pub fn kind_of(program: &Program, expr: &Expr, known: &[KnownValue]) -> Kind {
     let mut checker = Checker::new(program);
     checker.defined = known.to_vec();
-    checker.functions = function_signatures(program);
+    checker.functions = function_signatures(program, &checker.types);
     checker.value(expr, None, &|_| String::new())
 }
 
@@ -222,6 +224,168 @@ struct Checker<'a> {
     sum_currencies: Vec<(Span, String)>,
     /// See `where_fields`.
     where_fields: Vec<(Span, Vec<String>)>,
+    /// Every `type` in the program, so a type can be used above the line that writes it.
+    types: Vec<KnownType>,
+    /// Every `permit`, so a call that names a file or a setting can be checked before running.
+    permits: native::Permits,
+    /// The Quill modules the program brings, like `http`.
+    modules: Vec<String>,
+}
+
+/// The Quill modules a program brings: `bring http` brings `http`.
+fn program_modules(program: &Program) -> Vec<String> {
+    program
+        .statements
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::Bring {
+                target,
+                quoted: false,
+                ..
+            } if crate::bring::MODULES.contains(&target.as_str()) => Some(target.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every `permit` the program writes.
+pub fn program_permits(program: &Program) -> native::Permits {
+    native::Permits {
+        list: program
+            .statements
+            .iter()
+            .filter_map(|statement| match statement {
+                Statement::Permit { access, target, .. } => Some((*access, target.clone())),
+                _ => None,
+            })
+            .collect(),
+        folder: Default::default(),
+    }
+}
+
+/// Quill's own functions, as the checker knows them.
+fn native_signatures() -> Vec<KnownFn> {
+    native::NATIVES
+        .iter()
+        .map(|native| {
+            let kind = |kind: native::Kind| match kind {
+                native::Kind::Text => Kind::Text,
+                native::Kind::Bool => Kind::Bool,
+                native::Kind::MaybeText => Kind::Maybe(Box::new(Kind::Text)),
+                // Unknown matches every kind an argument has.
+                native::Kind::Any => Kind::Unknown,
+                native::Kind::TextList => Kind::List(Box::new(Kind::Text)),
+                native::Kind::Number => Kind::Number,
+                native::Kind::Response => Kind::Record(vec![
+                    FieldKind {
+                        name: "status".to_string(),
+                        kind: Kind::Number,
+                    },
+                    FieldKind {
+                        name: "body".to_string(),
+                        kind: Kind::Text,
+                    },
+                    FieldKind {
+                        name: "kind".to_string(),
+                        kind: Kind::Text,
+                    },
+                ]),
+                native::Kind::Answer => Kind::Record(vec![
+                    FieldKind {
+                        name: "status".to_string(),
+                        kind: Kind::Number,
+                    },
+                    FieldKind {
+                        name: "body".to_string(),
+                        kind: Kind::Text,
+                    },
+                ]),
+            };
+            let params: Vec<(String, Kind)> = native
+                .params
+                .iter()
+                .map(|(name, param)| (name.to_string(), kind(*param)))
+                .collect();
+            let written: Vec<String> = params
+                .iter()
+                .map(|(name, param)| format!("{name}: {}", param.written_item()))
+                .collect();
+            KnownFn {
+                name: native.name.to_string(),
+                span: Span::default(),
+                rules: vec![None; params.len()],
+                params,
+                result: native.result.map(kind),
+                fails: native.fails.iter().map(|fail| fail.to_string()).collect(),
+                written: format!("{}({})", native.name, written.join(", ")),
+            }
+        })
+        .collect()
+}
+
+/// A `type` and its fields.
+#[derive(Debug, Clone)]
+pub struct KnownType {
+    pub name: String,
+    pub span: Span,
+    pub fields: Vec<Param>,
+}
+
+/// Every `type` written at the top of the program, and the types a brought module gives.
+pub fn program_types(program: &Program) -> Vec<KnownType> {
+    let mut types = written_types(program);
+    if program_modules(program)
+        .iter()
+        .any(|module| module == "web")
+    {
+        let field = |name: &str, kind: SigKind| Param {
+            name: name.to_string(),
+            name_span: Span::default(),
+            kind,
+            kind_span: Span::default(),
+            rule: None,
+        };
+        types.push(KnownType {
+            name: "Request".to_string(),
+            span: Span::default(),
+            fields: vec![
+                field("method", SigKind::Text),
+                field("path", SigKind::Text),
+                field("query", SigKind::Text),
+                field("body", SigKind::Text),
+            ],
+        });
+        types.push(KnownType {
+            name: "Response".to_string(),
+            span: Span::default(),
+            fields: vec![
+                field("status", SigKind::Number),
+                field("body", SigKind::Text),
+                field("kind", SigKind::Text),
+            ],
+        });
+    }
+    types
+}
+
+fn written_types(program: &Program) -> Vec<KnownType> {
+    program
+        .statements
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::Type {
+                name,
+                name_span,
+                fields,
+                ..
+            } => Some(KnownType {
+                name: name.clone(),
+                span: *name_span,
+                fields: fields.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 impl<'a> Checker<'a> {
@@ -230,13 +394,16 @@ impl<'a> Checker<'a> {
             program,
             defined: Vec::new(),
             outer: Vec::new(),
-            functions: Vec::new(),
+            functions: native_signatures(),
             in_function: None,
             handling: false,
             problems: Vec::new(),
             stop_before: None,
             sum_currencies: Vec::new(),
             where_fields: Vec::new(),
+            types: program_types(program),
+            permits: program_permits(program),
+            modules: program_modules(program),
         }
     }
 
@@ -244,7 +411,7 @@ impl<'a> Checker<'a> {
     fn statement(&mut self, statement: &Statement) -> bool {
         if self
             .stop_before
-            .is_some_and(|stop| statement.line() >= stop)
+            .is_some_and(|stop| statement.file() == 0 && statement.line() >= stop)
         {
             return true;
         }
@@ -318,9 +485,7 @@ impl<'a> Checker<'a> {
                     )),
                     None if self.functions.iter().any(|func| &func.name == name) => {
                         let line = self
-                            .functions
-                            .iter()
-                            .find(|func| &func.name == name)
+                            .func(name)
                             .map(|func| func.span.line)
                             .unwrap_or(name_span.line);
                         self.problems.push(Diagnostic::new(
@@ -455,7 +620,7 @@ impl<'a> Checker<'a> {
                 self.handling = true;
                 self.call_statement(name, *name_span, args);
                 self.handling = false;
-                self.check_call_handlers(name, handlers);
+                self.check_call_handlers(name, *name_span, handlers);
             }
             Statement::Match {
                 subject,
@@ -465,6 +630,20 @@ impl<'a> Checker<'a> {
                 self.open_maybe(subject, arms, *span);
             }
             Statement::Fail { name, span } => self.fail_name(name, *span),
+            Statement::Type {
+                name,
+                name_span,
+                fields,
+                ..
+            } => self.type_statement(name, *name_span, fields),
+            // The loader has already brought in the file's functions and types.
+            Statement::Bring { .. } => {}
+            Statement::Permit {
+                access,
+                target,
+                target_span,
+                ..
+            } => self.permit_statement(*access, target, *target_span),
         }
         false
     }
@@ -513,6 +692,28 @@ impl<'a> Checker<'a> {
             return false;
         };
         let (name, name_span) = (name.as_str(), *name_span);
+        if name.starts_with(parser::ROUTE) && !self.modules.iter().any(|module| module == "web") {
+            self.problems.push(
+                Diagnostic::new(
+                    name_span,
+                    "route is part of Quill's web module, which this program doesn't bring.\n\
+                     Add bring web at the top, so a reader sees that the program serves requests.",
+                )
+                .suggest("bring web"),
+            );
+            return false;
+        }
+        if native::find(name).is_some() {
+            self.problems.push(Diagnostic::new(
+                name_span,
+                format!(
+                    "{name} is one of Quill's own functions, so a function you write \
+                     can't use that name.\n\
+                     Give yours a name that says what it does differently."
+                ),
+            ));
+            return false;
+        }
         if let Some(first) = self.functions.iter().find(|func| func.name == name) {
             self.problems.push(Diagnostic::new(
                 name_span,
@@ -534,7 +735,13 @@ impl<'a> Checker<'a> {
             ));
             return false;
         }
-        let known = known_function(name, name_span, params, result, fails);
+        for param in params {
+            self.known_types(&param.kind, param.kind_span);
+        }
+        if let Some(result) = result {
+            self.known_types(result, name_span);
+        }
+        let known = known_function(name, name_span, params, result, fails, &self.types);
         self.functions.push(known.clone());
         self.outer = std::mem::take(&mut self.defined);
         self.in_function = Some(name.to_string());
@@ -569,7 +776,19 @@ impl<'a> Checker<'a> {
         }
         if !stopped {
             if let Some(result_kind) = &known.result {
-                if !body_returns(body) {
+                if !body_returns(body) && name.starts_with(parser::ROUTE) {
+                    self.problems.push(
+                        Diagnostic::new(
+                            name_span,
+                            format!(
+                                "{} has to respond on every path.\n\
+                                 End each path with respond, like respond 200, \"OK\".",
+                                name.trim_start_matches(parser::ROUTE)
+                            ),
+                        )
+                        .suggest("respond 200, \"OK\""),
+                    );
+                } else if !body_returns(body) {
                     self.problems.push(
                         Diagnostic::new(
                             name_span,
@@ -590,10 +809,408 @@ impl<'a> Checker<'a> {
         stopped
     }
 
+    /// Reports a type name in `kind` that no `type` writes.
+    fn known_types(&mut self, kind: &SigKind, span: Span) {
+        let Some(name) = named_in(kind) else {
+            return;
+        };
+        if self.types.iter().any(|known| known.name == name) {
+            return;
+        }
+        let problem = Diagnostic::new(
+            span,
+            format!(
+                "There's no type called {name}.\n\
+                 Write it with type {name}, then its fields on the lines below, indented."
+            ),
+        );
+        let names = self.types.iter().map(|known| known.name.as_str());
+        self.problems.push(match closest_match(name, names) {
+            Some(fixed) => problem.suggest(fixed.to_string()),
+            None => problem.suggest(format!("type {name}\n  name: text")),
+        });
+    }
+
+    /// `type Booking` and its fields: each kind exists, each `where` fits, and the type
+    /// doesn't hold itself.
+    fn type_statement(&mut self, name: &str, name_span: Span, fields: &[Param]) {
+        if let Some(first) = self
+            .types
+            .iter()
+            .find(|known| known.name == name && known.span != name_span)
+        {
+            if first.span.line == 0 {
+                self.problems.push(Diagnostic::new(
+                    name_span,
+                    format!(
+                        "{name} is a type Quill's web module gives every route.\n\
+                         Give your type another name."
+                    ),
+                ));
+                return;
+            }
+            if first.span.line < name_span.line {
+                self.problems.push(Diagnostic::new(
+                    name_span,
+                    format!(
+                        "{name} is already a type, written on line {}.\n\
+                         Each type needs its own name.",
+                        first.span.line
+                    ),
+                ));
+                return;
+            }
+        }
+        for field in fields {
+            self.known_types(&field.kind, field.kind_span);
+            if let Some(rule) = &field.rule {
+                self.rule(field, rule);
+            }
+            if holds(&field.kind, name, &self.types, &mut Vec::new()) {
+                self.problems.push(Diagnostic::new(
+                    field.kind_span,
+                    format!(
+                        "A {name} can't hold a {name} inside it, \
+                         because that one would hold another, forever.\n\
+                         Hold something that names the other {name} instead, like its id."
+                    ),
+                ));
+            }
+        }
+    }
+
+    /// `Booking venue = "Town Hall", guests = 120`: every field of the type, each of its kind.
+    fn typed_kind(
+        &mut self,
+        name: &str,
+        name_span: Span,
+        record: &Expr,
+        context: &Context,
+    ) -> Kind {
+        let ExprKind::Record { fields } = &record.kind else {
+            return Kind::Unknown;
+        };
+        let Some(known) = self.types.iter().find(|known| known.name == name).cloned() else {
+            for field in fields {
+                self.infer(&field.value, context);
+            }
+            self.known_types(&SigKind::Named(name.to_string()), name_span);
+            return Kind::Unknown;
+        };
+        let wanted: Vec<&str> = known
+            .fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect();
+        let mut ok = true;
+        // A misspelled field is reported once, not again as a missing one.
+        let mut meant = Vec::new();
+        for field in fields {
+            let Some(expected) = known.fields.iter().find(|wanted| wanted.name == field.name)
+            else {
+                ok = false;
+                let problem = Diagnostic::new(
+                    field.name_span,
+                    format!(
+                        "A {name} has no field called {}.\nIts fields are {}.",
+                        field.name,
+                        wanted.join(", ")
+                    ),
+                );
+                self.problems
+                    .push(match closest_match(&field.name, wanted.iter().copied()) {
+                        Some(fixed) => {
+                            meant.push(fixed.to_string());
+                            problem.suggest(fixed.to_string())
+                        }
+                        None => problem,
+                    });
+                continue;
+            };
+            let expected_kind = sig_kind(&expected.kind, &self.types);
+            let kind = self.infer(&field.value, context);
+            let fits = matches!(field.value.kind, ExprKind::Missing)
+                && matches!(expected_kind, Kind::Maybe(_));
+            if !fits && kind.known() && expected_kind.known() && kind != expected_kind {
+                ok = false;
+                self.problems.push(Diagnostic::new(
+                    field.value.span,
+                    format!(
+                        "A {name}'s {} is {}, but {} is {}.\n\
+                         Line {} says {}: {}.",
+                        field.name,
+                        expected_kind.written_kind(),
+                        field.value,
+                        kind.with_article(),
+                        expected.name_span.line,
+                        expected.name,
+                        expected.kind.written()
+                    ),
+                ));
+                continue;
+            }
+            if let (Some(rule), Some(given)) = (&expected.rule, field.value.written_amount()) {
+                let below = rule.low.written_amount().is_some_and(|low| given < low);
+                let above = rule.high.written_amount().is_some_and(|high| given > high);
+                if below || above {
+                    ok = false;
+                    self.problems.push(Diagnostic::new(
+                        field.value.span,
+                        format!(
+                            "A {name} takes {} {}, but this one gives {}.\n\
+                             Line {} says {} {rule}.",
+                            field.name,
+                            rule.range(),
+                            field.value,
+                            expected.name_span.line,
+                            field.name
+                        ),
+                    ));
+                }
+            }
+        }
+        let missing: Vec<&str> = wanted
+            .iter()
+            .copied()
+            .filter(|wanted| !fields.iter().any(|field| field.name == *wanted))
+            .filter(|wanted| !meant.iter().any(|name| name == wanted))
+            .collect();
+        if !missing.is_empty() {
+            ok = false;
+            let (word, them) = if missing.len() == 1 {
+                ("field", "it")
+            } else {
+                ("fields", "them")
+            };
+            self.problems.push(Diagnostic::new(
+                name_span,
+                format!(
+                    "This {name} is missing the {word} {}.\n\
+                     Every {name} has all of its fields. Add {them}, or use missing for a maybe field.",
+                    missing.join(", ")
+                ),
+            ));
+        }
+        if !ok {
+            return Kind::Unknown;
+        }
+        sig_kind(&SigKind::Named(name.to_string()), &self.types)
+    }
+
+    /// `round x`, `round x to cents`, `round x to 2 places`: the same kind as `x`.
+    fn round_kind(&mut self, value: &Expr, to: &RoundTo, context: &Context) -> Kind {
+        let kind = self.infer(value, context);
+        let money = matches!(kind, Kind::Money(_));
+        if kind.known() && kind != Kind::Number && !money {
+            self.problems.push(Diagnostic::new(
+                value.span,
+                format!(
+                    "round works on a number or an amount of money, but {value} is {}.",
+                    kind.with_article()
+                ),
+            ));
+            return Kind::Unknown;
+        }
+        match to {
+            RoundTo::Cents if kind == Kind::Number => {
+                self.problems.push(
+                    Diagnostic::new(
+                        value.span,
+                        format!(
+                            "{value} is a number, and cents belong to money.\n\
+                             Round a number to a count of places instead."
+                        ),
+                    )
+                    .suggest(format!("round {value} to 2 places")),
+                );
+                return Kind::Unknown;
+            }
+            RoundTo::Places(places) => {
+                let places_kind = self.infer(places, context);
+                if places_kind.known() && places_kind != Kind::Number {
+                    self.problems.push(Diagnostic::new(
+                        places.span,
+                        format!(
+                            "The places to round to are a number, but {places} is {}.",
+                            places_kind.with_article()
+                        ),
+                    ));
+                    return Kind::Unknown;
+                }
+                if let Some(count) = places.written_amount() {
+                    if count.whole().is_none_or(|count| !(0..=20).contains(&count)) {
+                        self.problems.push(Diagnostic::new(
+                            places.span,
+                            format!(
+                                "round keeps a whole number of places, from 0 to 20, \
+                                 but this asks for {places}.\n\
+                                 round x to 2 places keeps 2 digits after the point."
+                            ),
+                        ));
+                        return Kind::Unknown;
+                    }
+                }
+            }
+            _ => {}
+        }
+        kind
+    }
+
+    /// `split 100 USD into 3` or `split fee by list 70, 30`: a list of money.
+    fn split_kind(
+        &mut self,
+        amount: &Expr,
+        parts: &Expr,
+        by_shares: bool,
+        context: &Context,
+    ) -> Kind {
+        let kind = self.infer(amount, context);
+        let parts_kind = self.infer(parts, context);
+        let Kind::Money(code) = &kind else {
+            if kind.known() {
+                self.problems.push(Diagnostic::new(
+                    amount.span,
+                    format!(
+                        "split shares out money in whole cents, but {amount} is {}.\n\
+                         To divide a number, use /.",
+                        kind.with_article()
+                    ),
+                ));
+            }
+            return Kind::Unknown;
+        };
+        let wanted = if by_shares {
+            Kind::List(Box::new(Kind::Number))
+        } else {
+            Kind::Number
+        };
+        if parts_kind.known() && parts_kind != wanted {
+            let message = if by_shares {
+                format!(
+                    "split by needs a list of numbers, the shares, but {parts} is {}.\n\
+                     split {amount} by list 70, 30 gives 70 parts to the first and 30 to the second.",
+                    parts_kind.with_article()
+                )
+            } else {
+                format!(
+                    "split into needs how many parts, but {parts} is {}.\n\
+                     split {amount} into 3 gives three parts.",
+                    parts_kind.with_article()
+                )
+            };
+            self.problems.push(Diagnostic::new(parts.span, message));
+            return Kind::Unknown;
+        }
+        if !by_shares {
+            if let Some(count) = parts.written_amount() {
+                if count.whole().is_none_or(|count| count < 1) {
+                    self.problems.push(Diagnostic::new(
+                        parts.span,
+                        format!(
+                            "split makes a whole number of parts, at least 1, \
+                             but this asks for {parts}."
+                        ),
+                    ));
+                    return Kind::Unknown;
+                }
+            }
+        }
+        Kind::List(Box::new(Kind::Money(code.clone())))
+    }
+
+    /// `20% of fee`: the kind of `fee`.
+    fn percent_kind(&mut self, percent: &Expr, of: &Expr, span: Span, context: &Context) -> Kind {
+        let percent_kind = self.infer(percent, context);
+        let kind = self.infer(of, context);
+        if percent_kind.known() && percent_kind != Kind::Number {
+            self.problems.push(Diagnostic::new(
+                percent.span,
+                format!(
+                    "A percent is a number, but {percent} is {}.\n\
+                     20% of fee is a fifth of the fee.",
+                    percent_kind.with_article()
+                ),
+            ));
+            return Kind::Unknown;
+        }
+        if kind.known() && kind != Kind::Number && !matches!(kind, Kind::Money(_)) {
+            self.problems.push(Diagnostic::new(
+                span,
+                format!(
+                    "% of takes part of a number or an amount of money, but {of} is {}.",
+                    kind.with_article()
+                ),
+            ));
+            return Kind::Unknown;
+        }
+        kind
+    }
+
+    /// `convert 100 USD to EUR at 0.92`: money in the new currency.
+    fn convert_kind(
+        &mut self,
+        amount: &Expr,
+        currency: &str,
+        currency_span: Span,
+        rate: &Expr,
+        context: &Context,
+    ) -> Kind {
+        let kind = self.infer(amount, context);
+        let rate_kind = self.infer(rate, context);
+        let Kind::Money(from) = &kind else {
+            if kind.known() {
+                self.problems.push(Diagnostic::new(
+                    amount.span,
+                    format!(
+                        "convert changes money from one currency to another, \
+                         but {amount} is {}.",
+                        kind.with_article()
+                    ),
+                ));
+            }
+            return Kind::Unknown;
+        };
+        if from == currency {
+            self.problems.push(Diagnostic::new(
+                currency_span,
+                format!(
+                    "{amount} is already in {currency}, so there's nothing to convert.\n\
+                     Use the amount as it is."
+                ),
+            ));
+            return Kind::Unknown;
+        }
+        if rate_kind.known() && rate_kind != Kind::Number {
+            self.problems.push(Diagnostic::new(
+                rate.span,
+                format!(
+                    "A rate is a plain number, how many {currency} one {from} is worth, \
+                     but {rate} is {}.",
+                    rate_kind.with_article()
+                ),
+            ));
+            return Kind::Unknown;
+        }
+        if rate
+            .written_amount()
+            .is_some_and(|rate| rate <= Decimal::ZERO)
+        {
+            self.problems.push(Diagnostic::new(
+                rate.span,
+                format!(
+                    "A rate is more than zero, but this one is {rate}.\n\
+                     at 0.92 means one {from} is worth 0.92 {currency}."
+                ),
+            ));
+            return Kind::Unknown;
+        }
+        Kind::Money(currency.to_string())
+    }
+
     /// `where 1..500` on a parameter: both ends match its kind, and the smaller comes first.
     fn rule(&mut self, param: &Param, rule: &Rule) {
         let name = &param.name;
-        let kind = sig_kind(&param.kind);
+        let kind = sig_kind(&param.kind, &self.types);
         if !matches!(kind, Kind::Number | Kind::Money(_)) {
             self.problems.push(Diagnostic::new(
                 rule.span,
@@ -731,11 +1348,7 @@ impl<'a> Checker<'a> {
             ));
             return;
         };
-        let result = self
-            .functions
-            .iter()
-            .find(|func| func.name == name)
-            .and_then(|func| func.result.clone());
+        let result = self.func(&name).and_then(|func| func.result.clone());
         match (result, value) {
             (Some(expected), Some(value)) => {
                 let kind = self.value(value, None, &|fixed| format!("return {fixed}"));
@@ -782,12 +1395,7 @@ impl<'a> Checker<'a> {
     }
 
     fn call_statement(&mut self, name: &str, name_span: Span, args: &[Expr]) {
-        let Some(func) = self
-            .functions
-            .iter()
-            .find(|func| func.name == name)
-            .cloned()
-        else {
+        let Some(func) = self.func(name) else {
             self.missing_function(name, name_span);
             return;
         };
@@ -864,9 +1472,9 @@ impl<'a> Checker<'a> {
         }
         let why = if left_code.is_some() && right_code.is_some() && left_code != right_code {
             format!(
-                "Quill won't mix currencies. {} and {} stay apart until one of them is converted.",
-                left_code.unwrap_or_default(),
-                right_code.unwrap_or_default()
+                "Quill won't mix currencies. Change one with convert, at the rate you were given: \
+                 convert {right} to {} at 0.92.",
+                left_code.unwrap_or_default()
             )
         } else if matches!(op, Arithmetic::Add | Arithmetic::Subtract) {
             "Add or subtract two amounts in the same currency, like 100 USD + 50 USD.".to_string()
@@ -889,8 +1497,66 @@ impl<'a> Checker<'a> {
         Some(Kind::Unknown)
     }
 
+    /// The function called `name`: one the program writes, one of Quill's own, or the
+    /// reading that `as KIND` makes.
+    fn func(&self, name: &str) -> Option<KnownFn> {
+        if let Some(found) = self.functions.iter().find(|func| func.name == name) {
+            return Some(found.clone());
+        }
+        if name == parser::ASK || parser::kind_asked(name).is_some() {
+            let (result, fails) = match parser::kind_asked(name) {
+                Some(kind) => (sig_kind(&kind, &self.types), vec!["ModelFailed", "Invalid"]),
+                None => (Kind::Text, vec!["ModelFailed"]),
+            };
+            return Some(KnownFn {
+                name: name.to_string(),
+                span: Span::default(),
+                params: vec![("the question".to_string(), Kind::Text)],
+                rules: vec![None],
+                result: Some(result),
+                fails: fails.into_iter().map(str::to_string).collect(),
+                written: "ask \"a question\", or ask \"a question\" as Review".to_string(),
+            });
+        }
+        let kind = parser::kind_read_as(name)?;
+        Some(KnownFn {
+            name: name.to_string(),
+            span: Span::default(),
+            params: vec![("the JSON".to_string(), Kind::Text)],
+            rules: vec![None],
+            result: Some(sig_kind(&kind, &self.types)),
+            fails: vec!["Invalid".to_string()],
+            written: format!("as reads JSON text, like body {name}"),
+        })
+    }
+
     fn require_handled(&mut self, func: &KnownFn, span: Span) {
         if func.fails.is_empty() || self.handling {
+            return;
+        }
+        if func.name.starts_with(parser::ASK) {
+            self.problems.push(Diagnostic::new(
+                span,
+                format!(
+                    "Asking a model can fail with {}: the model may be out of reach, \
+                     or say no.\n\
+                     Handle each with on under this line, or write try in front, \
+                     inside a function that fails the same way.",
+                    func.fails.join(" or ")
+                ),
+            ));
+            return;
+        }
+        if let Some(kind) = func.name.strip_prefix(parser::AS) {
+            self.problems.push(Diagnostic::new(
+                span,
+                format!(
+                    "Reading text as {kind} fails with Invalid when the text isn't JSON \
+                     of that shape.\n\
+                     Handle it with on Invalid under this line, or write try in front, \
+                     inside a function that fails with Invalid."
+                ),
+            ));
             return;
         }
         self.problems.push(Diagnostic::new(
@@ -913,12 +1579,7 @@ impl<'a> Checker<'a> {
         else {
             return;
         };
-        let Some(func) = self
-            .functions
-            .iter()
-            .find(|func| &func.name == name)
-            .cloned()
-        else {
+        let Some(func) = self.func(name) else {
             return;
         };
         let gives = func.result.clone();
@@ -1036,19 +1697,14 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn check_call_handlers(&mut self, name: &str, handlers: &[Handler]) {
-        let Some(func) = self
-            .functions
-            .iter()
-            .find(|func| func.name == name)
-            .cloned()
-        else {
+    fn check_call_handlers(&mut self, name: &str, call_span: Span, handlers: &[Handler]) {
+        let Some(func) = self.func(name) else {
             return;
         };
         let span = handlers
             .first()
             .map(|handler| handler.span)
-            .unwrap_or(func.span);
+            .unwrap_or(call_span);
         self.cover_failures(&func, span, handlers, None);
     }
 
@@ -1134,7 +1790,10 @@ impl<'a> Checker<'a> {
                         format!(
                             "{name} isn't handled.\n\
                              {} can fail with {name}, so the call needs on {name}.",
-                            func.name
+                            match func.name.strip_prefix(parser::AS) {
+                                Some(kind) => format!("Reading text as {kind}"),
+                                None => func.name.clone(),
+                            }
                         ),
                     )
                     .suggest(format!("on {name} -> say \"{name}\"")),
@@ -1231,9 +1890,7 @@ impl<'a> Checker<'a> {
             return;
         };
         let declared = self
-            .functions
-            .iter()
-            .find(|func| func.name == function)
+            .func(&function)
             .map(|func| func.fails.clone())
             .unwrap_or_default();
         if !declared.iter().any(|failure| failure == name) {
@@ -1270,16 +1927,8 @@ impl<'a> Checker<'a> {
         self.handling = true;
         let kind = self.value(inner, None, &|fixed| format!("try {fixed}"));
         self.handling = saved;
-        let callee = self
-            .functions
-            .iter()
-            .find(|func| &func.name == name)
-            .cloned();
-        let caller = self
-            .functions
-            .iter()
-            .find(|func| func.name == function)
-            .cloned();
+        let callee = self.func(name);
+        let caller = self.func(&function);
         if let (Some(callee), Some(caller)) = (callee, caller) {
             if callee.fails.is_empty() {
                 self.problems.push(Diagnostic::new(
@@ -1367,7 +2016,7 @@ impl<'a> Checker<'a> {
                 if matches!(arg.kind, ExprKind::Missing) && matches!(expected, Kind::Maybe(_)) {
                     continue;
                 }
-                if kind.known() && kind != *expected {
+                if kind.known() && expected.known() && kind != *expected {
                     self.problems.push(Diagnostic::new(
                         arg.span,
                         format!(
@@ -1400,6 +2049,167 @@ impl<'a> Checker<'a> {
                     }
                 }
             }
+        }
+        self.permitted(name, span, args);
+    }
+
+    /// `ask` needs `bring ai`, and a permit for a model's key (and, for Claude, its host).
+    fn can_ask(&mut self, span: Span) {
+        if !self.modules.iter().any(|module| module == "ai") {
+            self.problems.push(
+                Diagnostic::new(
+                    span,
+                    "ask is part of Quill's ai module, which this program doesn't bring.\n\
+                     Add bring ai at the top, so a reader sees that the program asks a model.",
+                )
+                .suggest("bring ai"),
+            );
+            return;
+        }
+        let claude = self.permits.allows(Permission::Env, crate::ai::CLAUDE_KEY);
+        let openai = self.permits.allows(Permission::Env, crate::ai::OPENAI_KEY);
+        if !claude && !openai {
+            self.problems.push(
+                Diagnostic::new(
+                    span,
+                    format!(
+                        "ask needs a key for a model, and the program permits none.\n\
+                         Add permit env \"{}\" to ask Claude, or permit env \"{}\" for an \
+                         OpenAI-compatible service. The key itself stays in the setting, out of the code.",
+                        crate::ai::CLAUDE_KEY,
+                        crate::ai::OPENAI_KEY
+                    ),
+                )
+                .suggest(format!("permit env \"{}\"", crate::ai::CLAUDE_KEY)),
+            );
+            return;
+        }
+        let any_host = self
+            .permits
+            .list
+            .iter()
+            .any(|(access, _)| *access == Permission::Net);
+        if claude && !any_host {
+            self.problems.push(
+                Diagnostic::new(
+                    span,
+                    "ask sends the question to Claude at api.anthropic.com, \
+                     and the program has no permit to reach it.\n\
+                     Add a permit for the host at the top of the program.",
+                )
+                .suggest("permit net \"api.anthropic.com\""),
+            );
+        }
+    }
+
+    /// A native call that names a file, a host or a setting in the call itself needs
+    /// a permit for it, found before the program runs.
+    fn permitted(&mut self, name: &str, span: Span, args: &[Expr]) {
+        let Some((_, native)) = native::find(name) else {
+            return;
+        };
+        if let Some(module) = native.module {
+            if !self.modules.iter().any(|brought| brought == module) {
+                self.problems.push(
+                    Diagnostic::new(
+                        span,
+                        format!(
+                            "{name} is part of Quill's {module} module, \
+                             which this program doesn't bring.\n\
+                             Add bring {module} at the top, so a reader sees what the program uses."
+                        ),
+                    )
+                    .suggest(format!("bring {module}")),
+                );
+                return;
+            }
+        }
+        if name == "respond" {
+            if let Some(status) = args.first() {
+                let fits = status
+                    .written_amount()
+                    .map(|code| code.whole().is_some_and(|code| (100..=599).contains(&code)));
+                if fits == Some(false) {
+                    self.problems.push(Diagnostic::new(
+                        status.span,
+                        format!(
+                            "respond needs a status from 100 through 599, but this one is {status}.\n\
+                             200 means it worked, 201 that something was made, 400 that the \
+                             request was wrong, 404 that it wasn't found."
+                        ),
+                    ));
+                }
+            }
+            return;
+        }
+        let Some((access, at)) = native.guard else {
+            return;
+        };
+        let Some(arg) = args.get(at) else {
+            return;
+        };
+        let ExprKind::Text(target) = &arg.kind else {
+            return;
+        };
+        if access == Permission::Net
+            && !(target.starts_with("https://") || target.starts_with("http://"))
+        {
+            self.problems.push(Diagnostic::new(
+                arg.span,
+                format!(
+                    "{target} isn't a web address.\n\
+                     A web address starts with https:// or http://, like https://api.example.com/rates."
+                ),
+            ));
+            return;
+        }
+        if self.permits.allows(access, target) {
+            return;
+        }
+        self.problems.push(
+            Diagnostic::new(
+                arg.span,
+                format!(
+                    "{name} can't {} {target}, because the program has no permit for it.\n\
+                     A program touches only what its permits allow. If it should, add this \
+                     at the top of the program.",
+                    native::verb(access)
+                ),
+            )
+            .suggest(native::permit_for(access, target)),
+        );
+    }
+
+    /// `permit net "api.stripe.com"` names a host; `permit env "STRIPE_KEY"` names a setting.
+    fn permit_statement(&mut self, access: Permission, target: &str, span: Span) {
+        match access {
+            Permission::Net if target.contains("://") || target.contains('/') => {
+                let host = native::host_of(target);
+                self.problems.push(
+                    Diagnostic::new(
+                        span,
+                        "permit net names a host, like api.stripe.com, \
+                         without https:// or a path.\n\
+                         Every path on that host is allowed.",
+                    )
+                    .suggest(format!("permit net \"{host}\"")),
+                );
+            }
+            Permission::Env
+                if !target
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_') =>
+            {
+                self.problems.push(Diagnostic::new(
+                    span,
+                    format!(
+                        "permit env names one setting, like STRIPE_KEY, \
+                         but {target:?} has other characters.\n\
+                         A setting's name has letters, digits and _."
+                    ),
+                ));
+            }
+            _ => {}
         }
     }
 
@@ -1639,7 +2449,29 @@ impl<'a> Checker<'a> {
                 }
                 Kind::Bool
             }
-            ExprKind::List { items, empty } => self.list_kind(items, empty.as_ref()),
+            ExprKind::List { items, empty } => self.list_kind(items, empty.as_ref(), expr.span),
+            ExprKind::Typed {
+                name,
+                name_span,
+                record,
+            } => self.typed_kind(name, *name_span, record, context),
+            ExprKind::Round { value, to, .. } => self.round_kind(value, to, context),
+            ExprKind::Split {
+                amount,
+                parts,
+                by_shares,
+            } => self.split_kind(amount, parts, *by_shares, context),
+            ExprKind::Percent {
+                percent,
+                of,
+                percent_span,
+            } => self.percent_kind(percent, of, *percent_span, context),
+            ExprKind::Convert {
+                amount,
+                currency,
+                currency_span,
+                rate,
+            } => self.convert_kind(amount, currency, *currency_span, rate, context),
             ExprKind::Record { fields } => {
                 let mut kinds = Vec::new();
                 for field in fields {
@@ -1690,12 +2522,16 @@ impl<'a> Checker<'a> {
                 name_span,
                 args,
             } => {
-                let Some(func) = self
-                    .functions
-                    .iter()
-                    .find(|func| &func.name == name)
-                    .cloned()
-                else {
+                if let Some(kind) = parser::kind_read_as(name) {
+                    self.known_types(&kind, *name_span);
+                }
+                if name == parser::ASK || parser::kind_asked(name).is_some() {
+                    if let Some(kind) = parser::kind_asked(name) {
+                        self.known_types(&kind, *name_span);
+                    }
+                    self.can_ask(*name_span);
+                }
+                let Some(func) = self.func(name) else {
                     self.missing_function(name, *name_span);
                     return Kind::Unknown;
                 };
@@ -1790,10 +2626,13 @@ impl<'a> Checker<'a> {
         }
     }
 
-    fn list_kind(&mut self, items: &[Expr], empty: Option<&SigKind>) -> Kind {
+    fn list_kind(&mut self, items: &[Expr], empty: Option<&SigKind>, span: Span) -> Kind {
         let Some(first) = items.first() else {
             return match empty {
-                Some(kind) => Kind::List(Box::new(sig_kind(kind))),
+                Some(kind) => {
+                    self.known_types(kind, span);
+                    Kind::List(Box::new(sig_kind(kind, &self.types)))
+                }
                 None => Kind::Unknown,
             };
         };
@@ -2463,6 +3302,7 @@ fn known_function(
     params: &[Param],
     result: &Option<SigKind>,
     fails: &[(String, Span)],
+    types: &[KnownType],
 ) -> KnownFn {
     let written_params: Vec<String> = params
         .iter()
@@ -2473,34 +3313,35 @@ fn known_function(
         span,
         params: params
             .iter()
-            .map(|param| (param.name.clone(), sig_kind(&param.kind)))
+            .map(|param| (param.name.clone(), sig_kind(&param.kind, types)))
             .collect(),
         rules: params.iter().map(|param| param.rule.clone()).collect(),
-        result: result.as_ref().map(sig_kind),
+        result: result.as_ref().map(|kind| sig_kind(kind, types)),
         fails: fails.iter().map(|(name, _)| name.clone()).collect(),
         written: format!("{name}({})", written_params.join(", ")),
     }
 }
 
-fn function_signatures(program: &Program) -> Vec<KnownFn> {
-    program
-        .statements
-        .iter()
-        .filter_map(|statement| {
-            let Statement::Function {
-                name,
-                name_span,
-                params,
-                result,
-                fails,
-                ..
-            } = statement
-            else {
-                return None;
-            };
-            Some(known_function(name, *name_span, params, result, fails))
-        })
-        .collect()
+fn function_signatures(program: &Program, types: &[KnownType]) -> Vec<KnownFn> {
+    let mut natives = native_signatures();
+    let written = program.statements.iter().filter_map(|statement| {
+        let Statement::Function {
+            name,
+            name_span,
+            params,
+            result,
+            fails,
+            ..
+        } = statement
+        else {
+            return None;
+        };
+        Some(known_function(
+            name, *name_span, params, result, fails, types,
+        ))
+    });
+    natives.extend(written);
+    natives
 }
 
 /// The kind of a written number or amount of money, like `500` or `0 USD`.
@@ -2513,14 +3354,71 @@ fn amount_kind(expr: &Expr) -> Kind {
     }
 }
 
-fn sig_kind(kind: &SigKind) -> Kind {
+/// The kind a function or type writes. A type's name becomes a record with its fields.
+pub fn sig_kind(kind: &SigKind, types: &[KnownType]) -> Kind {
+    sig_kind_inside(kind, types, &mut Vec::new())
+}
+
+/// `inside` holds the types being opened, so a type that holds itself stops.
+fn sig_kind_inside(kind: &SigKind, types: &[KnownType], inside: &mut Vec<String>) -> Kind {
     match kind {
         SigKind::Text => Kind::Text,
         SigKind::Number => Kind::Number,
         SigKind::Bool => Kind::Bool,
-        SigKind::List(item) => Kind::List(Box::new(sig_kind(item))),
+        SigKind::List(item) => Kind::List(Box::new(sig_kind_inside(item, types, inside))),
         SigKind::Money(code) => Kind::Money(code.clone()),
-        SigKind::Maybe(inner) => Kind::Maybe(Box::new(sig_kind(inner))),
+        SigKind::Maybe(inner) => Kind::Maybe(Box::new(sig_kind_inside(inner, types, inside))),
+        SigKind::Named(name) => {
+            let Some(known) = types.iter().find(|known| &known.name == name) else {
+                return Kind::Unknown;
+            };
+            if inside.contains(name) {
+                return Kind::Unknown;
+            }
+            inside.push(name.clone());
+            let fields = known
+                .fields
+                .iter()
+                .map(|field| FieldKind {
+                    name: field.name.clone(),
+                    kind: sig_kind_inside(&field.kind, types, inside),
+                })
+                .collect();
+            inside.pop();
+            Kind::Record(fields)
+        }
+    }
+}
+
+/// Whether `kind` holds the type `name`, directly, in a list or maybe, or through other
+/// types' fields.
+fn holds(kind: &SigKind, name: &str, types: &[KnownType], seen: &mut Vec<String>) -> bool {
+    match kind {
+        SigKind::Named(inner) => {
+            if inner == name {
+                return true;
+            }
+            if seen.contains(inner) {
+                return false;
+            }
+            seen.push(inner.clone());
+            types
+                .iter()
+                .filter(|known| &known.name == inner)
+                .flat_map(|known| known.fields.iter())
+                .any(|field| holds(&field.kind, name, types, seen))
+        }
+        SigKind::Maybe(inner) | SigKind::List(inner) => holds(inner, name, types, seen),
+        _ => false,
+    }
+}
+
+/// The type names a kind refers to, such as `Act` in `list of Act`.
+fn named_in(kind: &SigKind) -> Option<&str> {
+    match kind {
+        SigKind::Named(name) => Some(name),
+        SigKind::List(inner) | SigKind::Maybe(inner) => named_in(inner),
+        _ => None,
     }
 }
 
@@ -2557,6 +3455,9 @@ fn span_of(statement: &Statement) -> Span {
         | Statement::Call { span, .. } => *span,
         Statement::Let { name_span, .. } => *name_span,
         Statement::Match { span, .. } | Statement::Fail { span, .. } => *span,
+        Statement::Type { span, .. }
+        | Statement::Bring { span, .. }
+        | Statement::Permit { span, .. } => *span,
     }
 }
 
@@ -3359,6 +4260,190 @@ say get bookings with guest in roster
             "{roster}mark = 60\nsay students where score >= mark\n"
         ));
         assert!(outer.is_empty());
+    }
+
+    #[test]
+    fn a_typed_record_has_every_field_of_its_kind() {
+        let types =
+            "type Booking\n  venue: text\n  guests: number where 1..500\n  note: maybe text\n";
+        assert!(problems(&format!("{types}fn f(b: Booking) -> text\n  return b.venue\nb = Booking venue = \"Hall\", guests = 9, note = missing\nsay f(b)\n")).is_empty());
+        let extra = problem(&format!(
+            "{types}b = Booking venue = \"x\", guests = 1, note = missing, vneue = 1\n"
+        ));
+        assert!(extra
+            .message
+            .starts_with("A Booking has no field called vneue."));
+        let short = problem(&format!("{types}b = Booking venue = \"x\"\n"));
+        assert!(short
+            .message
+            .starts_with("This Booking is missing the fields guests, note."));
+        let wrong = problem(&format!(
+            "{types}b = Booking venue = 5, guests = 1, note = missing\n"
+        ));
+        assert!(wrong
+            .message
+            .starts_with("A Booking's venue is text, but 5 is a Number."));
+        let range = problem(&format!(
+            "{types}b = Booking venue = \"x\", guests = 900, note = missing\n"
+        ));
+        assert!(range
+            .message
+            .starts_with("A Booking takes guests from 1 through 500, but this one gives 900."));
+    }
+
+    #[test]
+    fn type_names_are_checked() {
+        let unknown =
+            problem("type Booking\n  venue: text\nfn f(b: Bookng) -> number\n  return 1\n");
+        assert_eq!(unknown.suggestion.as_deref(), Some("Booking"));
+        let unknown_record = problem("b = Bookng venue = \"x\"\n");
+        assert!(unknown_record
+            .message
+            .starts_with("There's no type called Bookng."));
+        let itself = problem("type Node\n  next: maybe Node\n");
+        assert!(itself
+            .message
+            .starts_with("A Node can't hold a Node inside it"));
+        let later =
+            problems("fn f(b: Booking) -> text\n  return b.venue\ntype Booking\n  venue: text\n");
+        assert!(later.is_empty());
+    }
+
+    #[test]
+    fn money_words_check_their_kinds() {
+        assert!(problems("say round 1.5 USD to cents\nsay split 9 USD into 2\nsay 5% of 3\nsay convert 1 USD to EUR at 0.9\n").is_empty());
+        let cents = problem("say round 2.5 to cents\n");
+        assert_eq!(cents.suggestion.as_deref(), Some("round 2.5 to 2 places"));
+        assert!(problem("say split 50 into 2\n")
+            .message
+            .starts_with("split shares out money"));
+        assert!(problem("say split 10 USD into 0\n")
+            .message
+            .contains("at least 1"));
+        assert!(problem("say convert 1 USD to USD at 1\n")
+            .message
+            .contains("already in USD"));
+        assert!(problem("say convert 1 USD to EUR at -1\n")
+            .message
+            .starts_with("A rate is more than zero"));
+        assert!(problem("say 20% of \"x\"\n")
+            .message
+            .starts_with("% of takes part"));
+        assert!(problem("say round 2 to 2.5 places\n")
+            .message
+            .contains("whole number of places"));
+    }
+
+    #[test]
+    fn a_named_file_needs_a_permit_before_running() {
+        let ok = problems("permit read \"config\"\nx = read_file(\"config/rates.txt\")\n  on FileMissing -> \"none\"\nsay x\n");
+        assert!(ok.is_empty(), "{ok:#?}");
+        let missing =
+            problem("x = read_file(\"secrets/key.txt\")\n  on FileMissing -> \"none\"\nsay x\n");
+        assert!(missing
+            .message
+            .starts_with("read_file can't read secrets/key.txt"));
+        assert_eq!(
+            missing.suggestion.as_deref(),
+            Some("permit read \"secrets\"")
+        );
+        let unhandled = problem("permit read \"config\"\nsay read_file(\"config/x.txt\")\n");
+        assert!(unhandled
+            .message
+            .starts_with("read_file can fail with FileMissing."));
+        let own = problem("fn env(n: text) -> text\n  return n\n");
+        assert!(own
+            .message
+            .starts_with("env is one of Quill's own functions"));
+        let host = problem("permit net \"https://api.stripe.com/v1\"\n");
+        assert_eq!(
+            host.suggestion.as_deref(),
+            Some("permit net \"api.stripe.com\"")
+        );
+        let setting = problem("permit env \"MY KEY\"\n");
+        assert!(setting.message.starts_with("permit env names one setting"));
+    }
+
+    #[test]
+    fn reading_json_must_handle_invalid() {
+        let types = "type B\n  a: text\n";
+        let ok = problems(&format!(
+            "{types}x = \"[]\" as B\n  on Invalid -> B a = \"none\"\nsay x.a\n"
+        ));
+        assert!(ok.is_empty(), "{ok:#?}");
+        let unhandled = problem(&format!("{types}say \"[]\" as B\n"));
+        assert!(unhandled
+            .message
+            .starts_with("Reading text as B fails with Invalid"));
+        let kind = problem(&format!(
+            "{types}x = 5 as B\n  on Invalid -> B a = \"none\"\nsay x.a\n"
+        ));
+        assert!(kind
+            .message
+            .contains("as B needs text for the JSON, but 5 is a Number."));
+    }
+
+    #[test]
+    fn web_requests_need_the_module_and_a_permit() {
+        let ok = problems("bring http\npermit net \"api.example.com\"\na = fetch(\"https://api.example.com/x\")\n  on NetworkDown -> say \"off\"\nsay a.status + 1\n");
+        assert!(ok.is_empty(), "{ok:#?}");
+        let module = problem("permit net \"api.example.com\"\na = fetch(\"https://api.example.com/x\")\n  on NetworkDown -> say \"off\"\n");
+        assert_eq!(module.suggestion.as_deref(), Some("bring http"));
+        let host = problem("bring http\na = fetch(\"https://api.example.com/x\")\n  on NetworkDown -> say \"off\"\n");
+        assert_eq!(
+            host.suggestion.as_deref(),
+            Some("permit net \"api.example.com\"")
+        );
+        let address = problem("bring http\npermit net \"x\"\na = fetch(\"api.example.com\")\n  on NetworkDown -> say \"off\"\n");
+        assert!(address
+            .message
+            .starts_with("api.example.com isn't a web address."));
+    }
+
+    #[test]
+    fn asking_a_model_needs_the_module_a_key_and_handlers() {
+        let ready =
+            "bring ai\npermit env \"ANTHROPIC_API_KEY\"\npermit net \"api.anthropic.com\"\n";
+        let ok = problems(&format!("{ready}type R\n  stars: number where 1..5\nr = ask \"Rate it\" as R\n  on ModelFailed -> R stars = 1\n  on Invalid -> R stars = 1\nsay r.stars\n"));
+        assert!(ok.is_empty(), "{ok:#?}");
+        let module = problem(
+            "permit env \"ANTHROPIC_API_KEY\"\na = ask \"Hi\"\n  on ModelFailed -> \"no\"\nsay a\n",
+        );
+        assert_eq!(module.suggestion.as_deref(), Some("bring ai"));
+        let key = problem("bring ai\na = ask \"Hi\"\n  on ModelFailed -> \"no\"\nsay a\n");
+        assert_eq!(
+            key.suggestion.as_deref(),
+            Some("permit env \"ANTHROPIC_API_KEY\"")
+        );
+        let host = problem("bring ai\npermit env \"ANTHROPIC_API_KEY\"\na = ask \"Hi\"\n  on ModelFailed -> \"no\"\nsay a\n");
+        assert_eq!(
+            host.suggestion.as_deref(),
+            Some("permit net \"api.anthropic.com\"")
+        );
+        let unhandled = problem(&format!("{ready}say ask \"Hi\"\n"));
+        assert!(unhandled
+            .message
+            .starts_with("Asking a model can fail with ModelFailed"));
+    }
+
+    #[test]
+    fn routes_need_the_module_and_respond_on_every_path() {
+        let ok = problems("bring web\nroute GET \"/hi/{name}\"\n  respond 200, \"Hi {name} from {request.path}\"\n");
+        assert!(ok.is_empty(), "{ok:#?}");
+        let module = problem("route GET \"/hi\"\n  respond 200, \"Hi\"\n");
+        assert_eq!(module.suggestion.as_deref(), Some("bring web"));
+        let silent = problem("bring web\nroute GET \"/hi\"\n  say \"hi\"\n");
+        assert!(silent
+            .message
+            .starts_with("GET /hi has to respond on every path."));
+        let status = problem("bring web\nroute GET \"/hi\"\n  respond 700, \"Hi\"\n");
+        assert!(status
+            .message
+            .starts_with("respond needs a status from 100 through 599"));
+        let taken = problem("bring web\ntype Request\n  a: text\n");
+        assert!(taken
+            .message
+            .starts_with("Request is a type Quill's web module gives"));
     }
 
     const CHARGE: &str = "fn charge(amount: USD) -> text

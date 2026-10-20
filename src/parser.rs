@@ -23,7 +23,7 @@
 
 use std::fmt;
 
-use crate::decimal::Decimal;
+use crate::decimal::{Decimal, Rounding};
 use crate::diagnostic::{closest_match, Diagnostic, Span};
 use crate::lexer::{Piece, Token, TokenKind};
 
@@ -113,6 +113,31 @@ pub enum Statement {
     },
     /// `fail Declined`, leaving the function with a declared failure.
     Fail { name: String, span: Span },
+    /// `bring billing` (billing.ql beside this file), `bring "shared/money.ql"`, or a
+    /// Quill module such as `bring web`.
+    Bring {
+        /// The name, or the path when it was written in quotes.
+        target: String,
+        /// `true` for `bring "shared/money.ql"`.
+        quoted: bool,
+        target_span: Span,
+        span: Span,
+    },
+    /// `permit read "config"`: something outside the program it may touch.
+    Permit {
+        access: Permission,
+        target: String,
+        target_span: Span,
+        span: Span,
+    },
+    /// `type Booking`, then indented fields like `guests: number where 1..500`.
+    /// `span` covers the `type` keyword.
+    Type {
+        name: String,
+        name_span: Span,
+        fields: Vec<Param>,
+        span: Span,
+    },
 }
 
 /// `require amount > 0 USD` or `ensure result >= 0 USD`, under a `fn`.
@@ -210,6 +235,8 @@ pub enum SigKind {
     Money(String),
     /// A value that might be missing, written `maybe number`.
     Maybe(Box<SigKind>),
+    /// A record with the fields of a `type`, written by its name: `Booking`.
+    Named(String),
 }
 
 impl SigKind {
@@ -222,6 +249,7 @@ impl SigKind {
             SigKind::List(item) => format!("list of {}", item.written()),
             SigKind::Money(code) => code.clone(),
             SigKind::Maybe(inner) => format!("maybe {}", inner.written()),
+            SigKind::Named(name) => name.clone(),
         }
     }
 }
@@ -256,6 +284,55 @@ pub enum Recovery {
 }
 
 /// A currency code is three capital letters, as in `USD`.
+/// A route is a function the program can't call by name: `route GET /bookings/{id}`.
+pub const ROUTE: &str = "route ";
+
+/// The methods a route can answer.
+pub const METHODS: [&str; 5] = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+
+/// `body as Booking` is a call to the function named `as Booking`.
+pub const AS: &str = "as ";
+
+/// `ask "..."` is a call to the function named `ask`; `ask "..." as Review` to `ask as Review`.
+pub const ASK: &str = "ask";
+
+/// The kind a typed `ask` gives back: `ask as Review` is `Review`.
+pub fn kind_asked(name: &str) -> Option<SigKind> {
+    written_kind(
+        name.strip_prefix(ASK)?
+            .strip_prefix(' ')?
+            .strip_prefix(AS)?,
+    )
+}
+
+/// The kind in a function name made by `as`: `as list of Booking` is `list of Booking`.
+pub fn kind_read_as(name: &str) -> Option<SigKind> {
+    written_kind(name.strip_prefix(AS)?)
+}
+
+/// A kind as `SigKind::written` writes it.
+fn written_kind(written: &str) -> Option<SigKind> {
+    if let Some(inner) = written.strip_prefix("list of ") {
+        return Some(SigKind::List(Box::new(written_kind(inner)?)));
+    }
+    if let Some(inner) = written.strip_prefix("maybe ") {
+        return Some(SigKind::Maybe(Box::new(written_kind(inner)?)));
+    }
+    Some(match written {
+        "text" => SigKind::Text,
+        "number" => SigKind::Number,
+        "true/false" => SigKind::Bool,
+        code if is_currency(code) => SigKind::Money(code.to_string()),
+        name if is_type_name(name) => SigKind::Named(name.to_string()),
+        _ => return None,
+    })
+}
+
+/// A type's name starts with a capital letter, as in `Booking`. Three capitals are a currency.
+pub fn is_type_name(name: &str) -> bool {
+    name.starts_with(|c: char| c.is_ascii_uppercase()) && !is_currency(name)
+}
+
 pub fn is_currency(name: &str) -> bool {
     name.len() == 3 && name.chars().all(|c| c.is_ascii_uppercase())
 }
@@ -366,17 +443,30 @@ pub struct Arm {
 impl Statement {
     /// The line this statement starts on.
     pub fn line(&self) -> usize {
+        self.start().line
+    }
+
+    /// The file this statement is in: 0 for the program, or a brought file's number.
+    pub fn file(&self) -> usize {
+        self.start().file
+    }
+
+    fn start(&self) -> Span {
         match self {
-            Statement::Say { span, .. } => span.line,
-            Statement::Let { name_span, .. } => name_span.line,
-            Statement::Set { span, .. } => span.line,
-            Statement::Check { span, .. } => span.line,
-            Statement::When { span, .. } => span.line,
-            Statement::For { span, .. } => span.line,
-            Statement::Function { span, .. } => span.line,
-            Statement::Return { span, .. } => span.line,
-            Statement::Call { span, .. } => span.line,
-            Statement::Match { span, .. } | Statement::Fail { span, .. } => span.line,
+            Statement::Let { name_span, .. } => *name_span,
+            Statement::Say { span, .. }
+            | Statement::Set { span, .. }
+            | Statement::Check { span, .. }
+            | Statement::When { span, .. }
+            | Statement::For { span, .. }
+            | Statement::Function { span, .. }
+            | Statement::Return { span, .. }
+            | Statement::Call { span, .. }
+            | Statement::Match { span, .. }
+            | Statement::Fail { span, .. }
+            | Statement::Type { span, .. }
+            | Statement::Permit { span, .. }
+            | Statement::Bring { span, .. } => *span,
         }
     }
 }
@@ -562,6 +652,41 @@ pub enum ExprKind {
     },
     /// `when` with indented cases that each give a value. The last case is `else`.
     When(Vec<ValueArm>),
+    /// `round total to cents`, `round up price to 2 places`, or `round x` to a whole number.
+    Round {
+        value: Box<Expr>,
+        rule: Rounding,
+        to: RoundTo,
+    },
+    /// `split 100 USD into 3`, or `split fee by list 70, 30`. Money in whole cents, with
+    /// none lost: the parts add up to the amount.
+    Split {
+        amount: Box<Expr>,
+        parts: Box<Expr>,
+        /// `true` for `by`, a list of shares. `false` for `into`, a count.
+        by_shares: bool,
+    },
+    /// `20% of fee`.
+    Percent {
+        percent: Box<Expr>,
+        of: Box<Expr>,
+        percent_span: Span,
+    },
+    /// `convert 100 USD to EUR at 0.92`. The rate is how much of the new currency one
+    /// unit of the old one is worth.
+    Convert {
+        amount: Box<Expr>,
+        currency: String,
+        currency_span: Span,
+        rate: Box<Expr>,
+    },
+    /// `Booking venue = "Town Hall", guests = 120`: a record made as a `type`.
+    /// `record` is always an `ExprKind::Record`.
+    Typed {
+        name: String,
+        name_span: Span,
+        record: Box<Expr>,
+    },
     /// `students where score >= 50`. The records whose condition is true, in order.
     /// Inside the condition, a field of the records is read by its name.
     Where {
@@ -577,6 +702,51 @@ pub enum ExprKind {
         nested_span: Span,
         source: Box<Expr>,
     },
+}
+
+/// What a `permit` allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Permission {
+    /// `permit read "config"`: read files in that folder, or that file.
+    Read,
+    /// `permit write "reports"`: write files there.
+    Write,
+    /// `permit net "api.stripe.com"`: talk to that host.
+    Net,
+    /// `permit env "STRIPE_KEY"`: read that environment variable.
+    Env,
+}
+
+impl Permission {
+    pub fn word(self) -> &'static str {
+        match self {
+            Permission::Read => "read",
+            Permission::Write => "write",
+            Permission::Net => "net",
+            Permission::Env => "env",
+        }
+    }
+
+    fn from_word(word: &str) -> Option<Permission> {
+        match word {
+            "read" => Some(Permission::Read),
+            "write" => Some(Permission::Write),
+            "net" => Some(Permission::Net),
+            "env" => Some(Permission::Env),
+            _ => None,
+        }
+    }
+}
+
+/// Where `round` stops.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RoundTo {
+    /// `round x`: a whole number, or whole units of money.
+    Whole,
+    /// `to cents`: the currency's smallest unit.
+    Cents,
+    /// `to 2 places`.
+    Places(Box<Expr>),
 }
 
 /// One case of a `when` that gives a value: `score >= 70 -> "A"`, or `else -> "Fail"`.
@@ -664,7 +834,27 @@ impl Expr {
                     arg.collect_names(names);
                 }
             }
-            ExprKind::Field { record, .. } => record.collect_names(names),
+            ExprKind::Field { record, .. } | ExprKind::Typed { record, .. } => {
+                record.collect_names(names)
+            }
+            ExprKind::Round { value, to, .. } => {
+                value.collect_names(names);
+                if let RoundTo::Places(places) = to {
+                    places.collect_names(names);
+                }
+            }
+            ExprKind::Split { amount, parts, .. } => {
+                amount.collect_names(names);
+                parts.collect_names(names);
+            }
+            ExprKind::Percent { percent, of, .. } => {
+                percent.collect_names(names);
+                of.collect_names(names);
+            }
+            ExprKind::Convert { amount, rate, .. } => {
+                amount.collect_names(names);
+                rate.collect_names(names);
+            }
             ExprKind::Sum { list, .. } | ExprKind::Get { list, .. } => list.collect_names(names),
             ExprKind::GetWith { source, .. } => source.collect_names(names),
             ExprKind::Where {
@@ -764,9 +954,57 @@ impl fmt::Display for Expr {
                 }
                 Ok(())
             }
+            ExprKind::Round { value, rule, to } => {
+                write!(f, "round ")?;
+                match rule {
+                    Rounding::Nearest => {}
+                    Rounding::Up => write!(f, "up ")?,
+                    Rounding::Down => write!(f, "down ")?,
+                }
+                write!(f, "{value}")?;
+                match to {
+                    RoundTo::Whole => Ok(()),
+                    RoundTo::Cents => write!(f, " to cents"),
+                    RoundTo::Places(places) => write!(f, " to {places} places"),
+                }
+            }
+            ExprKind::Split {
+                amount,
+                parts,
+                by_shares,
+            } => {
+                let word = if *by_shares { "by" } else { "into" };
+                write!(f, "split {amount} {word} {parts}")
+            }
+            ExprKind::Percent { percent, of, .. } => write!(f, "{percent}% of {of}"),
+            ExprKind::Convert {
+                amount,
+                currency,
+                rate,
+                ..
+            } => write!(f, "convert {amount} to {currency} at {rate}"),
+            ExprKind::Typed { name, record, .. } => {
+                let written = record.to_string();
+                write!(
+                    f,
+                    "{name}{}",
+                    written.strip_prefix("record").unwrap_or(&written)
+                )
+            }
             ExprKind::Found(value) => write!(f, "found {value}"),
             ExprKind::Missing => write!(f, "missing"),
             ExprKind::Try(inner) => write!(f, "try {inner}"),
+            ExprKind::Call { name, args, .. } if name.starts_with(AS) && args.len() == 1 => {
+                write!(f, "{} {name}", args[0])
+            }
+            ExprKind::Call { name, args, .. }
+                if (name == ASK || name.starts_with("ask as ")) && args.len() == 1 =>
+            {
+                match name.strip_prefix(ASK).filter(|rest| !rest.is_empty()) {
+                    Some(typed) => write!(f, "ask {}{typed}", args[0]),
+                    None => write!(f, "ask {}", args[0]),
+                }
+            }
             ExprKind::Call { name, args, .. } => {
                 write!(f, "{name}(")?;
                 for (index, arg) in args.iter().enumerate() {
@@ -896,6 +1134,17 @@ impl fmt::Display for Statement {
             }
             Statement::Match { .. } => write!(f, "when"),
             Statement::Fail { name, .. } => write!(f, "fail {name}"),
+            Statement::Type { name, .. } => write!(f, "type {name}"),
+            Statement::Permit { access, target, .. } => {
+                write!(f, "permit {} {target:?}", access.word())
+            }
+            Statement::Bring { target, quoted, .. } => {
+                if *quoted {
+                    write!(f, "bring {target:?}")
+                } else {
+                    write!(f, "bring {target}")
+                }
+            }
         }
     }
 }
@@ -910,6 +1159,8 @@ pub fn parse(tokens: &[Token]) -> Result<Program, Diagnostic> {
         tokens,
         pos: 0,
         in_function: false,
+        asking: false,
+        in_route: false,
     };
     loop {
         match parser.peek().kind {
@@ -953,6 +1204,10 @@ struct Parser<'a> {
     pos: usize,
     /// `true` while reading the lines under a `fn`.
     in_function: bool,
+    /// `true` while reading the question after `ask`, so its `as` belongs to the `ask`.
+    asking: bool,
+    /// `true` while reading the lines under a `route`.
+    in_route: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -984,6 +1239,7 @@ impl<'a> Parser<'a> {
                 | Statement::Match { .. }
                 | Statement::For { .. }
                 | Statement::Function { .. }
+                | Statement::Type { .. }
         ) && !contains_record(&statement)
         {
             self.end_of_line(&statement)?;
@@ -1003,6 +1259,11 @@ impl<'a> Parser<'a> {
             TokenKind::When => self.when_statement(),
             TokenKind::For => self.for_statement(),
             TokenKind::Fn => self.function_statement(),
+            TokenKind::Type => self.type_statement(),
+            TokenKind::Bring => self.bring_statement(),
+            TokenKind::Route => self.route_statement(),
+            TokenKind::Respond => self.respond_statement(),
+            TokenKind::Permit => self.permit_statement(),
             TokenKind::Return => self.return_statement(),
             TokenKind::Fail => self.fail_statement(),
             TokenKind::Fails => Err(Diagnostic::new(
@@ -1557,6 +1818,17 @@ impl<'a> Parser<'a> {
         }
         let name_token = self.peek().clone();
         let TokenKind::Identifier(name) = name_token.kind.clone() else {
+            let word = name_token.kind.to_string();
+            if word.chars().all(|c| c.is_ascii_lowercase()) && !word.is_empty() {
+                return Err(Diagnostic::new(
+                    name_token.span(),
+                    format!(
+                        "{word} is one of Quill's own words, so it can't name a function.\n\
+                         Give the function a name that says what it does."
+                    ),
+                )
+                .suggest(format!("fn {word}_bill(")));
+            }
             return Err(Diagnostic::new(
                 name_token.span(),
                 "fn needs a name after it, then the parameters in parentheses.\n\
@@ -1723,6 +1995,433 @@ impl<'a> Parser<'a> {
             fails,
             contracts,
             body,
+            span: keyword.span(),
+        })
+    }
+
+    /// `route GET "/bookings/{id}"`, then the indented lines that answer it. It becomes a
+    /// function named `route GET /bookings/{id}` that takes `request` and a text for each
+    /// `{name}` in the path, and gives back a `Response`.
+    fn route_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        let example = "route GET \"/hello/{name}\"\n  respond 200, \"Hello, {name}!\"";
+        if self.in_function {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "A route is written at the top level of the file, not inside a function or another route.",
+            ));
+        }
+        let method_token = self.peek().clone();
+        let method = match &method_token.kind {
+            TokenKind::Identifier(word) if METHODS.contains(&word.as_str()) => word.clone(),
+            TokenKind::Get => {
+                return Err(Diagnostic::new(
+                    method_token.span(),
+                    "A route's method is written in capitals, like GET.",
+                )
+                .suggest("GET"));
+            }
+            TokenKind::Identifier(word) if METHODS.contains(&word.to_uppercase().as_str()) => {
+                let fixed = word.to_uppercase();
+                return Err(Diagnostic::new(
+                    method_token.span(),
+                    format!("A route's method is written in capitals, like {fixed}."),
+                )
+                .suggest(fixed));
+            }
+            other => {
+                return Err(Diagnostic::new(
+                    keyword.span(),
+                    format!(
+                        "route needs a method, then the path, but found {}.\n\
+                         The methods are GET, POST, PUT, PATCH and DELETE.",
+                        describe(other)
+                    ),
+                )
+                .suggest(example));
+            }
+        };
+        self.advance();
+        let path_token = self.peek().clone();
+        let mut path = String::new();
+        let mut names: Vec<String> = Vec::new();
+        match &path_token.kind {
+            TokenKind::Text(text) => path.push_str(text),
+            TokenKind::Template(pieces) => {
+                for piece in pieces {
+                    match piece {
+                        Piece::Text(text) => path.push_str(text),
+                        Piece::Code { source, .. } => {
+                            let name = source.trim();
+                            let plain = name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                                && name.starts_with(|c: char| c.is_ascii_lowercase() || c == '_');
+                            if !plain {
+                                return Err(Diagnostic::new(
+                                    path_token.span(),
+                                    format!(
+                                        "{{{name}}} in a route's path needs to be a plain name, \
+                                         like {{id}}.\n\
+                                         That part of the path becomes a text value with that name."
+                                    ),
+                                ));
+                            }
+                            if names.iter().any(|known| known == name) {
+                                return Err(Diagnostic::new(
+                                    path_token.span(),
+                                    format!("This path names {{{name}}} twice. Each part needs its own name."),
+                                ));
+                            }
+                            names.push(name.to_string());
+                            path.push_str(&format!("{{{name}}}"));
+                        }
+                    }
+                }
+            }
+            _ => {
+                return Err(Diagnostic::new(
+                    method_token.span(),
+                    format!("route {method} needs the path, in quotes, like \"/bookings\"."),
+                )
+                .suggest(example));
+            }
+        }
+        if !path.starts_with('/') {
+            return Err(Diagnostic::new(
+                path_token.span(),
+                format!("A route's path starts with /, like \"/{path}\"."),
+            )
+            .suggest(format!("route {method} \"/{path}\"")));
+        }
+        self.advance();
+        if !self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                "The lines of a route go below it, indented.",
+            )
+            .suggest(example));
+        }
+        while self.peek().kind == TokenKind::Newline {
+            self.advance();
+        }
+        if self.peek().kind != TokenKind::Indent {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                format!(
+                    "route {method} \"{path}\" has nothing to do.\n\
+                     The lines that answer it go below it, indented, and end with respond."
+                ),
+            )
+            .suggest(example));
+        }
+        self.advance();
+        self.in_function = true;
+        self.in_route = true;
+        let mut body = Vec::new();
+        let body_result = self.function_body(&mut body);
+        self.in_function = false;
+        self.in_route = false;
+        body_result?;
+        let mut params = vec![Param {
+            name: "request".to_string(),
+            name_span: keyword.span(),
+            kind: SigKind::Named("Request".to_string()),
+            kind_span: keyword.span(),
+            rule: None,
+        }];
+        for name in names {
+            params.push(Param {
+                name,
+                name_span: path_token.span(),
+                kind: SigKind::Text,
+                kind_span: path_token.span(),
+                rule: None,
+            });
+        }
+        Ok(Statement::Function {
+            name: format!("{ROUTE}{method} {path}"),
+            name_span: cover(method_token.span(), path_token.span()),
+            params,
+            result: Some(SigKind::Named("Response".to_string())),
+            fails: Vec::new(),
+            contracts: Vec::new(),
+            body,
+            span: keyword.span(),
+        })
+    }
+
+    /// `respond 200, booking` inside a route: it gives back the route's answer.
+    fn respond_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        if !self.in_route {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "respond goes inside a route, to answer a request.\n\
+                 route GET \"/hello\", then respond 200, \"Hello\" on the line below.",
+            ));
+        }
+        if self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "respond needs a status, then a comma, then what to send.\n\
+                 200 means it worked, 201 that something was made, 404 that it wasn't found.",
+            )
+            .suggest("respond 200, \"OK\""));
+        }
+        let status = self.sum()?;
+        if self.peek().kind != TokenKind::Comma {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "respond {status} needs a comma, then what to send.\n\
+                     Text is sent as it is; any other value is sent as JSON."
+                ),
+            )
+            .suggest(format!("respond {status}, \"OK\"")));
+        }
+        self.advance();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "respond needs what to send after the comma.",
+            )
+            .suggest(format!("respond {status}, \"OK\"")));
+        }
+        let value = self.expression()?;
+        let span = cover(keyword.span(), value.span);
+        Ok(Statement::Return {
+            value: Some(Expr {
+                span,
+                kind: ExprKind::Call {
+                    name: "respond".to_string(),
+                    name_span: keyword.span(),
+                    args: vec![status, value],
+                },
+            }),
+            span: keyword.span(),
+        })
+    }
+
+    /// `permit read "config"`, `permit write "reports"`, `permit net "api.stripe.com"`, or
+    /// `permit env "STRIPE_KEY"`, at the top level of the program.
+    fn permit_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        let kinds = "permit read \"config\" reads files in config. Quill also knows \
+                     permit write, permit net for a host, and permit env for a setting.";
+        if self.in_function {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "permit goes at the top of the program, not inside a function.\n\
+                 Every permit sits together, so a reader sees all the program may touch.",
+            ));
+        }
+        let word_token = self.peek().clone();
+        let access = match &word_token.kind {
+            TokenKind::Identifier(word) => match Permission::from_word(word) {
+                Some(access) => access,
+                None => {
+                    let problem = Diagnostic::new(
+                        word_token.span(),
+                        format!("permit doesn't know {word}.\n{kinds}"),
+                    );
+                    let fixed = closest_match(word, ["read", "write", "net", "env"]);
+                    return Err(match fixed {
+                        Some(fixed) => problem.suggest(format!("permit {fixed}")),
+                        None => problem,
+                    });
+                }
+            },
+            _ => {
+                return Err(Diagnostic::new(
+                    keyword.span(),
+                    format!("permit needs what it allows: read, write, net, or env.\n{kinds}"),
+                )
+                .suggest("permit read \"config\""));
+            }
+        };
+        self.advance();
+        let target_token = self.peek().clone();
+        let TokenKind::Text(target) = &target_token.kind else {
+            let example = match access {
+                Permission::Read => "permit read \"config\"",
+                Permission::Write => "permit write \"reports\"",
+                Permission::Net => "permit net \"api.stripe.com\"",
+                Permission::Env => "permit env \"STRIPE_KEY\"",
+            };
+            let what = match access {
+                Permission::Read | Permission::Write => "a folder or a file",
+                Permission::Net => "a host",
+                Permission::Env => "the name of a setting",
+            };
+            return Err(Diagnostic::new(
+                word_token.span(),
+                format!("permit {} needs {what}, written in quotes.", access.word()),
+            )
+            .suggest(example));
+        };
+        if target.trim().is_empty() {
+            return Err(Diagnostic::new(
+                target_token.span(),
+                "A permit names something. An empty one would allow nothing, or everything.",
+            ));
+        }
+        let target = target.clone();
+        self.advance();
+        Ok(Statement::Permit {
+            access,
+            target,
+            target_span: target_token.span(),
+            span: keyword.span(),
+        })
+    }
+
+    /// `bring billing` or `bring "shared/money.ql"`, at the top level of a file.
+    fn bring_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        if self.in_function {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "bring goes at the top level of the file, not inside a function.\n\
+                 Move it to the top of the file, so everything below can use what it brings.",
+            ));
+        }
+        let target_token = self.peek().clone();
+        let (target, quoted) = match &target_token.kind {
+            TokenKind::Identifier(name) => (name.clone(), false),
+            TokenKind::Text(path) => (path.clone(), true),
+            other => {
+                return Err(Diagnostic::new(
+                    keyword.span(),
+                    format!(
+                        "bring needs the name of a file, or of a Quill module, but found {}.\n\
+                         bring billing uses the functions and types in billing.ql, \
+                         next to this file.",
+                        describe(other)
+                    ),
+                )
+                .suggest("bring billing"));
+            }
+        };
+        self.advance();
+        if self.peek().kind == TokenKind::Dot {
+            let stem = target.clone();
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "bring names the file without .ql.\n\
+                     bring {stem} brings {stem}.ql. For a file in another folder, \
+                     write its path in quotes: bring \"shared/{stem}.ql\"."
+                ),
+            )
+            .suggest(format!("bring {stem}")));
+        }
+        Ok(Statement::Bring {
+            target,
+            quoted,
+            target_span: target_token.span(),
+            span: keyword.span(),
+        })
+    }
+
+    /// `type Booking`, then one field per indented line: `guests: number where 1..500`.
+    fn type_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        let example = "type Booking\n  venue: text\n  guests: number where 1..500";
+        if self.in_function {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "A type is written at the top level of the file, not inside a function.\n\
+                 Move it above the function, so every part of the program can use it.",
+            ));
+        }
+        let name_token = self.peek().clone();
+        let TokenKind::Identifier(name) = name_token.kind.clone() else {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "type needs a name, starting with a capital letter.\n\
+                 The fields go on the lines below, indented.",
+            )
+            .suggest(example));
+        };
+        if !is_type_name(&name) {
+            let fixed = capitalize(&name);
+            let why = if is_currency(&name) {
+                format!("{name} is a currency, so it can't name a type.")
+            } else {
+                "A type's name starts with a capital letter, so it stands apart from values."
+                    .to_string()
+            };
+            return Err(
+                Diagnostic::new(name_token.span(), format!("{why}\nWrite it as {fixed}."))
+                    .suggest(format!("type {fixed}")),
+            );
+        }
+        self.advance();
+        if !self.at_end_of_line() {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "The fields of {name} go on the lines below it, one per line, indented.\n\
+                     Each field is a name, then :, then its kind."
+                ),
+            )
+            .suggest(format!("type {name}\n  venue: text")));
+        }
+        while self.peek().kind == TokenKind::Newline {
+            self.advance();
+        }
+        if self.peek().kind != TokenKind::Indent {
+            return Err(Diagnostic::new(
+                name_token.span(),
+                format!(
+                    "type {name} has no fields.\n\
+                     Put each field on the lines below, indented: a name, then :, then its kind."
+                ),
+            )
+            .suggest(format!("type {name}\n  venue: text")));
+        }
+        self.advance();
+        let mut fields: Vec<Param> = Vec::new();
+        loop {
+            match &self.peek().kind {
+                TokenKind::Newline => {
+                    self.advance();
+                }
+                TokenKind::Dedent => {
+                    self.advance();
+                    break;
+                }
+                TokenKind::EndOfFile => break,
+                _ => {
+                    let field = self.parameter()?;
+                    if let Some(first) = fields.iter().find(|known| known.name == field.name) {
+                        return Err(Diagnostic::new(
+                            field.name_span,
+                            format!(
+                                "{name} already has a field called {}, on line {}.\n\
+                                 Each field needs its own name.",
+                                field.name, first.name_span.line
+                            ),
+                        ));
+                    }
+                    if !self.at_end_of_line() {
+                        return Err(Diagnostic::new(
+                            self.peek().span(),
+                            format!(
+                                "Quill expected the line to end after the field {}, but found {}.\n\
+                                 Each field of a type goes on its own line.",
+                                field.name,
+                                describe(&self.peek().kind)
+                            ),
+                        ));
+                    }
+                    fields.push(field);
+                }
+            }
+        }
+        Ok(Statement::Type {
+            name,
+            name_span: name_token.span(),
+            fields,
             span: keyword.span(),
         })
     }
@@ -1949,6 +2648,11 @@ impl<'a> Parser<'a> {
                 self.advance();
                 SigKind::Money(code)
             }
+            TokenKind::Identifier(name) if is_type_name(name) && !currency_letters(name) => {
+                let name = name.clone();
+                self.advance();
+                SigKind::Named(name)
+            }
             TokenKind::Identifier(name) if currency_letters(name) => {
                 let code = name.to_uppercase();
                 return Err(Diagnostic::new(
@@ -1964,9 +2668,9 @@ impl<'a> Parser<'a> {
                 return Err(Diagnostic::new(
                     token.span(),
                     format!(
-                        "A function's kind is text, number, true/false, maybe one of those, \
-                         a currency like USD, or a list of those, but found {}.\n\
-                         Int and Text arrive later, with types. Today, write number or text.",
+                        "A kind is text, number, true/false, a currency like USD, a type like \
+                         Booking, maybe one of those, or a list of those, but found {}.\n\
+                         A type's name starts with a capital letter.",
                         describe(&token.kind)
                     ),
                 )
@@ -1979,6 +2683,14 @@ impl<'a> Parser<'a> {
     /// `return value`, or `return` on its own.
     fn return_statement(&mut self) -> Result<Statement, Diagnostic> {
         let keyword = self.advance().clone();
+        if self.in_route {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "A route answers with respond, not return.\n\
+                 respond gives the status and what to send, like respond 200, booking.",
+            )
+            .suggest("respond 200, \"OK\""));
+        }
         if !self.in_function {
             return Err(Diagnostic::new(
                 keyword.span(),
@@ -2438,6 +3150,30 @@ impl<'a> Parser<'a> {
     fn product(&mut self) -> Result<Expr, Diagnostic> {
         let mut left = self.unary()?;
         loop {
+            if self.peek().kind == TokenKind::Percent && self.peek_at(1).kind == TokenKind::Of {
+                let percent_token = self.advance().clone();
+                self.advance();
+                if !starts_value(&self.peek().kind) {
+                    return Err(Diagnostic::new(
+                        percent_token.span(),
+                        format!(
+                            "{left}% of needs the value it is a part of.\n\
+                             20% of fee is a fifth of the fee."
+                        ),
+                    )
+                    .suggest(format!("{left}% of fee")));
+                }
+                let of = self.unary()?;
+                left = Expr {
+                    span: cover(left.span, of.span),
+                    kind: ExprKind::Percent {
+                        percent: Box::new(left),
+                        of: Box::new(of),
+                        percent_span: percent_token.span(),
+                    },
+                };
+                continue;
+            }
             let op = match self.peek().kind {
                 TokenKind::Star => Arithmetic::Multiply,
                 TokenKind::Slash => Arithmetic::Divide,
@@ -2474,6 +3210,31 @@ impl<'a> Parser<'a> {
     fn postfix(&mut self, mut expr: Expr) -> Result<Expr, Diagnostic> {
         loop {
             match self.peek().kind {
+                // `body as Booking` reads JSON text as a kind. It is a call that can fail
+                // with Invalid, so `on` and `try` work on it like on any call.
+                TokenKind::As if !self.asking => {
+                    let keyword = self.advance().clone();
+                    if self.at_end_of_line() {
+                        return Err(Diagnostic::new(
+                            keyword.span(),
+                            format!(
+                                "as needs the kind to read {expr} as.\n\
+                                 body as Booking reads JSON text as a Booking."
+                            ),
+                        )
+                        .suggest(format!("{expr} as Booking")));
+                    }
+                    let kind = self.signature_kind()?;
+                    let end = self.tokens[self.pos.saturating_sub(1)].span();
+                    expr = Expr {
+                        span: cover(expr.span, end),
+                        kind: ExprKind::Call {
+                            name: format!("{AS}{}", kind.written()),
+                            name_span: cover(keyword.span(), end),
+                            args: vec![expr],
+                        },
+                    };
+                }
                 TokenKind::LeftParen => {
                     let ExprKind::Name(name) = expr.kind.clone() else {
                         return Err(Diagnostic::new(
@@ -2564,11 +3325,18 @@ impl<'a> Parser<'a> {
             TokenKind::Try => return self.try_expr(),
             TokenKind::True => ExprKind::Bool(true),
             TokenKind::False => ExprKind::Bool(false),
+            TokenKind::Identifier(name) if is_type_name(name) && self.starts_typed_record() => {
+                return self.typed_record(name.clone());
+            }
             TokenKind::Identifier(name) => ExprKind::Name(name.clone()),
             TokenKind::List => return self.list_expr(),
             TokenKind::Record => return self.record_expr(),
             TokenKind::When => return self.when_value(),
             TokenKind::Get | TokenKind::Sum => return self.ask_expr(),
+            TokenKind::Round => return self.round_expr(),
+            TokenKind::Ask => return self.ask_model(),
+            TokenKind::Split => return self.split_expr(),
+            TokenKind::Convert => return self.convert_expr(),
             TokenKind::LeftParen => return self.group(),
             TokenKind::Of => {
                 return Err(Diagnostic::new(
@@ -2812,6 +3580,235 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// `ask "Summarize: {text}"`, or `ask "..." as Review` for an answer of that kind.
+    /// It is a call, so its failures are handled with `on` and `try`.
+    fn ask_model(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "ask needs the question for the model, as text.\n\
+                 ask \"Summarize this: {text}\" gives back the model's answer.",
+            )
+            .suggest("ask \"Summarize this: {text}\""));
+        }
+        let was_asking = std::mem::replace(&mut self.asking, true);
+        let question = self.sum();
+        self.asking = was_asking;
+        let question = question?;
+        let mut name = ASK.to_string();
+        let mut end = question.span;
+        if self.peek().kind == TokenKind::As {
+            let as_token = self.advance().clone();
+            if self.at_end_of_line() {
+                return Err(Diagnostic::new(
+                    as_token.span(),
+                    "as needs the kind the answer should have.\n\
+                     ask \"...\" as Review gives back a Review.",
+                ));
+            }
+            let kind = self.signature_kind()?;
+            name = format!("{ASK} {AS}{}", kind.written());
+            end = self.tokens[self.pos.saturating_sub(1)].span();
+        }
+        Ok(Expr {
+            span: cover(keyword.span(), end),
+            kind: ExprKind::Call {
+                name,
+                name_span: keyword.span(),
+                args: vec![question],
+            },
+        })
+    }
+
+    /// `round total to cents`, `round up x to 2 places`, `round down x`, or `round x`.
+    fn round_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        let rule = if is_word(self.peek(), "up") {
+            self.advance();
+            Rounding::Up
+        } else if is_word(self.peek(), "down") {
+            self.advance();
+            Rounding::Down
+        } else {
+            Rounding::Nearest
+        };
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "round needs the value to round.\n\
+                 round total to cents keeps whole cents. round x to 2 places keeps 2 digits.",
+            )
+            .suggest("round total to cents"));
+        }
+        let value = self.sum()?;
+        let to = if is_word(self.peek(), "to") {
+            let to_token = self.advance().clone();
+            if is_word(self.peek(), "cents") {
+                self.advance();
+                RoundTo::Cents
+            } else if starts_value(&self.peek().kind) {
+                let places = self.unary()?;
+                if !(is_word(self.peek(), "places") || is_word(self.peek(), "place")) {
+                    return Err(Diagnostic::new(
+                        places.span,
+                        format!(
+                            "round needs places after {places}.\n\
+                             round x to 2 places keeps 2 digits after the point."
+                        ),
+                    )
+                    .suggest(format!("round {value} to {places} places")));
+                }
+                self.advance();
+                RoundTo::Places(Box::new(places))
+            } else {
+                return Err(Diagnostic::new(
+                    to_token.span(),
+                    "to needs cents, or a number of places.\n\
+                     round total to cents keeps whole cents. round x to 2 places keeps 2 digits.",
+                )
+                .suggest(format!("round {value} to cents")));
+            }
+        } else {
+            RoundTo::Whole
+        };
+        Ok(Expr {
+            span: cover(
+                keyword.span(),
+                self.tokens[self.pos.saturating_sub(1)].span(),
+            ),
+            kind: ExprKind::Round {
+                value: Box::new(value),
+                rule,
+                to,
+            },
+        })
+    }
+
+    /// `split 100 USD into 3`, or `split fee by list 70, 30`.
+    fn split_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        let example = "split 100 USD into 3";
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "split needs the amount to share out.\n\
+                 split 100 USD into 3 gives three parts that add up to 100 USD.",
+            )
+            .suggest(example));
+        }
+        let amount = self.sum()?;
+        let by_shares = if is_word(self.peek(), "into") {
+            false
+        } else if is_word(self.peek(), "by") {
+            true
+        } else {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "split {amount} needs into and a count, or by and a list of shares.\n\
+                     split {amount} into 3 makes three parts. \
+                     split {amount} by list 70, 30 shares it 70 to 30."
+                ),
+            )
+            .suggest(format!("split {amount} into 3")));
+        };
+        let word = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            let (what, fixed) = if by_shares {
+                ("a list of shares", format!("split {amount} by list 70, 30"))
+            } else {
+                ("how many parts", format!("split {amount} into 3"))
+            };
+            return Err(
+                Diagnostic::new(word.span(), format!("split needs {what} here.")).suggest(fixed),
+            );
+        }
+        let parts = self.sum()?;
+        Ok(Expr {
+            span: cover(keyword.span(), parts.span),
+            kind: ExprKind::Split {
+                amount: Box::new(amount),
+                parts: Box::new(parts),
+                by_shares,
+            },
+        })
+    }
+
+    /// `convert 100 USD to EUR at 0.92`.
+    fn convert_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        let example = "convert 100 USD to EUR at 0.92";
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "convert needs the amount, the currency to change it to, and the rate.\n\
+                 Quill never guesses a rate, so you always write it.",
+            )
+            .suggest(example));
+        }
+        let amount = self.sum()?;
+        if !is_word(self.peek(), "to") {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "convert {amount} needs to and the new currency, then at and the rate.\n\
+                     convert 100 USD to EUR at 0.92 gives 92 EUR."
+                ),
+            )
+            .suggest(format!("convert {amount} to EUR at 0.92")));
+        }
+        self.advance();
+        let currency_token = self.peek().clone();
+        let currency = match &currency_token.kind {
+            TokenKind::Identifier(code) if is_currency(code) => code.clone(),
+            TokenKind::Identifier(code) if currency_letters(code) => {
+                let fixed = code.to_uppercase();
+                return Err(Diagnostic::new(
+                    currency_token.span(),
+                    format!("A currency is written in capitals, like {fixed}."),
+                )
+                .suggest(format!("convert {amount} to {fixed} at 0.92")));
+            }
+            other => {
+                return Err(Diagnostic::new(
+                    currency_token.span(),
+                    format!(
+                        "convert needs a currency after to, like EUR, but found {}.",
+                        describe(other)
+                    ),
+                )
+                .suggest(format!("convert {amount} to EUR at 0.92")));
+            }
+        };
+        self.advance();
+        if self.peek().kind != TokenKind::At {
+            return Err(Diagnostic::new(
+                currency_token.span(),
+                format!(
+                    "convert needs the rate, after at.\n\
+                     Quill never guesses a rate: at 0.92 means one unit is worth 0.92 {currency}."
+                ),
+            )
+            .suggest(format!("convert {amount} to {currency} at 0.92")));
+        }
+        let at = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(at.span(), "at needs the rate after it.")
+                .suggest(format!("convert {amount} to {currency} at 0.92")));
+        }
+        let rate = self.unary()?;
+        Ok(Expr {
+            span: cover(keyword.span(), rate.span),
+            kind: ExprKind::Convert {
+                amount: Box::new(amount),
+                currency,
+                currency_span: currency_token.span(),
+                rate: Box::new(rate),
+            },
+        })
+    }
+
     /// `list "coding", "reading"` or `list of text`.
     fn list_expr(&mut self) -> Result<Expr, Diagnostic> {
         let keyword = self.advance().clone();
@@ -2859,6 +3856,34 @@ impl<'a> Parser<'a> {
     /// An indented record, or `record city = "Anytown", street = "123 Main St"`.
     fn record_expr(&mut self) -> Result<Expr, Diagnostic> {
         let keyword = self.advance().clone();
+        self.record_body(keyword)
+    }
+
+    /// After a type's name: `Booking venue = "Town Hall"`, or `Booking` with the fields
+    /// indented below.
+    fn starts_typed_record(&self) -> bool {
+        let field_follows = matches!(self.peek_at(1).kind, TokenKind::Identifier(_))
+            && self.peek_at(2).kind == TokenKind::Equals;
+        let block_follows =
+            self.peek_at(1).kind == TokenKind::Newline && self.peek_at(2).kind == TokenKind::Indent;
+        field_follows || block_follows
+    }
+
+    fn typed_record(&mut self, name: String) -> Result<Expr, Diagnostic> {
+        let name_token = self.advance().clone();
+        let record = self.record_body(name_token.clone())?;
+        Ok(Expr {
+            span: cover(name_token.span(), record.span),
+            kind: ExprKind::Typed {
+                name,
+                name_span: name_token.span(),
+                record: Box::new(record),
+            },
+        })
+    }
+
+    /// The fields after `record` or a type's name, on the same line or indented below.
+    fn record_body(&mut self, keyword: Token) -> Result<Expr, Diagnostic> {
         if self.at_end_of_line() {
             return self.indented_record(keyword);
         }
@@ -3101,6 +4126,16 @@ impl<'a> Parser<'a> {
                  To test it, use check. To do something only when it's true, use when.",
             )
             .suggest(format!("check {value}"));
+        }
+        if let ExprKind::Try(call) = &value.ungrouped().kind {
+            return Diagnostic::new(
+                value.span,
+                "try can't stand on a line by itself.\n\
+                 try passes a call's failures upward where its answer is used, as in x = try f(...).\n\
+                 For a call on its own line, write the call, then pass each failure upward with on under it,\n\
+                 like on CantWrite -> fail CantWrite.",
+            )
+            .suggest(format!("{call}"));
         }
         Diagnostic::new(
             value.span,
@@ -3528,6 +4563,8 @@ fn template(pieces: &[Piece]) -> Result<Vec<Part>, Diagnostic> {
                     tokens,
                     pos: 0,
                     in_function: false,
+                    asking: false,
+                    in_route: false,
                 };
                 let value = parser.expression()?;
                 let next = parser.peek();
@@ -3592,7 +4629,16 @@ fn starts_value(kind: &TokenKind) -> bool {
             | TokenKind::Found
             | TokenKind::Missing
             | TokenKind::Try
+            | TokenKind::Round
+            | TokenKind::Split
+            | TokenKind::Convert
+            | TokenKind::Ask
     )
+}
+
+/// Whether `token` is the plain word `word`, such as `to` or `cents`.
+fn is_word(token: &Token, word: &str) -> bool {
+    matches!(&token.kind, TokenKind::Identifier(name) if name == word)
 }
 
 fn write_steps(f: &mut fmt::Formatter, steps: &[Access]) -> fmt::Result {
@@ -3630,6 +4676,9 @@ fn contains_record(statement: &Statement) -> bool {
         | Statement::Match { .. }
         | Statement::For { .. }
         | Statement::Function { .. }
+        | Statement::Type { .. }
+        | Statement::Bring { .. }
+        | Statement::Permit { .. }
         | Statement::Fail { .. } => false,
         Statement::Return { value, .. } => value.as_ref().is_some_and(contains_record_expr),
         Statement::Call { args, .. } => args.iter().any(contains_record_expr),
@@ -3638,7 +4687,7 @@ fn contains_record(statement: &Statement) -> bool {
 
 fn contains_record_expr(expr: &Expr) -> bool {
     match &expr.kind {
-        ExprKind::Record { .. } | ExprKind::When(_) => true,
+        ExprKind::Record { .. } | ExprKind::When(_) | ExprKind::Typed { .. } => true,
         ExprKind::List { items, .. } => items.iter().any(contains_record_expr),
         ExprKind::At { list, index, .. } => {
             contains_record_expr(list) || contains_record_expr(index)
@@ -3646,6 +4695,19 @@ fn contains_record_expr(expr: &Expr) -> bool {
         ExprKind::Field { record, .. } => contains_record_expr(record),
         ExprKind::Sum { list, .. } | ExprKind::Get { list, .. } => contains_record_expr(list),
         ExprKind::GetWith { source, .. } => contains_record_expr(source),
+        ExprKind::Round { value, to, .. } => {
+            contains_record_expr(value)
+                || matches!(to, RoundTo::Places(places) if contains_record_expr(places))
+        }
+        ExprKind::Split { amount, parts, .. } => {
+            contains_record_expr(amount) || contains_record_expr(parts)
+        }
+        ExprKind::Percent { percent, of, .. } => {
+            contains_record_expr(percent) || contains_record_expr(of)
+        }
+        ExprKind::Convert { amount, rate, .. } => {
+            contains_record_expr(amount) || contains_record_expr(rate)
+        }
         ExprKind::Where {
             list, condition, ..
         } => contains_record_expr(list) || contains_record_expr(condition),
@@ -3690,6 +4752,7 @@ fn starts_statement(kind: &TokenKind) -> bool {
             | TokenKind::Require
             | TokenKind::Ensure
             | TokenKind::On
+            | TokenKind::Respond
     )
 }
 
@@ -3714,6 +4777,7 @@ fn cover(start: Span, end: Span) -> Span {
         return start;
     }
     Span {
+        file: start.file,
         line: start.line,
         column: start.column,
         length: (end.column + end.length).saturating_sub(start.column),
@@ -3745,6 +4809,7 @@ mod tests {
 
     fn span(line: usize, column: usize, length: usize) -> Span {
         Span {
+            file: 0,
             line,
             column,
             length,
@@ -4358,6 +5423,173 @@ mod tests {
         assert!(empty
             .message
             .starts_with("where needs a condition after it."));
+    }
+
+    #[test]
+    fn a_type_names_its_fields_and_makes_records() {
+        let program = parse_source("type Booking\n  venue: text\n  guests: number where 1..500\n  note: maybe text\nb = Booking venue = \"Hall\", guests = 9, note = missing\nc = Booking\n  venue = \"Garden\"\n  guests = 4\n  note = missing\n").unwrap();
+        let Statement::Type { name, fields, .. } = &program.statements[0] else {
+            panic!("expected a type");
+        };
+        assert_eq!(name, "Booking");
+        assert_eq!(fields.len(), 3);
+        assert_eq!(fields[1].rule.as_ref().unwrap().to_string(), "where 1..500");
+        let Statement::Let { value, .. } = &program.statements[1] else {
+            panic!("expected a value");
+        };
+        assert_eq!(
+            value.to_string(),
+            "Booking venue = \"Hall\", guests = 9, note = missing"
+        );
+        assert!(matches!(program.statements[2], Statement::Let { .. }));
+        let fn_kind =
+            parse_source("fn f(b: Booking) -> list of Booking\n  return list b\n").unwrap();
+        let Statement::Function { params, .. } = &fn_kind.statements[0] else {
+            panic!("expected a function");
+        };
+        assert_eq!(params[0].kind, SigKind::Named("Booking".to_string()));
+    }
+
+    #[test]
+    fn a_type_needs_a_capital_name_and_fields() {
+        let lower = error("type booking\n  venue: text\n");
+        assert_eq!(lower.suggestion.as_deref(), Some("type Booking"));
+        let empty = error("type Booking\nsay 1\n");
+        assert!(empty.message.starts_with("type Booking has no fields."));
+        let twice = error("type Booking\n  venue: text\n  venue: text\n");
+        assert!(twice.message.contains("already has a field called venue"));
+        let inside =
+            error("fn f(n: number) -> number\n  type Booking\n    venue: text\n  return n\n");
+        assert!(inside
+            .message
+            .starts_with("A type is written at the top level"));
+    }
+
+    #[test]
+    fn money_words_are_read_in_full() {
+        let shown = |source: &str| {
+            let program = parse_source(source).unwrap();
+            let Statement::Say { value, .. } = &program.statements[0] else {
+                panic!("expected say");
+            };
+            value.to_string()
+        };
+        assert_eq!(
+            shown("say round up total * 2 to cents\n"),
+            "round up total * 2 to cents"
+        );
+        assert_eq!(shown("say round x to 2 places\n"), "round x to 2 places");
+        assert_eq!(shown("say split 100 USD into 3\n"), "split 100 USD into 3");
+        assert_eq!(
+            shown("say split fee by list 70, 30\n"),
+            "split fee by list 70, 30"
+        );
+        assert_eq!(shown("say 20% of fee + 1 USD\n"), "20% of fee + 1 USD");
+        assert_eq!(
+            shown("say convert 100 USD to EUR at 0.92\n"),
+            "convert 100 USD to EUR at 0.92"
+        );
+        assert_eq!(shown("say 7 % 3\n"), "7 % 3");
+        assert!(error("say convert 100 USD to EUR\n")
+            .message
+            .starts_with("convert needs the rate"));
+        assert!(error("say split 10 USD\n")
+            .message
+            .contains("needs into and a count"));
+        assert!(error("say round x to 2\n")
+            .message
+            .starts_with("round needs places after 2"));
+    }
+
+    #[test]
+    fn bring_names_a_file_or_a_path() {
+        let program = parse_source("bring billing\nbring \"shared/money.ql\"\n").unwrap();
+        assert_eq!(program.statements[0].to_string(), "bring billing");
+        assert_eq!(
+            program.statements[1].to_string(),
+            "bring \"shared/money.ql\""
+        );
+        let dotted = error("bring billing.ql\n");
+        assert_eq!(dotted.suggestion.as_deref(), Some("bring billing"));
+        let inside = error("fn f() -> number\n  bring billing\n  return 1\n");
+        assert!(inside.message.starts_with("bring goes at the top level"));
+        let keyword = error("fn split(n: number) -> number\n  return n\n");
+        assert!(keyword
+            .message
+            .starts_with("split is one of Quill's own words"));
+    }
+
+    #[test]
+    fn permit_names_what_the_program_may_touch() {
+        let program =
+            parse_source("permit read \"config\"\npermit net \"api.stripe.com\"\n").unwrap();
+        assert_eq!(program.statements[0].to_string(), "permit read \"config\"");
+        assert_eq!(
+            program.statements[1].to_string(),
+            "permit net \"api.stripe.com\""
+        );
+        let unknown = error("permit raed \"x\"\n");
+        assert_eq!(unknown.suggestion.as_deref(), Some("permit read"));
+        let bare = error("permit env STRIPE_KEY\n");
+        assert!(bare
+            .message
+            .starts_with("permit env needs the name of a setting, written in quotes."));
+    }
+
+    #[test]
+    fn ask_reads_a_question_and_the_kind_of_its_answer() {
+        let shown = |source: &str| {
+            let program = parse_source(source).unwrap();
+            let Statement::Say { value, .. } = &program.statements[0] else {
+                panic!("expected say");
+            };
+            value.to_string()
+        };
+        assert_eq!(
+            shown("say ask \"Summarize: {text}\"\n"),
+            "ask \"Summarize: {text}\""
+        );
+        assert_eq!(
+            shown("say ask \"Rate it\" as Review\n"),
+            "ask \"Rate it\" as Review"
+        );
+        assert_eq!(
+            shown("say ask \"Name three\" as list of text\n"),
+            "ask \"Name three\" as list of text"
+        );
+        assert!(error("say ask\n")
+            .message
+            .starts_with("ask needs the question"));
+    }
+
+    #[test]
+    fn a_route_becomes_a_function_that_responds() {
+        let program = parse_source("route GET \"/bookings/{id}\"\n  respond 200, id\n").unwrap();
+        let Statement::Function {
+            name, params, body, ..
+        } = &program.statements[0]
+        else {
+            panic!("expected a route");
+        };
+        assert_eq!(name, "route GET /bookings/{id}");
+        let names: Vec<&str> = params.iter().map(|param| param.name.as_str()).collect();
+        assert_eq!(names, ["request", "id"]);
+        assert!(matches!(body[0], Statement::Return { .. }));
+        assert_eq!(
+            error("route get \"/x\"\n  respond 200, 1\n")
+                .suggestion
+                .as_deref(),
+            Some("GET")
+        );
+        assert!(error("route GET \"x\"\n  respond 200, 1\n")
+            .message
+            .starts_with("A route's path starts with /"));
+        assert!(error("route GET \"/x\"\n  return 1\n")
+            .message
+            .starts_with("A route answers with respond"));
+        assert!(error("respond 200, 1\n")
+            .message
+            .starts_with("respond goes inside a route"));
     }
 
     #[test]

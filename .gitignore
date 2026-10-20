@@ -5,3 +5,6 @@
 # Local assistant files
 CLAUDE.md
 .claude/
+
+# Files the examples write when they run
+/examples/*/reports/

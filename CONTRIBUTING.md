@@ -141,6 +141,8 @@ fn double(n: Int) -> Int   -- a planned feature: not run
 ```
 ````
 
+A ```` ```quill,part,file=billing.ql ```` block isn't run. It is written next to every later example in the same chapter, so those examples can `bring billing`.
+
 An `output` block right after an example must match exactly what Quill prints. Add `file=shop.ql` (as in ```` ```quill,error,file=shop.ql ````) to choose the file name an error mentions. After a change that intentionally changes output, refresh the output blocks with `QUILL_BLESS=1 cargo test --test book`, and read the diff to make sure the book still says what you mean.
 
 To read the book as a website while you write, install [mdBook](https://rust-lang.github.io/mdBook/) and run:

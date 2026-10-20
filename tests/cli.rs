@@ -162,7 +162,19 @@ fn test_runs_checks_and_examples() {
     let out = stdout(&output);
     assert!(out.contains("checks.ql: 3 checks passed"));
     assert!(out.contains("receipt.ql: 3 checks passed"));
-    assert!(out.ends_with("\n6 checks passed.\n"), "{out}");
+    assert!(out.contains("bring/billing.ql: 1 check passed"), "{out}");
+    assert!(out.ends_with("\n7 checks passed.\n"), "{out}");
+}
+
+#[test]
+fn test_runs_the_checks_in_one_folder() {
+    let programs = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/programs");
+    let output = quill_in(&programs, &["test", "bring"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    let out = stdout(&output);
+    assert!(out.contains("bring/billing.ql: 1 check passed"), "{out}");
+    assert!(!out.contains("checks.ql"), "{out}");
+    assert!(out.ends_with("\n1 check passed.\n"), "{out}");
 }
 
 #[test]
@@ -375,4 +387,326 @@ fn remainder_overflow_reports_a_problem_without_panicking() {
     let output = quill_in(&dir, &["run", "case.ql"]);
     assert_reported_problem(&output);
     assert!(!stderr(&output).contains("panicked"));
+}
+
+#[test]
+fn bring_uses_the_functions_and_types_of_other_files() {
+    let output = quill(&["run", "tests/programs/bring/app.ql"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "Amina pays 100 USD\n");
+}
+
+#[test]
+fn a_missing_brought_file_suggests_the_closest_one() {
+    let output = quill(&["run", "tests/programs/bring/typo.ql"]);
+    assert_reported_problem(&output);
+    let text = stderr(&output);
+    assert!(text.contains("there's no file biling.ql"), "{text}");
+    assert!(text.contains("Did you mean:  bring billing"), "{text}");
+}
+
+#[test]
+fn a_problem_in_a_brought_file_shows_that_file() {
+    let output = quill(&["run", "tests/programs/bring/uses_broken.ql"]);
+    assert_reported_problem(&output);
+    let text = stderr(&output);
+    assert!(
+        text.starts_with(
+            "Problem on line 2 of tests/programs/bring/broken.ql:\n\n      return \"many\""
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn files_and_settings_need_permits() {
+    let output = quill(&["run", "tests/programs/files/rates.ql"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert_eq!(
+        stdout(&output),
+        "Rates: USD 1\n\nno such file\ntrue\nnot set\n"
+    );
+}
+
+#[test]
+fn a_path_cannot_leave_its_permitted_folder() {
+    let output = quill(&["run", "tests/programs/files/escape.ql"]);
+    assert_reported_problem(&output);
+    let text = stderr(&output);
+    assert!(
+        text.contains("read_file can't read config/../rates.ql"),
+        "{text}"
+    );
+}
+
+#[test]
+fn try_on_its_own_line_explains_on() {
+    let output = quill(&["check", "tests/programs/files/bare_try.ql"]);
+    assert_reported_problem(&output);
+    let text = stderr(&output);
+    assert!(text.contains("try can't stand on a line by itself."), "{text}");
+    assert!(text.contains("on CantWrite -> fail CantWrite"), "{text}");
+    assert!(
+        text.contains("Did you mean:  write_file(\"out/note.txt\", text)"),
+        "{text}"
+    );
+    assert!(!text.contains("say try"), "{text}");
+}
+
+/// Answers each request on a port of this computer with `status` and `body`, and
+/// echoes the request's own body back when it has one.
+fn serve(status: &'static str, body: &'static str) -> u16 {
+    serve_with(status, body, true)
+}
+
+fn serve_with(status: &'static str, body: &'static str, echo: bool) -> u16 {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut length = 0;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut sent = vec![0; length];
+            let _ = reader.read_exact(&mut sent);
+            let reply = if echo && length > 0 {
+                String::from_utf8_lossy(&sent).into_owned()
+            } else {
+                body.to_string()
+            };
+            let mut stream = stream;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+        }
+    });
+    port
+}
+
+fn run_program(source: &str) -> Output {
+    let dir =
+        std::env::temp_dir().join(format!("quill-cli-{}-{}", std::process::id(), source.len()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.ql"), source).unwrap();
+    quill_in(&dir, &["run", "app.ql"])
+}
+
+#[test]
+fn fetch_and_post_talk_to_a_web_service() {
+    let port = serve("200 OK", r#"{"rate": 0.92}"#);
+    let source = format!(
+        "bring http\npermit net \"127.0.0.1\"\n\ntype Rate\n  rate: number\n\n\
+         answer = fetch(\"http://127.0.0.1:{port}/rates\")\n  on NetworkDown -> say \"offline\"\n\
+         say answer.status\nrate = answer.body as Rate\n  on Invalid -> Rate rate = 0\nsay rate.rate\n\
+         reply = post(\"http://127.0.0.1:{port}/echo\", json(list 1, 2))\n  on NetworkDown -> say \"offline\"\n\
+         say reply.body\n"
+    );
+    let output = run_program(&source);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "200\n0.92\n[1,2]\n");
+}
+
+#[test]
+fn an_error_status_is_still_an_answer_and_no_host_is_network_down() {
+    let port = serve("404 Not Found", "no such page");
+    let source = format!(
+        "bring http\npermit net \"127.0.0.1\"\n\
+         answer = fetch(\"http://127.0.0.1:{port}/missing\")\n  on NetworkDown -> say \"offline\"\n\
+         say \"{{answer.status}} {{answer.body}}\"\n\
+         gone = fetch(\"http://127.0.0.1:1/\")\n  on NetworkDown -> say \"offline\"\nsay gone.status\n"
+    );
+    let output = run_program(&source);
+    assert_eq!(
+        stdout(&output),
+        "404 no such page\noffline\n",
+        "stderr: {}",
+        stderr(&output)
+    );
+}
+
+fn run_with_settings(source: &str, settings: &[(&str, String)]) -> Output {
+    let dir =
+        std::env::temp_dir().join(format!("quill-ai-{}-{}", std::process::id(), source.len()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.ql"), source).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_quill"));
+    command
+        .args(["run", "app.ql"])
+        .current_dir(&dir)
+        .env("QUILL_NO_EDITOR_SETUP", "1")
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("QUILL_AI_MODEL");
+    for (name, value) in settings {
+        command.env(name, value);
+    }
+    command.output().expect("quill binary should start")
+}
+
+const ASKING: &str = "bring ai\npermit net \"127.0.0.1\"\npermit env \"ANTHROPIC_API_KEY\"\n";
+
+#[test]
+fn ask_gives_back_the_model_text() {
+    let port = serve_with(
+        "200 OK",
+        r#"{"type":"message","stop_reason":"end_turn","content":[{"type":"text","text":"A short summary."}]}"#,
+        false,
+    );
+    let source = format!(
+        "{ASKING}summary = ask \"Summarize this.\"\n  on ModelFailed -> \"none\"\nsay summary\n"
+    );
+    let output = run_with_settings(
+        &source,
+        &[
+            ("ANTHROPIC_API_KEY", "test".to_string()),
+            ("ANTHROPIC_BASE_URL", format!("http://127.0.0.1:{port}")),
+        ],
+    );
+    assert_eq!(
+        stdout(&output),
+        "A short summary.\n",
+        "stderr: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn ask_as_a_type_checks_the_answer() {
+    let good = serve_with(
+        "200 OK",
+        r#"{"type":"message","stop_reason":"end_turn","content":[{"type":"text","text":"{\"stars\": 4, \"note\": null}"}]}"#,
+        false,
+    );
+    let broken = serve_with(
+        "200 OK",
+        r#"{"type":"message","stop_reason":"end_turn","content":[{"type":"text","text":"{\"stars\": 9, \"note\": null}"}]}"#,
+        false,
+    );
+    let source = format!(
+        "{ASKING}type Review\n  stars: number where 1..5\n  note: maybe text\n\
+         review = ask \"Rate it.\" as Review\n  on ModelFailed -> Review stars = 1, note = missing\n  on Invalid -> Review stars = 3, note = missing\n\
+         say review.stars\n"
+    );
+    for (port, wanted) in [(good, "4\n"), (broken, "3\n")] {
+        let output = run_with_settings(
+            &source,
+            &[
+                ("ANTHROPIC_API_KEY", "test".to_string()),
+                ("ANTHROPIC_BASE_URL", format!("http://127.0.0.1:{port}")),
+            ],
+        );
+        assert_eq!(stdout(&output), wanted, "stderr: {}", stderr(&output));
+    }
+}
+
+#[test]
+fn a_refusal_or_an_error_is_model_failed_and_a_missing_key_stops() {
+    let refused = serve_with(
+        "200 OK",
+        r#"{"type":"message","stop_reason":"refusal","content":[]}"#,
+        false,
+    );
+    let overloaded = serve_with(
+        "529 Overloaded",
+        r#"{"type":"error","error":{"type":"overloaded_error","message":"busy"}}"#,
+        false,
+    );
+    let source =
+        format!("{ASKING}answer = ask \"Hello\"\n  on ModelFailed -> \"no answer\"\nsay answer\n");
+    for port in [refused, overloaded] {
+        let output = run_with_settings(
+            &source,
+            &[
+                ("ANTHROPIC_API_KEY", "test".to_string()),
+                ("ANTHROPIC_BASE_URL", format!("http://127.0.0.1:{port}")),
+            ],
+        );
+        assert_eq!(
+            stdout(&output),
+            "no answer\n",
+            "stderr: {}",
+            stderr(&output)
+        );
+    }
+    let output = run_with_settings(&source, &[]);
+    assert_reported_problem(&output);
+    assert!(
+        stderr(&output).contains("ask needs the setting ANTHROPIC_API_KEY, but it isn't set."),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn ask_works_with_an_openai_compatible_service() {
+    let port = serve_with(
+        "200 OK",
+        r#"{"choices":[{"message":{"role":"assistant","content":"Hello from the service.","refusal":null}}]}"#,
+        false,
+    );
+    let source = "bring ai\npermit net \"127.0.0.1\"\npermit env \"OPENAI_API_KEY\"\n\
+                  answer = ask \"Hello\"\n  on ModelFailed -> \"none\"\nsay answer\n";
+    let output = run_with_settings(
+        source,
+        &[
+            ("OPENAI_API_KEY", "test".to_string()),
+            ("OPENAI_BASE_URL", format!("http://127.0.0.1:{port}/v1")),
+            ("QUILL_AI_MODEL", "local-model".to_string()),
+        ],
+    );
+    assert_eq!(
+        stdout(&output),
+        "Hello from the service.\n",
+        "stderr: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn a_program_with_routes_serves_them() {
+    use std::io::{Read, Write};
+    let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = free.local_addr().unwrap().port();
+    drop(free);
+    let dir = std::env::temp_dir().join(format!("quill-web-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("app.ql"),
+        "bring web\nsay \"ready\"\nroute GET \"/hello/{name}\"\n  respond 200, \"Hello, {name}!\"\n",
+    )
+    .unwrap();
+    let mut server = Command::new(env!("CARGO_BIN_EXE_quill"))
+        .args(["run", "app.ql"])
+        .current_dir(&dir)
+        .env("QUILL_NO_EDITOR_SETUP", "1")
+        .env("PORT", port.to_string())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut reply = String::new();
+    for _ in 0..50 {
+        if let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", port)) {
+            let _ = write!(
+                stream,
+                "GET /hello/Amina HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            );
+            let _ = stream.read_to_string(&mut reply);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    let _ = server.kill();
+    let _ = server.wait();
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+    assert!(reply.ends_with("Hello, Amina!"), "{reply}");
 }

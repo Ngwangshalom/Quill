@@ -4,8 +4,10 @@
 //! where it happened, what went wrong, why, and a likely fix.
 
 /// A place in the source: 1-based line and column, counted in characters.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Span {
+    /// Which file: 0 is the program that was run, and each brought file has its own number.
+    pub file: usize,
     pub line: usize,
     pub column: usize,
     /// How many characters the span covers.
@@ -14,6 +16,8 @@ pub struct Span {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
+    /// The file the problem is in, as in `Span::file`.
+    pub file: usize,
     pub line: usize,
     pub column: usize,
     /// How many characters to underline, starting at `column`.
@@ -27,6 +31,7 @@ pub struct Diagnostic {
 impl Diagnostic {
     pub fn new(span: Span, message: impl Into<String>) -> Self {
         Diagnostic {
+            file: span.file,
             line: span.line,
             column: span.column,
             length: span.length,
@@ -127,6 +132,7 @@ mod tests {
     fn renders_without_suggestion() {
         let diagnostic = Diagnostic::new(
             Span {
+                file: 0,
                 line: 1,
                 column: 5,
                 length: 3,

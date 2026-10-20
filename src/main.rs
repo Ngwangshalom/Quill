@@ -23,6 +23,7 @@ Usage:
   quill lsp                 Report those problems to an editor
   quill test                Run every check and doc example in this folder
   quill test FILE.ql        Run one file and report its checks
+  quill test FOLDER         Run every check and doc example in that folder
   quill explain FILE.ql:N   Show how Quill read line N
   quill new NAME            Create a folder NAME with hello.ql inside
   quill tokens FILE.ql      Show how Quill reads a file, token by token
@@ -93,6 +94,56 @@ A record keeps named fields together. A dot reads one field:
     city = \"Anytown\"
   say address.city
 
+bring uses the functions and types written in another file, next to this one:
+
+  bring billing                -- billing.ql
+  bring \"shared/money.ql\"     -- a file in another folder
+
+permit says what a program may touch outside itself. Anything else is refused:
+
+  permit read \"config\"
+  permit env \"STRIPE_KEY\"
+  rates = read_file(\"config/rates.txt\")
+    on FileMissing -> \"none\"
+
+bring web turns a program into a web service. quill run serves its routes on
+PORT (8080 unless set):
+
+  bring web
+  route GET \"/hello/{name}\"
+    respond 200, \"Hello, {name}!\"
+
+bring ai asks a model. The key you permit chooses Claude or an OpenAI-compatible
+service, and as checks the answer against a type:
+
+  bring ai
+  permit net \"api.anthropic.com\"
+  permit env \"ANTHROPIC_API_KEY\"
+  review = ask \"Rate this review from 1 to 5: {text}\" as Review
+    on ModelFailed -> say \"no answer\"
+    on Invalid -> say \"an answer outside Review's rules\"
+
+bring http talks to web services. The host needs a permit:
+
+  bring http
+  permit net \"api.example.com\"
+  answer = fetch(\"https://api.example.com/rates\")
+    on NetworkDown -> say \"offline\"
+  say answer.status
+
+as reads JSON text as a kind, and json writes a value as JSON:
+
+  booking = body as Booking
+    on Invalid -> say \"That isn't a booking.\"
+  say json(booking)
+
+type names the fields every record of that kind has, with rules on them:
+
+  type Booking
+    venue: text
+    guests: number where 1..500
+  hall = Booking venue = \"Town Hall\", guests = 120
+
 A function names a piece of work. -> names the kind it gives back, and return
 gives that value back. With no ->, call the function on its own line:
 
@@ -105,7 +156,14 @@ gives that value back. With no ->, call the function on its own line:
   greet(\"Amina\")
 
 Money names its currency. 100 USD + 50 USD is 150 USD. 100 USD + 20 EUR
-is a mistake. maybe means the answer might be missing:
+is a mistake. Money never loses a cent:
+
+  say split 100 USD into 3              -- 33.34 USD, 33.33 USD, 33.33 USD
+  say round 10.125 USD to cents         -- 10.12 USD, half to even
+  say 20% of 500 USD                    -- 100 USD
+  say convert 100 USD to EUR at 0.92    -- 92 EUR, at the rate you write
+
+maybe means the answer might be missing:
 
   fn find_price(name: text) -> maybe number
     when
@@ -267,21 +325,48 @@ fn run(path: &str) -> ExitCode {
     let Some(source) = read(path) else {
         return ExitCode::FAILURE;
     };
+    let (chunk, files) = quill::compile_file(path, &source);
+    let chunk = match chunk {
+        Ok(chunk) => chunk,
+        Err(problems) => return finish_files(Err(problems), &files),
+    };
     let mut stdout = io::stdout().lock();
-    let result = quill::run_source(&source, &mut stdout);
+    let result = quill::vm::run(&chunk, &mut stdout).map_err(|problem| vec![problem]);
     let _ = stdout.flush();
-    finish(path, &source, result)
+    drop(stdout);
+    if result.is_err() {
+        return finish_files(result, &files);
+    }
+    // A program with routes answers web requests once its top has run.
+    if quill::web::routes(&chunk).is_empty() {
+        return ExitCode::SUCCESS;
+    }
+    let served = quill::web::port().and_then(|port| quill::web::serve(&chunk, port, &files));
+    match served {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(message) => fail(message, None),
+    }
 }
 
 fn check(path: &str) -> ExitCode {
     let Some(source) = read(path) else {
         return ExitCode::FAILURE;
     };
-    let result = quill::compile_source(&source).map(|_| ());
+    let (result, files) = quill::compile_file(path, &source);
+    let result = result.map(|_| ());
     if result.is_ok() {
         println!("No problems found in {path}.");
     }
-    finish(path, &source, result)
+    finish_files(result, &files)
+}
+
+/// Prints any problems, each with the file it is in, and turns the result into an exit code.
+fn finish_files(result: Result<(), Vec<Diagnostic>>, files: &[quill::bring::File]) -> ExitCode {
+    let Err(problems) = result else {
+        return ExitCode::SUCCESS;
+    };
+    eprint!("{}", quill::bring::render(&problems, files));
+    ExitCode::FAILURE
 }
 
 fn test(target: Option<&str>) -> ExitCode {
@@ -298,10 +383,18 @@ fn test(target: Option<&str>) -> ExitCode {
         }
     };
     let mut files = Vec::new();
-    if let Some(path) = target {
-        files.push(PathBuf::from(path));
-    } else if let Err(message) = collect_tests(&root, &mut files) {
-        return fail(message, None);
+    let folder = match target {
+        Some(path) if Path::new(path).is_dir() => Some(PathBuf::from(path)),
+        Some(path) => {
+            files.push(PathBuf::from(path));
+            None
+        }
+        None => Some(root.clone()),
+    };
+    if let Some(folder) = folder {
+        if let Err(message) = collect_tests(&folder, &mut files) {
+            return fail(message, None);
+        }
     }
     files.sort();
     if files.is_empty() {
@@ -319,10 +412,11 @@ fn test(target: Option<&str>) -> ExitCode {
             failed += 1;
             continue;
         };
-        match quill::compile_source(&source) {
+        let (compiled, brought) = quill::compile_file(&shown, &source);
+        match compiled {
             Err(problems) => {
                 eprintln!("{shown}");
-                report(&shown, &source, &problems);
+                eprint!("{}", quill::bring::render(&problems, &brought));
                 failed += 1;
             }
             Ok(chunk) => {
@@ -338,7 +432,7 @@ fn test(target: Option<&str>) -> ExitCode {
                     }
                     Err(problem) => {
                         eprintln!("{shown}");
-                        report(&shown, &source, &[problem]);
+                        eprint!("{}", quill::bring::render(&[problem], &brought));
                         failed += 1;
                     }
                 }
@@ -411,7 +505,7 @@ fn explain_file(target: &str) -> ExitCode {
             },
         );
     }
-    print!("{}", explain::explain(&source, line));
+    print!("{}", explain::explain_file(path, &source, line));
     ExitCode::SUCCESS
 }
 
@@ -550,20 +644,6 @@ fn relative(path: &Path, root: &Path) -> String {
     } else {
         shown.into_owned()
     }
-}
-
-fn report(path: &str, source: &str, problems: &[Diagnostic]) {
-    let mut text = String::new();
-    for (i, problem) in problems.iter().enumerate() {
-        if i > 0 {
-            text.push('\n');
-        }
-        text.push_str(&problem.render(path, source));
-    }
-    if problems.len() > 1 {
-        let _ = write!(text, "\nQuill found {} problems.\n", problems.len());
-    }
-    eprint!("{text}");
 }
 
 fn tokens(path: &str) -> ExitCode {

@@ -33,7 +33,22 @@
         "try": "failures.html#failures",
         "require": "contracts.html#contracts",
         "ensure": "contracts.html#contracts",
-        "where": "asking.html#only-some-records-where"
+        "where": "asking.html#only-some-records-where",
+        "type": "types.html#types",
+        "round": "money.html#rounding-round",
+        "split": "money.html#sharing-an-amount-split",
+        "convert": "money.html#changing-currency-convert",
+        "bring": "bring.html#bringing-in-other-files",
+        "permit": "permits.html#permits",
+        "as": "json.html#reading-json-as-a-type",
+        "json": "json.html#writing-json",
+        "fetch": "http.html#talking-to-web-services",
+        "http": "http.html#talking-to-web-services",
+        "ask": "ai.html#asking-an-ai-model",
+        "ai": "ai.html#asking-an-ai-model",
+        "route": "web.html#building-a-web-service",
+        "respond": "web.html#respond",
+        "web": "web.html#building-a-web-service"
     };
 
     var search = elasticlunr.Index.prototype.search;

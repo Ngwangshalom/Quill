@@ -2,8 +2,8 @@
 
 use std::io::Write;
 
-use crate::compiler::{Chunk, ContractInfo, Op};
-use crate::decimal::{Decimal, MathError};
+use crate::compiler::{Chunk, ContractInfo, Op, RoundStop};
+use crate::decimal::{minor_digits, Decimal, MathError, Rounding};
 use crate::diagnostic::{Diagnostic, Span};
 use crate::parser::Comparison;
 use crate::value::Value;
@@ -32,12 +32,52 @@ pub fn run_with_stats(
     out: &mut impl Write,
     stats: &mut RunStats,
 ) -> Result<(), Diagnostic> {
-    let mut stack: Vec<Value> = Vec::new();
-    let mut frames = vec![Frame {
+    let frames = vec![Frame {
         function: None,
         slots: vec![None; chunk.slot_count],
         next: 0,
     }];
+    execute(chunk, out, stats, frames).map(|_| ())
+}
+
+/// Calls function `index` of `chunk` with `args`, as a route is called for a request,
+/// and gives back what it gives back.
+pub fn call_function(
+    chunk: &Chunk,
+    index: usize,
+    args: Vec<Value>,
+    out: &mut impl Write,
+) -> Result<Option<Value>, Diagnostic> {
+    let function = chunk
+        .functions
+        .get(index)
+        .ok_or_else(|| internal(Span::default(), "a call to a function that wasn't compiled"))?;
+    let mut slots = vec![None; function.slot_count];
+    for (slot, arg) in args.into_iter().enumerate().take(function.arity) {
+        slots[slot] = Some(arg);
+    }
+    let frames = vec![Frame {
+        function: Some(index),
+        slots,
+        next: 0,
+    }];
+    let mut stack = execute(chunk, out, &mut RunStats::default(), frames)?;
+    Ok(stack.pop())
+}
+
+/// Runs `frames` until the first of them gives back, and gives back what is left on
+/// the stack.
+fn execute(
+    chunk: &Chunk,
+    out: &mut impl Write,
+    stats: &mut RunStats,
+    mut frames: Vec<Frame>,
+) -> Result<Vec<Value>, Diagnostic> {
+    let mut stack: Vec<Value> = Vec::new();
+    let permits = crate::native::Permits {
+        list: chunk.permits.clone(),
+        folder: std::path::PathBuf::from(&chunk.folder),
+    };
 
     loop {
         if frames.is_empty() {
@@ -52,6 +92,7 @@ pub fn run_with_stats(
                 let function = chunk.functions.get(fn_index).ok_or_else(|| {
                     internal(
                         Span {
+                            file: 0,
                             line: 1,
                             column: 1,
                             length: 0,
@@ -70,6 +111,7 @@ pub fn run_with_stats(
                     .unwrap_or("This function");
                 return Err(Diagnostic::new(
                     Span {
+                        file: 0,
                         line: 1,
                         column: 1,
                         length: 0,
@@ -84,6 +126,7 @@ pub fn run_with_stats(
             continue;
         };
         let span = spans.get(at).copied().unwrap_or(Span {
+            file: 0,
             line: 1,
             column: 1,
             length: 0,
@@ -219,6 +262,82 @@ pub fn run_with_stats(
                     return Err(internal(span, "the length of something that isn't a list"));
                 };
                 stack.push(Value::Number(Decimal::from_int(items.len() as i128)));
+            }
+            Op::Round { rule, to } => {
+                let places = match to {
+                    RoundStop::Places => Some(pop_number(&mut stack, span)?),
+                    _ => None,
+                };
+                let value = pop(&mut stack, span)?;
+                stack.push(round_value(value, rule, to, places, span)?);
+            }
+            Op::Split { by_shares } => {
+                let parts = pop(&mut stack, span)?;
+                let amount = pop(&mut stack, span)?;
+                stack.push(split_money(amount, parts, by_shares, span)?);
+            }
+            Op::Convert(index) => {
+                let currency = field_name(chunk, index, span)?;
+                let rate = pop_number(&mut stack, span)?;
+                let Value::Money { amount, .. } = pop(&mut stack, span)? else {
+                    return Err(internal(span, "convert got something that isn't money"));
+                };
+                if rate <= Decimal::ZERO {
+                    return Err(Diagnostic::new(
+                        span,
+                        format!(
+                            "A rate is more than zero, but this one is {rate}.\n\
+                             The rate is how many {currency} one unit of the old currency is worth."
+                        ),
+                    ));
+                }
+                let amount = amount
+                    .checked_mul(rate)
+                    .map_err(|err| math_error(err, Op::Multiply, span))?;
+                stack.push(Value::Money { amount, currency });
+            }
+            Op::Read(index) => {
+                let shape = chunk
+                    .shapes
+                    .get(index)
+                    .ok_or_else(|| internal(span, "a reading as a kind that wasn't compiled"))?;
+                let Value::Text(text) = pop(&mut stack, span)? else {
+                    return Err(internal(span, "as read something that isn't text"));
+                };
+                match crate::json::read(&text, shape) {
+                    Ok(value) => stack.push(value),
+                    Err(_) => stack.push(Value::Failure("Invalid".to_string())),
+                }
+            }
+            Op::Ask(index) => {
+                let shape = chunk
+                    .asks
+                    .get(index)
+                    .ok_or_else(|| internal(span, "a question that wasn't compiled"))?;
+                let Value::Text(question) = pop(&mut stack, span)? else {
+                    return Err(internal(span, "ask got a question that isn't text"));
+                };
+                let answer = crate::ai::ask(&question, shape.as_ref(), &permits)
+                    .map_err(|message| Diagnostic::new(span, message))?;
+                stack.push(answer);
+            }
+            Op::Native(index) => {
+                let arity = crate::native::NATIVES
+                    .get(index)
+                    .map(|native| native.params.len())
+                    .ok_or_else(|| {
+                        internal(span, "a call to a native function that doesn't exist")
+                    })?;
+                let mut args = Vec::with_capacity(arity);
+                for _ in 0..arity {
+                    args.push(pop(&mut stack, span)?);
+                }
+                args.reverse();
+                match crate::native::call(index, args, &permits) {
+                    Ok(crate::native::Outcome::Value(value)) => stack.push(value),
+                    Ok(crate::native::Outcome::Nothing) => {}
+                    Err(message) => return Err(Diagnostic::new(span, message)),
+                }
             }
             Op::Append => {
                 let item = pop(&mut stack, span)?;
@@ -408,7 +527,163 @@ pub fn run_with_stats(
             frame.next = next;
         }
     }
-    Ok(())
+    Ok(stack)
+}
+
+/// `round x`, `round x to cents` or `round x to 2 places`.
+fn round_value(
+    value: Value,
+    rule: Rounding,
+    to: RoundStop,
+    places: Option<Decimal>,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let places = match places {
+        Some(count) => match count.whole() {
+            Some(count @ 0..=20) => count as u32,
+            _ => {
+                return Err(Diagnostic::new(
+                    span,
+                    format!(
+                        "round keeps a whole number of places, from 0 to 20, \
+                         but this asks for {count}.\n\
+                         round x to 2 places keeps 2 digits after the point."
+                    ),
+                ))
+            }
+        },
+        None => 0,
+    };
+    let too_large = |err| math_error(err, Op::Multiply, span);
+    match value {
+        Value::Number(number) => Ok(Value::Number(
+            number.round_to(places, rule).map_err(too_large)?,
+        )),
+        Value::Money { amount, currency } => {
+            let places = match to {
+                RoundStop::Cents => minor_digits(&currency),
+                _ => places,
+            };
+            let amount = amount.round_to(places, rule).map_err(too_large)?;
+            Ok(Value::Money { amount, currency })
+        }
+        _ => Err(internal(span, "round got something that isn't a number")),
+    }
+}
+
+/// `split 100 USD into 3` or `split fee by list 70, 30`. Each part is whole cents, and
+/// the parts add up to the amount: a cent left over goes to the first parts.
+fn split_money(
+    amount: Value,
+    parts: Value,
+    by_shares: bool,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let Value::Money { amount, currency } = amount else {
+        return Err(internal(span, "split got something that isn't money"));
+    };
+    let places = minor_digits(&currency);
+    let unit = if places == 0 {
+        "whole units"
+    } else {
+        "whole cents"
+    };
+    let Some(total) = amount.count_of(places) else {
+        return Err(Diagnostic::new(
+            span,
+            format!(
+                "split shares out {unit}, but {} has a part smaller than that.\n\
+                 Round it first: round it to cents, then split it.",
+                Value::Money {
+                    amount,
+                    currency: currency.clone()
+                }
+            ),
+        ));
+    };
+    let too_large = || math_error(MathError::TooLarge, Op::Multiply, span);
+    let mut counts: Vec<i128> = Vec::new();
+    if by_shares {
+        let Value::List(items) = &parts else {
+            return Err(internal(span, "split by got something that isn't a list"));
+        };
+        let mut shares = Vec::new();
+        for item in items {
+            let Value::Number(share) = item else {
+                return Err(internal(span, "a share isn't a number"));
+            };
+            shares.push(*share);
+        }
+        let negative = shares.iter().any(|share| *share < Decimal::ZERO);
+        let all_zero = shares.iter().all(|share| share.is_zero());
+        if shares.is_empty() || negative || all_zero {
+            return Err(Diagnostic::new(
+                span,
+                format!(
+                    "split by needs shares of zero or more, with at least one above zero, \
+                     but the shares are {}.\n\
+                     split 1000 USD by list 70, 30 gives 700 USD and 300 USD.",
+                    parts.written()
+                ),
+            ));
+        }
+        // Count every share in the same small unit, so the sums stay whole numbers.
+        let scale = 20;
+        let units: Vec<i128> = shares
+            .iter()
+            .map(|share| share.count_of(scale).unwrap_or(0))
+            .collect();
+        let whole: i128 = units
+            .iter()
+            .try_fold(0i128, |sum, units| sum.checked_add(*units))
+            .ok_or_else(too_large)?;
+        for share in &units {
+            let part = total
+                .checked_mul(*share)
+                .ok_or_else(too_large)?
+                .div_euclid(whole);
+            counts.push(part);
+        }
+    } else {
+        let Value::Number(count) = parts else {
+            return Err(internal(
+                span,
+                "split into got something that isn't a number",
+            ));
+        };
+        let count = match count.whole() {
+            Some(count) if count >= 1 => count,
+            _ => {
+                return Err(Diagnostic::new(
+                    span,
+                    format!(
+                        "split makes a whole number of parts, at least 1, \
+                         but this asks for {count}."
+                    ),
+                ))
+            }
+        };
+        let size = usize::try_from(count).map_err(|_| too_large())?;
+        counts = vec![total.div_euclid(count); size];
+    }
+    let given: i128 = counts.iter().sum();
+    let mut left = total - given;
+    for part in counts.iter_mut() {
+        if left <= 0 {
+            break;
+        }
+        *part += 1;
+        left -= 1;
+    }
+    Ok(Value::List(
+        counts
+            .into_iter()
+            .map(|part| Value::Money {
+                amount: Decimal::from_count(part, places),
+                currency: currency.clone(),
+            })
+            .collect(),
+    ))
 }
 
 fn calculate(op: Op, left: Value, right: Value, span: Span) -> Result<Value, Diagnostic> {
@@ -557,6 +832,7 @@ fn broken_contract(
         condition,
         rule,
         names,
+        made,
     } = contract;
     let values: Vec<String> = names
         .iter()
@@ -570,6 +846,13 @@ fn broken_contract(
         [one] => one.clone(),
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     };
+    if let (Some((field, range)), true) = (rule, made) {
+        return format!(
+            "A {function} takes {field} {range}, but {found}.\n\
+             A {function} can't be made with a value outside that range. \
+             Check the value before making the {function}."
+        );
+    }
     if let Some((param, range)) = rule {
         let call = match call_line {
             Some(line) => format!("The call on line {line}"),
@@ -914,6 +1197,7 @@ mod tests {
 
     fn span() -> Span {
         Span {
+            file: 0,
             line: 1,
             column: 1,
             length: 1,
@@ -930,6 +1214,7 @@ mod tests {
             functions: Vec::new(),
             contracts: Vec::new(),
             slot_count,
+            ..Chunk::default()
         }
     }
 
@@ -1446,6 +1731,56 @@ fn withdraw(balance: USD, amount: USD) -> USD
     }
 
     #[test]
+    fn a_type_keeps_its_rules() {
+        let types =
+            "type Booking\n  venue: text\n  guests: number where 1..500\n  note: maybe text\n";
+        let source = format!("{types}fn seats(b: Booking) -> number\n  return b.guests\nb = Booking venue = \"Hall\", guests = 120, note = missing\nsay seats(b)\nsay b\n");
+        assert_eq!(
+            run_source(&source).unwrap(),
+            "120\nvenue: Hall\nguests: 120\nnote: missing\n"
+        );
+        let made = format!(
+            "{types}n = 400 + 200\nb = Booking venue = \"Hall\", guests = n, note = missing\n"
+        );
+        let problem = run_source(&made).unwrap_err();
+        assert_eq!(
+            problem.message,
+            "A Booking takes guests from 1 through 500, but guests is 600.\n\
+             A Booking can't be made with a value outside that range. \
+             Check the value before making the Booking."
+        );
+        let plain = format!("{types}fn seats(b: Booking) -> number\n  return b.guests\nr = record venue = \"x\", guests = 9000, note = missing\nsay seats(r)\n");
+        let problem = run_source(&plain).unwrap_err();
+        assert!(problem
+            .message
+            .starts_with("seats takes b.guests from 1 through 500, but b.guests is 9000."));
+    }
+
+    #[test]
+    fn money_never_loses_a_cent() {
+        let source = "say split 100 USD into 3\nsay split -100 USD into 3\nsay split 1000 USD by list 70, 30\nsay split 10000 XAF into 3\nsay round 10.125 USD to cents\nsay 20% of 500 USD\nsay convert 100 USD to EUR at 0.92\nsay 100 USD * 0.90\nsay 7.5 USD\n";
+        assert_eq!(
+            run_source(source).unwrap(),
+            "33.34 USD, 33.33 USD, 33.33 USD\n-33.33 USD, -33.33 USD, -33.34 USD\n700 USD, 300 USD\n3334 XAF, 3333 XAF, 3333 XAF\n10.12 USD\n100 USD\n92 EUR\n90 USD\n7.50 USD\n"
+        );
+        let part = run_source("say split 10.005 USD into 2\n").unwrap_err();
+        assert!(part
+            .message
+            .starts_with("split shares out whole cents, but 10.005 USD"));
+        let shares = run_source("n = 0 - 3\nsay split 10 USD by list n, 1\n").unwrap_err();
+        assert!(shares.message.contains("the shares are list -3, 1"));
+    }
+
+    #[test]
+    fn json_is_read_into_a_type_and_written_back() {
+        let source = "type Booking\n  venue: text\n  guests: number where 1..500\nok = \"\\{\\\"venue\\\": \\\"Hall\\\", \\\"guests\\\": 120\\}\" as Booking\n  on Invalid -> Booking venue = \"none\", guests = 1\nsay ok.venue\nbad = \"\\{\\\"venue\\\": \\\"Hall\\\", \\\"guests\\\": 900\\}\" as Booking\n  on Invalid -> Booking venue = \"refused\", guests = 1\nsay bad.venue\nsay json(ok)\n";
+        assert_eq!(
+            run_source(source).unwrap(),
+            "Hall\nrefused\n{\"venue\":\"Hall\",\"guests\":120}\n"
+        );
+    }
+
+    #[test]
     fn a_broken_ensure_blames_the_function() {
         let source = format!("{WITHDRAW}say withdraw(10 USD, 30 USD)\n");
         let problem = run_source(&source).unwrap_err();
@@ -1481,15 +1816,15 @@ say grade(10)
     #[test]
     fn a_broken_contract_lists_every_name_it_read() {
         let source = "\
-fn split(total: number, people: number) -> number
+fn split_bill(total: number, people: number) -> number
   require people > 0 and total >= people
   return total / people
-say split(3, 5)
+say split_bill(3, 5)
 ";
         let problem = run_source(source).unwrap_err();
         assert!(
             problem.message.starts_with(
-                "split requires people > 0 and total >= people, but people is 5 and total is 3.\n"
+                "split_bill requires people > 0 and total >= people, but people is 5 and total is 3.\n"
             ),
             "{}",
             problem.message
@@ -1596,7 +1931,7 @@ fn with_vat(price: USD) -> USD
   return price * 1.05
 say with_vat(20 USD)
 ";
-        assert_eq!(run_source(source).unwrap(), "21.00 USD\n");
+        assert_eq!(run_source(source).unwrap(), "21 USD\n");
         let wrong = source.replace("== 105 USD", "== 106 USD");
         let problem = run_source(&wrong).unwrap_err();
         assert_eq!(problem.line, 2);

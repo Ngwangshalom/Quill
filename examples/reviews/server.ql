@@ -1,0 +1,22 @@
+-- A web service that reads customer feedback as JSON, asks a model to rate it,
+-- and answers with a review as JSON.
+--
+-- Run it:   ANTHROPIC_API_KEY=... quill run examples/reviews/server.ql
+-- Try it:   curl -X POST localhost:8080/reviews \
+--             -d '{"product": "Desk lamp", "comment": "Bright, but it wobbles."}'
+bring web
+bring rate
+
+permit net "api.anthropic.com"
+permit env "ANTHROPIC_API_KEY"
+
+route GET "/health"
+  respond 200, "ok"
+
+route GET "/reviews"
+  feedback = request.body as Feedback
+    on Invalid -> respond 400, "Send JSON with a product and a comment."
+  review = rate(feedback)
+    on ModelFailed -> respond 502, "The model couldn't be reached. Try again soon."
+    on Invalid -> respond 502, "The model's answer didn't fit a rating."
+  respond 200, review

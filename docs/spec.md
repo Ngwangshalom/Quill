@@ -83,7 +83,7 @@ A name can't start with a digit: `2x` is a mistake.
 These words have a meaning in Quill and can't be used as names:
 
 ```
-say  check  var  set  when  else  for  in  list  record  of  at  get  sum  with  fn  return  maybe  found  missing  fails  fail  on  try  require  ensure  where  true  false  and  or  not
+say  check  var  set  when  else  for  in  list  record  of  at  get  sum  with  fn  return  maybe  found  missing  fails  fail  on  try  require  ensure  where  type  round  split  convert  bring  permit  as  ask  route  respond  true  false  and  or  not
 ```
 
 ## 4. Kinds of values
@@ -137,6 +137,7 @@ Comparing ignores trailing zeros: `0.10 == 0.1` is `true`.
 
 - Text: its characters, without quotes.
 - Number: as described in §4.2.
+- Money: the amount, a space, and the currency. The amount is shown in whole units (`90 USD`), or with every digit of the currency's smallest unit (`7.50 USD`, not `7.5 USD`; `1.500 KWD`). Digits smaller than that unit stay visible (`0.125 USD`). Most currencies have 2 digits. BIF, CLP, DJF, GNF, ISK, JPY, KMF, KRW, PYG, RWF, UGX, VND, VUV, XAF, XOF and XPF have none. BHD, IQD, JOD, KWD, LYD, OMR and TND have 3.
 - true/false: the word `true` or `false`.
 - list: the items separated by commas, or `an empty list` when there are none. `list "coding", "reading"` is shown as `coding, reading`.
 - record: one field per line, as `name: value`.
@@ -585,7 +586,7 @@ kind      = "text" | "number" | "true/false" | "list" "of" kind
 - A function does not see values created outside it. Pass them in as parameters.
 - A function can call itself, and it can call a function written above it.
 - `return` outside a function is a mistake.
-- Kind names such as `Int` and `Text` are not part of this version. A parameter's kind is `text`, `number`, `true/false`, a currency such as `USD`, `maybe` one of those, or `list of` one of those.
+- A parameter's kind is `text`, `number`, `true/false`, a currency such as `USD`, a type such as `Booking` (§8.11), `maybe` one of those, or `list of` one of those. Kinds are written in lowercase; `Int` and `Text` are not kinds.
 - The first line of the body may be `fails NAME { "," NAME }`. A failure name starts with a capital letter. `fail NAME` leaves the function with that failure, and the name has to be in the list.
 
 ### 8.7 Money
@@ -602,6 +603,24 @@ This shows `150 USD`.
 - `*` and `/` can combine an amount with a plain number: `100 USD * 0.90`, `100 USD / 2`. A number can also come first in a multiplication.
 - The currency is the kind in a function: `price: USD`.
 - A currency written in lowercase, such as `usd`, is a mistake. Write `USD`.
+- "Cents" below means the currency's smallest unit (§4.3).
+
+```
+round [ "up" | "down" ] VALUE [ "to" ( "cents" | VALUE "places" ) ]
+split VALUE "into" VALUE
+split VALUE "by" VALUE
+VALUE "%" "of" VALUE
+convert VALUE "to" CURRENCY "at" VALUE
+```
+
+- `round VALUE` rounds a number or money to a whole number. `to N places` keeps `N` digits after the point, with `N` a whole number from 0 to 20; the result has exactly `N` digits. `to cents` is for money and keeps the currency's smallest unit. Plain `round` goes to the nearest value, and exactly half goes to the even digit (`10.125` → `10.12`, `10.135` → `10.14`). `round up` goes to the next larger value, and `round down` to the next smaller one (`round up -2.1` is `-2`).
+- `split AMOUNT into COUNT` gives a list of `COUNT` amounts in whole cents that add up to `AMOUNT`. `COUNT` is a whole number, at least 1. Each part is `AMOUNT / COUNT` rounded down to cents, and the cents left over go one each to the first parts: `split 100 USD into 3` is `33.34 USD, 33.33 USD, 33.33 USD`.
+- `split AMOUNT by SHARES` gives one amount for each number in the list `SHARES`, in proportion to it. Shares are zero or more, and at least one is above zero. Each part is rounded down to cents, and the cents left over go one each to the first parts.
+- `split` needs an amount with no part smaller than a cent; otherwise the program stops. Round it first.
+- `P% of VALUE` is `VALUE * P / 100`, for a number or money. `P` is a number.
+- `convert AMOUNT to CURRENCY at RATE` is money in `CURRENCY`: `AMOUNT * RATE`. `RATE` is a number above zero. Converting to the same currency is a mistake.
+- These are mistakes found before running: `round` of something that isn't a number or money; `to cents` on a number; places that aren't a whole number from 0 to 20; `split` of something that isn't money, `into` a count that isn't a whole number of at least 1, or `by` something that isn't a list of numbers; `% of` a value that isn't a number or money; `convert` of something that isn't money, to the same currency, at a rate that isn't a number or is a written value of zero or less. When those values are only known while running, the same mistakes stop the program (§10.2).
+- `round`, `split` and `convert` are reserved words (§3.2). `up`, `down`, `to`, `cents`, `places`, `into` and `by` are ordinary names everywhere else.
 
 ### 8.8 Maybe
 
@@ -630,7 +649,7 @@ fn charge(amount: USD) -> text
   - `on NAME -> VALUE`: the value is stored in place of the call's answer, and the program continues. It must be the kind the call gives back (`missing` fits a maybe).
   - Each `on` line chooses for itself, so one failure can give a value while another stops.
 - A call on its own line gives nothing back, so the `on` lines under it run statements. A call after `->` there, like `on Oops -> log("x")`, is run as a statement; any other value is a mistake.
-- `try call` is an expression inside a function whose `fails` list includes every failure of that call. It passes those failures upward.
+- `try call` is an expression inside a function whose `fails` list includes every failure of that call. It passes those failures upward. `try` on a line by itself is a mistake (§7.7); a call on its own line passes a failure upward with `on NAME -> fail NAME`.
 - A call that can fail, with no `on` and no `try`, is a mistake.
 
 ### 8.10 Contracts: `require`, `ensure` and `where`
@@ -654,6 +673,154 @@ fn withdraw(balance: USD, amount: USD) -> USD
 - When a contract is true, nothing happens. When it is false, the program stops (§10.2) with the function's name, the condition, and the value of every name it read. A broken `require` also names the line of the call.
 - These are mistakes: `ensure` on a function with no `->`; `require` that reads `result`; a parameter called `result` in a function with an `ensure`; a condition that isn't true/false; `require` or `ensure` outside a function or below its first other line; a second `fails` line; `where` on a parameter that isn't a number or a currency, on the kind after `->`, with an end that isn't a written value, with an end of another kind, or with its ends in the wrong order.
 - Contracts are not tests: `quill test` does not count them.
+
+### 8.11 Types
+
+A type names the fields every record of that kind has.
+
+```quill
+type Booking
+  venue: text
+  guests: number where 1..500
+  fee: USD
+
+hall = Booking venue = "Town Hall", guests = 120, fee = 500 USD
+```
+
+```
+type NAME NEWLINE INDENT { NAME ":" kind [ "where" bound ".." bound ] NEWLINE } DEDENT
+NAME field { "," field }
+NAME NEWLINE INDENT { field NEWLINE } DEDENT
+```
+
+- A type is written at the top level of a file. Its name starts with a capital letter and is not three capitals (those are currencies). Each field is on its own line, with a kind as in §8.6 and an optional range as in §8.10. A type can be used above the line that writes it.
+- `NAME field, ...` makes a record of the type. It has every field of the type, each of the field's kind, and no others. A `maybe` field is given `missing` or `found VALUE`. The record's fields are kept in the type's order.
+- A record of a type is a record (§5.5): `.`, `get`, `sum` and `where` read it, and it is shown like any record.
+- A field's range is tested each time a record of the type is made. A written number or amount outside it is a mistake found before running; any other value stops the program (§10.2), naming the type, the field, the range and the value.
+- Where a kind names a type (`b: Booking`, `-> Booking`, `list of Booking`), a record with the same fields and kinds fits. A function with a parameter of a type tests that type's ranges when it is called, before its own `require` lines.
+- These are mistakes: a type name that isn't capitalized; two types with the same name; a type with no fields, or two fields with the same name; a type inside a function; a kind naming a type that doesn't exist; a type that holds itself, directly or through `maybe`, `list of` or another type; a record of a type with a field missing, an unknown field, or a field of the wrong kind.
+
+### 8.12 Bringing in files: `bring`
+
+A program can use the functions and types written in other files.
+
+```quill
+bring billing
+bring "shared/money.ql"
+```
+
+- `bring NAME` reads `NAME.ql` in the folder of the file that writes it. `bring "PATH"` reads the file at `PATH`, counted from that folder, with `/` between folders; it must end in `.ql`. `bring` goes at the top level of a file.
+- A brought file holds `fn`, `type` and `bring` lines, comments, and its own tests. Its functions and types can be used by name in the program, as if written above its first line. Its `check` and `--- example:` lines run only when that file itself is run or tested. Any other line in a brought file is a mistake.
+- A file brought twice, directly or through other files, is read once. Files that bring each other in a circle are a mistake.
+- A function or type name written in two different files is a mistake.
+- A problem in a brought file is reported with that file's name and line.
+- `web`, `db`, `ai` and `http` name Quill's modules. `bring web` brings the module, not a file.
+
+### 8.13 Permits, files and settings
+
+A program touches nothing outside itself unless it permits it.
+
+```quill
+permit read "config"
+permit write "reports"
+permit env "STRIPE_KEY"
+permit net "api.stripe.com"
+```
+
+- `permit KIND "TARGET"` goes at the top level of the program that is run. `KIND` is `read` or `write` (a file or folder), `net` (a host), or `env` (a setting). A brought file (§8.12) can't contain a permit.
+- A file or folder permit covers that path and everything inside it, with `.` and `..` worked out first, so `..` can't leave a permitted folder. `"."` covers the program's folder and everything below it. Paths are counted from the program's folder.
+- `permit net` names a host such as `api.stripe.com`, or `*.example.com` for every host below that domain, without `https://` or a path. A host without a port allows any port.
+- `permit env` names one setting, made of letters, digits and `_`.
+- Quill's own functions:
+
+| Function | Gives back | Fails with | Needs |
+|---|---|---|---|
+| `read_file(path: text)` | the file's text | `FileMissing` | `permit read` |
+| `write_file(path: text, text: text)` | nothing; makes missing folders | `CantWrite` | `permit write` |
+| `file_exists(path: text)` | `true/false` | | `permit read` |
+| `env(name: text)` | `maybe text` | | `permit env` |
+| `json(value)` | the value as JSON text (§8.14) | | |
+
+- A call whose path or name is written as text in the call is checked against the permits before running; without a permit it is a mistake. Any other value is checked when the call runs, and without a permit the program stops (§10.2).
+- These names belong to Quill: a function can't be called `read_file`, `write_file`, `file_exists`, `env`, `json`, `fetch`, `post` or `send`.
+
+### 8.14 JSON
+
+```quill
+booking = body as Booking
+  on Invalid -> say "That isn't a booking."
+say json(booking)
+```
+
+- `TEXT as KIND` reads JSON text as `KIND`, any kind a function can name (§8.6). It is a call that can fail with `Invalid`, so it needs `on Invalid` or `try` (§8.9). `as` follows a value, like `.` and `at`.
+- A JSON number or text such as `"500.00"` is read as money of the kind's currency, digit for digit. Numbers are never read through floating point; a number with an exponent, like `1e3`, is `Invalid`.
+- An object is read as a record of a type: every field of the type must be there, except `maybe` fields, which may be `null` or left out and are then `missing`. Fields the type doesn't name are left out. Each field's range (§8.11) must hold. A JSON array is read as `list of KIND`.
+- Anything else that doesn't fit is `Invalid`: text that isn't JSON, a value of another kind, a missing field, or a value outside a range.
+- `json(VALUE)` gives back the value as JSON text. Text becomes a string, numbers and money exact numbers, true/false booleans, lists arrays, records objects with their fields in order, a `found` value its value, and `missing` `null`.
+
+### 8.15 Web requests: `bring http`
+
+```quill
+bring http
+permit net "api.example.com"
+
+answer = fetch("https://api.example.com/rates")
+  on NetworkDown -> say "offline"
+say answer.status
+```
+
+| Function | Sends |
+|---|---|
+| `fetch(url: text)` | a `GET` request |
+| `post(url: text, body: text)` | a `POST` request with the header `Content-Type: application/json` |
+| `send(method: text, url: text, body: text, headers: list of text)` | any of `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`; `""` is no body; each header is `"Name: value"` |
+
+- Each needs `bring http` (§8.12) and a `permit net` (§8.13) covering the URL's host. A URL starts with `https://` or `http://`.
+- Each gives back an answer: a record with `status`, a number, and `body`, text. Any answer the service gives is an answer, including statuses such as `404` and `500`.
+- Each fails with `NetworkDown` when the service can't be reached or doesn't answer within 30 seconds.
+- A method or header that isn't valid stops the program (§10.2).
+
+### 8.16 Asking a model: `bring ai`
+
+```quill
+bring ai
+permit net "api.anthropic.com"
+permit env "ANTHROPIC_API_KEY"
+
+summary = ask "Summarize: {text}"
+  on ModelFailed -> "none"
+review = ask "Rate it: {text}" as Review
+  on ModelFailed -> say "no answer"
+  on Invalid -> say "an answer that broke Review's rules"
+```
+
+- `ask VALUE` sends the text `VALUE` to a model and gives back its answer as text. `ask VALUE as KIND` gives back the answer as `KIND`, any kind a function can name (§8.6). `VALUE` is everything up to `as` or the end of the value.
+- `ask` is a call. It fails with `ModelFailed` when the model can't be reached, answers with an error, declines, or gives no text. `ask ... as KIND` also fails with `Invalid` when the answer doesn't fit `KIND` as `as` reads it (§8.14), including a `where` range.
+- It needs `bring ai`, and a `permit env` for a key, which chooses the provider: `ANTHROPIC_API_KEY` asks Claude; otherwise `OPENAI_API_KEY` asks a service that speaks the OpenAI chat format. The service's host needs a `permit net`. For Claude, a program with no `permit net` at all is a mistake found before running.
+- Settings read without a permit, because they only choose where the request goes: `QUILL_AI_MODEL` (the model; Claude's default is `claude-opus-5-5`, and an OpenAI-compatible service needs it), `ANTHROPIC_BASE_URL` and `OPENAI_BASE_URL` (the service's address). The request still needs a `permit net` for that address.
+- With `as KIND`, the model is sent the kind as a JSON schema: each field is required, a `maybe` field may be `null`, and a range is described in words. A kind that isn't a record is asked for as `{"value": ...}`.
+- When Claude's own API declines a question for a model that offers it, Anthropic's recommended model answers instead.
+- A key permitted but not set, or an OpenAI-compatible service with no `QUILL_AI_MODEL`, stops the program (§10.2).
+
+### 8.17 A web service: `bring web`
+
+```quill
+bring web
+
+route GET "/hello/{name}"
+  respond 200, "Hello, {name}!"
+```
+
+```
+route METHOD "PATH" NEWLINE INDENT { statement } DEDENT
+respond STATUS "," VALUE
+```
+
+- A route is written at the top level of a program that brings `web`. `METHOD` is `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. `PATH` starts with `/`; each `{NAME}` in it matches one part of a requested path and is a text value named `NAME` inside the route, with `%` escapes worked out.
+- Inside a route, `request` is a record with `method`, `path`, `query` (after `?`, or `""`) and `body`, all text. A route doesn't see values created outside it, like a function (§8.6).
+- `respond STATUS, VALUE` ends the route with its answer, as `return` ends a function. `STATUS` is a whole number from 100 through 599. Text is sent as `text/plain`; any other value as JSON (§8.14), as `application/json`. Every path through a route must reach `respond`, which may also stand after `on ... ->`. `return` in a route and `respond` outside one are mistakes.
+- `Request` and `Response` are types the web module gives; a program can't write types with those names.
+- `quill run` runs the program's top level, then answers requests on port `PORT` (8080 when the setting isn't set) until it is stopped. A request runs the route whose method and path match. A path no route has is answered `404`; a path a route has with another method `405`. A route that stops the program (§10.2) is answered `500`, its problem is shown where the server runs, and the server keeps answering. `quill check` and `quill test` don't serve.
 
 ## 9. Tests: `check` and doc examples
 
@@ -719,6 +886,7 @@ A few mistakes can only be found while running. When one happens, the program st
 - a `check` or `--- example:` that is false
 - a `require` or `ensure` that is false, or a value outside a parameter's `where` range (§8.10)
 - a list position past the end, or a position in an empty list
+- a file, host or setting that no permit covers (§8.13)
 
 ### 10.3 How mistakes are reported
 
@@ -749,6 +917,7 @@ Quill never crashes on a mistake in a program. If it ever does, that is a bug in
 | `quill lsp` | Speak the Language Server Protocol on standard input and output. Report the same mistakes as `quill check`, so an editor can underline them. Do not run the program. |
 | `quill test FILE.ql` | Run the selected file, including files with no checks. Missing files and non-`.ql` paths are errors. |
 | `quill test` | Run every `.ql` file in this folder and its subfolders that contains a `check` or `--- example:`, and report how many passed. Folders starting with `.`, and `target`, are skipped. |
+| `quill test FOLDER` | The same as `quill test`, for the files in `FOLDER` and its subfolders. |
 | `quill explain FILE.ql:N` | Show how Quill read line N: what each part means, its kind, and where names were created |
 | `quill new NAME` | Create a folder `NAME` holding a starter `hello.ql` |
 | `quill tokens FILE.ql` | Show the pieces Quill read the file as, with their line and column |
@@ -768,9 +937,6 @@ The README describes these features. They are part of Quill's design but not of 
 
 | Feature | README section |
 |---|---|
-| Parameter kinds written as `Int` or `Text` | Functions, `when` and tests |
-| Named types such as `User` | Constrained types and exact money |
-| Types (`type`) and fields, with `where` on a field | Constrained types and exact money |
 | `require` and `ensure` proven before running (static verification) | Contracts |
 | Permissions: `permit` | Permissions |
 | Modules: `use`, `web`, `db`, `route`, `respond` | A small web API |
@@ -782,7 +948,8 @@ This grammar describes the shape of programs. The rules above add the meaning an
 ```
 program     = { statement | NEWLINE } ;
 
-statement   = say | create | change | check | when | match | for | function | return | call | fail ;
+statement   = say | create | change | check | when | match | for | function | type | return | call | fail ;
+type        = "type" NAME NEWLINE INDENT parameter NEWLINE { parameter NEWLINE } DEDENT ;
 say         = "say" value ;
 create      = [ "var" ] NAME "=" value ;
 change      = "set" NAME { "." NAME | "at" sum } "=" value ;
@@ -799,7 +966,7 @@ function    = "fn" NAME "(" [ parameter { "," parameter } ] ")" [ "->" kind ] NE
 header      = ( "fails" NAME { "," NAME } | "require" value | "ensure" value ) NEWLINE ;
 parameter   = NAME ":" kind [ "where" bound ".." bound ] ;
 bound       = [ "-" ] NUMBER [ CURRENCY ] ;
-kind        = "text" | "number" | "true/false" | CURRENCY | "maybe" kind | "list" "of" kind ;
+kind        = "text" | "number" | "true/false" | CURRENCY | TYPE | "maybe" kind | "list" "of" kind ;
 match       = "when" value NEWLINE INDENT catch { catch } DEDENT ;
 catch       = ( "found" NAME | "missing" ) "->" statement ;
 fail        = "fail" NAME ;
@@ -814,9 +981,13 @@ and         = not { "and" not } ;
 not         = "not" not | comparison ;
 comparison  = sum [ COMPARE sum ] ;
 sum         = product { ( "+" | "-" ) product } ;
-product     = negative { ( "*" | "/" | "%" ) negative } ;
+product     = negative { ( "*" | "/" | "%" ) negative | "%" "of" negative } ;
 negative    = "-" negative | atom { "." NAME | "at" sum } ;
-atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | ask | total | when_value ;
+atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | typed | ask | total | when_value | money ;
+money       = "round" [ "up" | "down" ] sum [ "to" ( "cents" | negative "places" ) ]
+            | "split" sum ( "into" | "by" ) sum
+            | "convert" sum "to" CURRENCY "at" negative ;
+typed       = TYPE ( field { "," field } | NEWLINE INDENT field { field } DEDENT ) ;
 ask         = "get" NAME { "," NAME } "of" negative { "where" or } | "get" NAME "with" NAME "in" negative ;
 total       = "sum" NAME "of" negative { "where" or } ;
 list        = "list" ( "of" ( "text" | "number" | "true/false" ) | sum { "," sum } ) ;

@@ -79,7 +79,7 @@ say with_vat(20 USD)
 ```
 
 ```output
-21.00 USD
+21 USD
 ```
 
 Anyone reading `with_vat` sees what it does and what it gives back before reading a line of its code, and `quill test` proves the examples are still true.
@@ -116,6 +116,59 @@ shop/prices.ql: 4 checks passed
 
 To run just one file, use `quill test shop/prices.ql`. The file runs even if it contains no checks; in that case, the report says `0 checks passed`. A missing file or a path without `.ql` reports a problem.
 
+## Testing one folder
+
+A bigger project keeps its parts in folders. To test one part, name its folder: `quill test shop` runs the files in `shop` and its subfolders that contain a `check` or `--- example:`, and leaves the rest of the project alone.
+
+Here is a small shop. The prices live in one file, with an example above each function:
+
+```quill,part,file=shop/prices.ql
+-- shop/prices.ql: what things cost.
+
+--- example: with_vat(100 USD) == 105 USD
+fn with_vat(price: USD) -> USD
+  return price * 1.05
+
+--- example: bulk_price(10 USD, 12) == 108 USD
+--- example: bulk_price(10 USD, 3) == 30 USD
+fn bulk_price(each: USD, count: number) -> USD
+  return when
+    count >= 10 -> each * count * 0.90
+    else -> each * count
+```
+
+The cart, in the same folder, brings the prices in and checks its own total:
+
+```quill,file=shop/cart.ql
+bring prices
+
+total = with_vat(bulk_price(10 USD, 12))
+check total == 113.40 USD
+say "Total: {total}"
+```
+
+```output
+Total: 113.40 USD
+```
+
+Next to `shop`, a folder called `notes` holds a file you haven't finished, with a check that fails:
+
+```quill,error,file=notes/draft.ql
+check 1 + 1 == 3
+```
+
+`quill test` on its own tests everything, so the draft fails the run. Name the folder instead, and only the shop is tested:
+
+```text
+$ quill test shop
+shop/cart.ql: 1 check passed
+shop/prices.ql: 3 checks passed
+
+4 checks passed.
+```
+
+Each file reports its own checks. `cart.ql` counts only its `check`; the three examples in `prices.ql` run when `prices.ql` itself is tested, not when `cart.ql` brings it in.
+
 The count is the number of successful checks actually executed. Checks inside called functions count, and a check inside a loop counts each time it passes. Skipped branches and functions that are never called do not count. Doc examples count the same way. A failed check stops that file; earlier passes still count in the summary, and project testing continues with the other files.
 
 Run it often, especially before sharing your code.
@@ -126,3 +179,4 @@ Run it often, especially before sharing your code.
 2. Make the check fail on purpose and read the message.
 3. Add a `--- example:` line above a value, then run `quill test`.
 4. Run only that file with `quill test your-file.ql`.
+5. Put the file in a folder called `shop`, and run `quill test shop`.

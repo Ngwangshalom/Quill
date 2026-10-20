@@ -59,6 +59,26 @@ pub enum TokenKind {
     Ensure,
     /// `where`, the smallest and largest a parameter can be: `guests: number where 1..500`.
     Where,
+    /// `type`, naming the fields a kind of record always has.
+    Type,
+    /// `bring billing`, using another file's functions and types, or a Quill module.
+    Bring,
+    /// `permit read "config"`, what the program may touch outside itself.
+    Permit,
+    /// `body as Booking`, reading JSON text as a kind.
+    As,
+    /// `ask "Summarize: {text}"`, a question for an AI model.
+    Ask,
+    /// `route GET "/bookings/{id}"`, what a web server does for one kind of request.
+    Route,
+    /// `respond 200, booking`, a route's answer.
+    Respond,
+    /// `round total to cents`.
+    Round,
+    /// `split 100 USD into 3`, so no cent is lost.
+    Split,
+    /// `convert 100 USD to EUR at 0.92`, with the rate written.
+    Convert,
     True,
     False,
     And,
@@ -120,6 +140,8 @@ pub enum Piece {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub kind: TokenKind,
+    /// Which file the token came from, as in `Span::file`.
+    pub file: usize,
     pub line: usize,
     pub column: usize,
     /// How many characters of source the token covers.
@@ -129,6 +151,7 @@ pub struct Token {
 impl Token {
     pub fn span(&self) -> Span {
         Span {
+            file: self.file,
             line: self.line,
             column: self.column,
             length: self.length,
@@ -183,6 +206,16 @@ impl fmt::Display for TokenKind {
             TokenKind::Require => "require",
             TokenKind::Ensure => "ensure",
             TokenKind::Where => "where",
+            TokenKind::Type => "type",
+            TokenKind::Bring => "bring",
+            TokenKind::Permit => "permit",
+            TokenKind::As => "as",
+            TokenKind::Ask => "ask",
+            TokenKind::Route => "route",
+            TokenKind::Respond => "respond",
+            TokenKind::Round => "round",
+            TokenKind::Split => "split",
+            TokenKind::Convert => "convert",
             TokenKind::True => "true",
             TokenKind::False => "false",
             TokenKind::And => "and",
@@ -344,6 +377,7 @@ impl Lexer {
                 self.column - column
             };
             tokens.push(Token {
+                file: 0,
                 kind,
                 line,
                 column,
@@ -379,6 +413,7 @@ impl Lexer {
     /// A zero-width token at the current position.
     fn marker(&self, kind: TokenKind) -> Token {
         Token {
+            file: 0,
             kind,
             line: self.line,
             column: self.column,
@@ -413,6 +448,7 @@ impl Lexer {
             };
             return Err(Diagnostic::new(
                 Span {
+                    file: 0,
                     line,
                     column: 1,
                     length: width,
@@ -427,6 +463,7 @@ impl Lexer {
                 let unit = if width == 1 { "space" } else { "spaces" };
                 return Err(Diagnostic::new(
                     Span {
+                        file: 0,
                         line,
                         column: 1,
                         length: width,
@@ -449,6 +486,7 @@ impl Lexer {
             if self.indents.last() != Some(&width) {
                 return Err(Diagnostic::new(
                     Span {
+                        file: 0,
                         line,
                         column: 1,
                         length: width.max(1),
@@ -580,6 +618,7 @@ impl Lexer {
         let raw: String = self.chars[start..self.pos].iter().collect();
         let raw = raw.trim_end_matches('\r');
         Diagnostic {
+            file: 0,
             line,
             column,
             length: raw.chars().count(),
@@ -591,6 +630,7 @@ impl Lexer {
     /// A `{value}` inside text. The `{` has not been consumed yet.
     fn code_piece(&mut self) -> Result<Piece, Diagnostic> {
         let open = Span {
+            file: 0,
             line: self.line,
             column: self.column,
             length: 1,
@@ -614,6 +654,7 @@ impl Lexer {
                 Some('{') => {
                     return Err(Diagnostic::new(
                         Span {
+                            file: 0,
                             line: self.line,
                             column: self.column,
                             length: 1,
@@ -649,6 +690,7 @@ impl Lexer {
     fn stray_close_brace(&self) -> Diagnostic {
         Diagnostic::new(
             Span {
+                file: 0,
                 line: self.line,
                 column: self.column,
                 length: 1,
@@ -674,6 +716,7 @@ impl Lexer {
             None | Some('\n') | Some('\r') => return Ok(None),
             Some(other) => {
                 return Err(Diagnostic {
+                    file: 0,
                     line: self.line,
                     column: escape_column,
                     length: 2,
@@ -706,6 +749,7 @@ impl Lexer {
         if self.peek().is_some_and(|c| c.is_alphabetic() || c == '_') {
             let rest = self.take_while(|c| c.is_alphanumeric() || c == '_');
             return Err(Diagnostic {
+            file: 0,
                 line,
                 column,
                 length: number.chars().count() + rest.chars().count(),
@@ -750,6 +794,16 @@ impl Lexer {
             "require" => TokenKind::Require,
             "ensure" => TokenKind::Ensure,
             "where" => TokenKind::Where,
+            "type" => TokenKind::Type,
+            "bring" => TokenKind::Bring,
+            "permit" => TokenKind::Permit,
+            "as" => TokenKind::As,
+            "ask" => TokenKind::Ask,
+            "route" => TokenKind::Route,
+            "respond" => TokenKind::Respond,
+            "round" => TokenKind::Round,
+            "split" => TokenKind::Split,
+            "convert" => TokenKind::Convert,
             "true" => TokenKind::True,
             "false" => TokenKind::False,
             "and" => TokenKind::And,
@@ -844,6 +898,7 @@ fn three_dots(line: usize, column: usize, tokens: &[Token], lexer: &mut Lexer) -
     let end = lexer.take_while(|c| c.is_ascii_digit());
     let start = match tokens.last() {
         Some(Token {
+            file: 0,
             kind: TokenKind::Number(number),
             ..
         }) => number.clone(),
@@ -856,6 +911,7 @@ fn three_dots(line: usize, column: usize, tokens: &[Token], lexer: &mut Lexer) -
     };
     Diagnostic::new(
         Span {
+            file: 0,
             line,
             column,
             length: 3,
@@ -870,6 +926,7 @@ fn three_dots(line: usize, column: usize, tokens: &[Token], lexer: &mut Lexer) -
 
 fn unexpected(c: char, line: usize, column: usize) -> Diagnostic {
     let span = Span {
+        file: 0,
         line,
         column,
         length: 1,
@@ -1384,12 +1441,14 @@ mod tests {
                     source: "name".to_string(),
                     tokens: vec![
                         Token {
+                            file: 0,
                             kind: ident("name"),
                             line: 1,
                             column: 11,
                             length: 4
                         },
                         Token {
+                            file: 0,
                             kind: EndOfFile,
                             line: 1,
                             column: 15,

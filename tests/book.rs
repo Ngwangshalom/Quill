@@ -7,6 +7,8 @@
 //! - ```` ```quill,error ```` must stop with a problem.
 //! - ```` ```quill,ignore ```` isn't run (planned features, fragments).
 //! - Add `file=NAME.ql` to choose the file name errors mention (default `example.ql`).
+//! - ```` ```quill,part,file=billing.ql ```` isn't run. It is written next to every
+//!   later example in the same chapter, so those can `bring billing`.
 //! - An ```` ```output ```` block right after an example is exactly what it
 //!   prints: what `say` shows, then any problem report.
 //!
@@ -26,6 +28,8 @@ struct Example {
     code: String,
     file_name: String,
     expect_error: bool,
+    /// A file for later examples to bring, not run on its own.
+    part: bool,
     /// The expected output, and the lines of the output block's contents.
     output: Option<(String, std::ops::Range<usize>)>,
 }
@@ -47,12 +51,28 @@ fn every_example_in_the_book_works() {
         let text = fs::read_to_string(chapter).unwrap();
         let examples = examples_in(&text);
         let mut blessed: Vec<(std::ops::Range<usize>, String)> = Vec::new();
+        let mut parts: Vec<&Example> = Vec::new();
 
         for example in &examples {
+            if example.part {
+                parts.push(example);
+                continue;
+            }
             count += 1;
             let dir = scratch.join(count.to_string());
             fs::create_dir_all(&dir).unwrap();
-            fs::write(dir.join(&example.file_name), &example.code).unwrap();
+            for part in &parts {
+                let path = dir.join(&part.file_name);
+                if let Some(folder) = path.parent() {
+                    fs::create_dir_all(folder).unwrap();
+                }
+                fs::write(path, &part.code).unwrap();
+            }
+            let path = dir.join(&example.file_name);
+            if let Some(folder) = path.parent() {
+                fs::create_dir_all(folder).unwrap();
+            }
+            fs::write(path, &example.code).unwrap();
             let run = Command::new(env!("CARGO_BIN_EXE_quill"))
                 .args(["run", &example.file_name])
                 .current_dir(&dir)
@@ -167,6 +187,7 @@ fn examples_in(text: &str) -> Vec<Example> {
             code: body,
             file_name,
             expect_error: attributes.contains(&"error"),
+            part: attributes.contains(&"part"),
             output,
         });
     }

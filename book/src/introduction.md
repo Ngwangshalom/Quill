@@ -6,7 +6,7 @@ Quill is a programming language where intent is clear, failures are explicit, an
 
 The words stay close to English. `when` chooses a path. `found` and `missing` both have to be handled. `fails` and `on` name a failure and what to do about it. `check` is a test written next to the code. Those words are Quill's voice.
 
-A bank withdrawal is one kind of service. An account, a booking, an order, a school record, and a job that can fail are others. Asking a model is the same kind of care: the answer may be missing, and the call may fail. Today Quill runs the rules on their own. It does not yet serve requests, store rows in a database, or call a model. Those are the next steps.
+A bank withdrawal is one kind of service. An account, a booking, an order, a school record, and a job that can fail are others. Asking a model is the same kind of care: the answer may be missing, and the call may fail. Quill can [serve requests](web.md), [read and write JSON](json.md), [call other services](http.md), and [ask a model](ai.md). Storing rows in a database is the next step.
 
 ```quill
 price = 12.50

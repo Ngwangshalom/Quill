@@ -135,6 +135,63 @@ impl Decimal {
         })
     }
 
+    /// This number with exactly `places` digits after the point, rounded by `rule`.
+    /// `round 10.125 to 2 places` is 10.12 to nearest (half to even), 10.13 up, 10.12 down.
+    pub fn round_to(self, places: u32, rule: Rounding) -> Result<Decimal, MathError> {
+        if self.scale <= places {
+            let units = pow10(places - self.scale)
+                .and_then(|p| self.units.checked_mul(p))
+                .ok_or(MathError::TooLarge)?;
+            return Ok(Decimal {
+                units,
+                scale: places,
+            });
+        }
+        let divisor = pow10(self.scale - places).ok_or(MathError::TooLarge)?;
+        let units = match rule {
+            Rounding::Nearest => divide_rounding(self.units, divisor),
+            Rounding::Up => {
+                self.units.div_euclid(divisor) + i128::from(self.units.rem_euclid(divisor) != 0)
+            }
+            Rounding::Down => self.units.div_euclid(divisor),
+        };
+        Ok(Decimal {
+            units,
+            scale: places,
+        })
+    }
+
+    /// This number as a whole count of `10^-places`, such as cents for `places` 2.
+    /// `None` when it has a part smaller than that: 10.005 has no whole count of cents.
+    pub fn count_of(self, places: u32) -> Option<i128> {
+        let value = self.trimmed();
+        if value.scale > places {
+            return None;
+        }
+        pow10(places - value.scale).and_then(|p| value.units.checked_mul(p))
+    }
+
+    /// `units` counted in `10^-places`: `from_count(1050, 2)` is 10.50.
+    pub fn from_count(units: i128, places: u32) -> Decimal {
+        Decimal {
+            units,
+            scale: places,
+        }
+    }
+
+    /// An amount of money as it is shown: whole (`150`), or with every digit of its
+    /// smallest unit (`7.50`, not `7.5`). Digits beyond that stay, so nothing is hidden.
+    pub fn as_money(self, places: u32) -> String {
+        let value = self.trimmed();
+        if value.scale == 0 {
+            return value.to_string();
+        }
+        value
+            .with_scale_at_least(places)
+            .unwrap_or(value)
+            .to_string()
+    }
+
     /// The same number without trailing zeros after the point: 1.500 becomes 1.5.
     fn trimmed(self) -> Decimal {
         let mut result = self;
@@ -155,6 +212,28 @@ impl Decimal {
             Some(units) => Ok(Decimal { units, scale }),
             None => Ok(self),
         }
+    }
+}
+
+/// How `round` treats the digits it removes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Rounding {
+    /// To the nearest value. Exactly half goes to the even digit, as banks do.
+    Nearest,
+    /// To the next larger value.
+    Up,
+    /// To the next smaller value.
+    Down,
+}
+
+/// How many digits a currency's smallest unit has. Most have cents (2). Some, like the
+/// Central African franc (XAF) and the yen (JPY), have none. A few have 3.
+pub fn minor_digits(currency: &str) -> u32 {
+    match currency {
+        "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"
+        | "VND" | "VUV" | "XAF" | "XOF" | "XPF" => 0,
+        "BHD" | "IQD" | "JOD" | "KWD" | "LYD" | "OMR" | "TND" => 3,
+        _ => 2,
     }
 }
 
@@ -256,6 +335,32 @@ mod tests {
             return Decimal::parse(positive).unwrap().checked_neg().unwrap();
         }
         Decimal::parse(written).unwrap()
+    }
+
+    #[test]
+    fn rounding_follows_its_rule() {
+        let round = |x: &str, places, rule| d(x).round_to(places, rule).unwrap().to_string();
+        assert_eq!(round("10.125", 2, Rounding::Nearest), "10.12");
+        assert_eq!(round("10.135", 2, Rounding::Nearest), "10.14");
+        assert_eq!(round("10.121", 2, Rounding::Up), "10.13");
+        assert_eq!(round("10.129", 2, Rounding::Down), "10.12");
+        assert_eq!(round("-2.1", 0, Rounding::Up), "-2");
+        assert_eq!(round("-2.1", 0, Rounding::Down), "-3");
+        assert_eq!(round("10.1", 2, Rounding::Nearest), "10.10");
+    }
+
+    #[test]
+    fn money_shows_whole_units_or_every_cent() {
+        assert_eq!(d("90.00").as_money(2), "90");
+        assert_eq!(d("7.5").as_money(2), "7.50");
+        assert_eq!(d("0.125").as_money(2), "0.125");
+        assert_eq!(d("1.5").as_money(3), "1.500");
+        assert_eq!(d("5000").as_money(0), "5000");
+        assert_eq!(minor_digits("XAF"), 0);
+        assert_eq!(minor_digits("USD"), 2);
+        assert_eq!(minor_digits("KWD"), 3);
+        assert_eq!(d("10.50").count_of(2), Some(1050));
+        assert_eq!(d("10.005").count_of(2), None);
     }
 
     fn show(result: Result<Decimal, MathError>) -> String {

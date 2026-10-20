@@ -26,14 +26,18 @@ Quill is a programming language where intent is clear, failures are explicit, an
 
 The syntax stays human-readable. `when`, `found`, `missing`, `fails`, `on`, and `check` are the words that give Quill its voice.
 
-Today Quill can run those rules on their own. It cannot yet be the server around them, and it cannot yet call a model. There is no web server, no database, and no network. `permit`, HTTP, database access, and a basic model call are designed and not built. That is the path to a service you can deploy.
+Quill can call web services and ask AI models, each behind a `permit`. A web server and a database are next. That is the path to a service you can deploy.
 
 What works now:
 
 - **Code reads like what it means.** Indentation-based, no semicolons, no braces.
-- **Money is exact.** `100 USD + 50 USD` is `150 USD`. `0.1 + 0.2` is `0.3`. Dollars and euros cannot be added.
+- **Money is exact.** `100 USD + 50 USD` is `150 USD`. `0.1 + 0.2` is `0.3`. Dollars and euros cannot be added; `convert 100 USD to EUR at 0.92` changes one at the rate you write. `split 100 USD into 3` gives `33.34, 33.33, 33.33`, so no cent is lost, and `round total to cents` rounds the way banks do.
 - **Ask for the data.** `sum fee of roster` adds each fee. `get fee of roster` takes that field. `get place of desk.bookings` reads a field of a list on a record. `students where score >= 50` keeps only the records that match, and `sum fee of roster where paid == false` adds what is still owed. A missing amount is left out. `for` remains when each record needs its own step.
 - **Nothing is missing by surprise.** There is no `null`. A `maybe` says the value might be missing, and both cases have to be handled.
+- **Ask a model, and trust the answer.** `ask "Rate this review: {text}" as Review` asks Claude, or any OpenAI-compatible model, and checks the answer against every rule of `Review`. A model that fails or breaks the rules is a failure the program handles.
+- **Call other services.** `bring http`, then `fetch(url)` or `post(url, json(order))`. The host needs a `permit net`, and `NetworkDown` has to be handled.
+- **JSON you can trust.** `body as Booking` reads JSON and checks every field and rule before the program uses it, or fails with `Invalid`. `json(booking)` writes it back.
+- **Programs grow across files.** `bring billing` uses the functions and types written in billing.ql. A mistake in a brought file names that file.
 - **Failures are part of the function.** `fails Declined` names the failure, `fail Declined` leaves with it, and the caller handles it with `on` (stop, or carry on with a value in its place) or passes it on with `try`.
 - **Functions state their rules.** `require` says what a function needs and `ensure` says what it promises. `where 1..500` gives a parameter its range. A broken one stops the program and names the value that broke it.
 - **Errors teach.** Every error explains what went wrong, why, and how to fix it. `quill explain` shows how Quill read the code.
@@ -178,7 +182,7 @@ The first true case gives the value. `else` is required, so there is always one.
 total = 100 USD + 50 USD
 ```
 
-That is `150 USD`. `100 USD + 20 EUR` is a mistake: Quill will not mix currencies. The currency itself is the kind: `amount: USD`. `amount: USD where 1 USD..10000 USD` also gives it a range.
+That is `150 USD`. `100 USD + 20 EUR` is a mistake: Quill will not mix currencies. `split`, `round`, `20% of fee` and `convert ... at RATE` keep money exact without hiding a cent. The currency itself is the kind: `amount: USD`. `amount: USD where 1 USD..10000 USD` also gives it a range.
 
 ### Asking for data
 
@@ -245,14 +249,17 @@ Proving contracts before the program runs comes later.
 
 ### Permissions
 
-A program can only reach the network, files or system resources it has been granted.
+A program can only reach the network, files or settings it has been granted.
 
 ```quill
-permit net "api.stripe.com"
-permit read "./config"
+permit read "config"
+permit env "STRIPE_KEY"
+
+rates = read_file("config/rates.txt")
+  on FileMissing -> "USD 1"
 ```
 
-Anything else is refused with a clear error, so a compromised dependency can't quietly send your data somewhere.
+Anything else is refused with a clear error, before the program runs when the path is written in the call. A file you bring in can't give itself permits, so a compromised dependency can't quietly read your secrets or send your data somewhere.
 
 ### Executable documentation
 
@@ -327,6 +334,7 @@ Quill stopped here before running anything.
 | `quill lsp` | Underline those errors in an editor |
 | `quill test` | Run project test files and count executed checks and doc examples |
 | `quill test file.ql` | Run one file and count its executed checks and doc examples |
+| `quill test folder` | Run the test files in one folder and its subfolders |
 | `quill explain file.ql:LINE` | Show how the compiler read a line |
 | `quill new NAME` | Start a new project |
 | `quill update` | Choose a version of Quill to install (also `quill upgrade`) |
@@ -373,14 +381,14 @@ Quill is for backend engineering, financial software, automation, reliable busin
 - [x] Exact `Decimal` numbers
 - [x] Money (`100 USD + 50 USD`; mixed currencies are a mistake)
 - [x] Ranges on parameters (`guests: number where 1..500`)
-- [ ] Constrained types (`type` with `where` on its fields)
+- [x] Types with rules on their fields (`type Booking`, `guests: number where 1..500`)
 - [x] `require` / `ensure` contracts (runtime)
 
 **Ecosystem**
-- [ ] Permissions (`permit`)
+- [x] Permissions (`permit`), files, and settings
 - [ ] `web` module: HTTP server and routing
 - [ ] `db` module: PostgreSQL and SQLite
-- [ ] AI module: type-checked model calls
+- [x] AI module: type-checked model calls (`ask ... as Review`), Claude and OpenAI-compatible
 - [x] Syntax highlighting for VS Code and Cursor ([editors/vscode](editors/vscode))
 - [ ] Browser playground (WebAssembly)
 - [ ] Package manager

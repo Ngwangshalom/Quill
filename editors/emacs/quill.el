@@ -72,7 +72,23 @@
 (defface quill-rule
   '((((background light)) :foreground "#1A5270")
     (t :foreground "#6AA8C8"))
-  "where: a range, or the records to keep." :group 'quill)
+  "where and type: a range, the records to keep, a kind of record." :group 'quill)
+(defface quill-money
+  '((((background light)) :foreground "#2E7A5C")
+    (t :foreground "#8FD3B5"))
+  "round, split, and convert: money that never loses a cent." :group 'quill)
+(defface quill-module
+  '((((background light)) :foreground "#3D5270")
+    (t :foreground "#A8C0D8"))
+  "bring, route, and respond: other files, Quill modules, and web routes." :group 'quill)
+(defface quill-permit
+  '((((background light)) :foreground "#8C4E20")
+    (t :foreground "#C47848"))
+  "permit: what a program may touch." :group 'quill)
+(defface quill-ask
+  '((((background light)) :foreground "#8E2C8A")
+    (t :foreground "#E57BE0"))
+  "ask: a question for an AI model." :group 'quill)
 (defface quill-string
   '((((background light)) :foreground "#6B3A22")
     (t :foreground "#F3E6D0"))
@@ -104,7 +120,11 @@
     ("\\b\\(maybe\\|found\\|missing\\)\\b" . 'quill-maybe)
     ("\\b\\(fails\\|fail\\|on\\|try\\)\\b" . 'quill-fail)
     ("\\b\\(require\\|ensure\\)\\b" . 'quill-contract)
-    ("\\b\\(where\\)\\b" . 'quill-rule)
+    ("\\b\\(where\\|type\\|as\\)\\b" . 'quill-rule)
+    ("\\b\\(round\\|split\\|convert\\)\\b" . 'quill-money)
+    ("\\b\\(bring\\|route\\|respond\\)\\b" . 'quill-module)
+    ("\\b\\(permit\\)\\b" . 'quill-permit)
+    ("\\b\\(ask\\)\\b" . 'quill-ask)
     ("\\bensure\\b" ("\\bresult\\b" nil nil (0 'quill-contract)))
     ("\\b\\(true\\|false\\)\\b" . 'quill-truth)
     ("\\b[0-9]+\\(\\.[0-9]+\\)?\\b" . 'quill-number)

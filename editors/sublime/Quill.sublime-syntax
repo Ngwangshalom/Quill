@@ -47,8 +47,16 @@ contexts:
       push: ensure
     - match: '\b(require)\b'
       scope: keyword.other.contract.quill
-    - match: '\b(where)\b'
+    - match: '\b(where|type|as)\b'
       scope: keyword.other.rule.quill
+    - match: '\b(round|split|convert)\b'
+      scope: keyword.other.money.quill
+    - match: '\b(bring|route|respond)\b'
+      scope: keyword.other.module.quill
+    - match: '\b(permit)\b'
+      scope: keyword.other.permit.quill
+    - match: '\b(ask)\b'
+      scope: keyword.other.ask-model.quill
     - match: '\b(true|false)\b'
       scope: constant.language.quill
     - match: '\b\d+(\.\d+)?'

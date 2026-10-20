@@ -9,7 +9,7 @@ use std::process::ExitCode;
 
 use serde_json::{json, Value};
 
-use quill::compile_source;
+use quill::compile_file;
 use quill::diagnostic::Diagnostic;
 
 const MAX_MESSAGE: usize = 2_000_000;
@@ -112,21 +112,73 @@ fn write_diagnostics(output: &mut impl Write, uri: &str, source: &str) {
             "method": "textDocument/publishDiagnostics",
             "params": {
                 "uri": uri,
-                "diagnostics": diagnostics_for(source)
+                "diagnostics": diagnostics_for(uri, source)
             }
         }),
     );
 }
 
-fn diagnostics_for(source: &str) -> Vec<Value> {
-    let problems = match compile_source(source) {
+fn diagnostics_for(uri: &str, source: &str) -> Vec<Value> {
+    // The document's own path, so `bring billing` finds billing.ql next to it.
+    let path = path_of(uri);
+    let (result, files) = compile_file(&path, source);
+    let problems = match result {
         Ok(_) => Vec::new(),
         Err(problems) => problems,
     };
     problems
         .iter()
-        .map(|problem| diagnostic_json(source, problem))
+        .map(|problem| {
+            if problem.file == 0 {
+                return diagnostic_json(source, problem);
+            }
+            // A problem in a brought file is shown on this file's first bring line.
+            let brought = files
+                .get(problem.file)
+                .map_or("", |file| file.path.as_str());
+            let line = source
+                .lines()
+                .position(|line| line.trim_start().starts_with("bring"))
+                .map_or(1, |index| index + 1);
+            let moved = Diagnostic {
+                file: 0,
+                line,
+                column: 1,
+                length: 5,
+                message: format!("In {brought}, line {}: {}", problem.line, problem.message),
+                suggestion: problem.suggestion.clone(),
+            };
+            diagnostic_json(source, &moved)
+        })
         .collect()
+}
+
+/// The file path in a `file://` URI, with `%20` and similar escapes undone.
+fn path_of(uri: &str) -> String {
+    let Some(path) = uri.strip_prefix("file://") else {
+        return "example.ql".to_string();
+    };
+    let bytes = path.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(&path[i + 1..i + 3], 16) {
+                out.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    let decoded = String::from_utf8_lossy(&out).into_owned();
+    // On Windows, file:///C:/x arrives as /C:/x.
+    if cfg!(windows) {
+        decoded.trim_start_matches('/').to_string()
+    } else {
+        decoded
+    }
 }
 
 fn diagnostic_json(source: &str, problem: &Diagnostic) -> Value {
@@ -256,7 +308,7 @@ mod tests {
 
     #[test]
     fn a_correct_program_clears_underlines() {
-        assert!(diagnostics_for("say \"Hello\"\n").is_empty());
+        assert!(diagnostics_for("file:///tmp/hello.ql", "say \"Hello\"\n").is_empty());
     }
 
     #[test]

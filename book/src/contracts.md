@@ -336,7 +336,7 @@ Did you mean:  0 USD
 
 ## Try it
 
-1. Write `fn split(total: USD, people: number) -> USD` that divides a bill. Add `require people > 0`, then call it with `0` people and read what Quill says.
-2. Add `ensure result <= total` to `split`. Call it with `1` person, then with `4`.
+1. Write `fn split_bill(total: USD, people: number) -> USD` that divides a bill. Add `require people > 0`, then call it with `0` people and read what Quill says.
+2. Add `ensure result <= total` to `split_bill`. Call it with `1` person, then with `4`.
 3. Write a function with two `return` lines and one `ensure`. Make one of the returns break the promise, and see which line Quill points to.
-4. Change `split` so `people` is `number where 1..20`. Call it with `25`, then with a value worked out while the program runs, like `10 + 15`. Compare the two messages.
+4. Change `split_bill` so `people` is `number where 1..20`. Call it with `25`, then with a value worked out while the program runs, like `10 + 15`. Compare the two messages.

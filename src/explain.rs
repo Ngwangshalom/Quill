@@ -4,11 +4,16 @@ use crate::checker::{self, KnownValue};
 use crate::lexer;
 use crate::parser::{self, Arm, Contract, Expr, ExprKind, Program, Statement, ValueArm};
 
-/// Describes line `line` (1-based) of `source`.
+/// Describes line `line` (1-based) of `source`, a program with no file of its own.
+pub fn explain(source: &str, line: usize) -> String {
+    explain_file("example.ql", source, line)
+}
+
+/// Describes line `line` (1-based) of the program in `path`, with the files it brings.
 ///
 /// The caller checks that the line exists. The report says what each piece
 /// means, and, when this line has a problem, why Quill stopped.
-pub fn explain(source: &str, line: usize) -> String {
+pub fn explain_file(path: &str, source: &str, line: usize) -> String {
     let line_text = source.lines().nth(line.saturating_sub(1)).unwrap_or("");
     let header = format!("Line {line}:  {line_text}\n");
 
@@ -38,6 +43,12 @@ pub fn explain(source: &str, line: usize) -> String {
                 blocked(&header, problem.line)
             };
         }
+    };
+
+    // With the files it brings, so their functions and types are known.
+    let program = match crate::bring::load(path, source).0 {
+        Ok(whole) => whole,
+        Err(_) => program,
     };
 
     let Some(found) = find(&program.statements, line) else {
@@ -88,7 +99,8 @@ enum Found<'a> {
 }
 
 fn find(statements: &[Statement], line: usize) -> Option<Found<'_>> {
-    for statement in statements {
+    // Lines of brought files have their own numbers.
+    for statement in statements.iter().filter(|statement| statement.file() == 0) {
         if statement.line() == line {
             return Some(Found::Statement(statement));
         }
@@ -299,6 +311,46 @@ impl Describer<'_> {
                     "leave the function with this failure".to_string(),
                 )]
             }
+            Statement::Permit { access, target, .. } => {
+                let what = match access {
+                    crate::parser::Permission::Read => format!("read files in {target}"),
+                    crate::parser::Permission::Write => format!("write files in {target}"),
+                    crate::parser::Permission::Net => format!("talk to {target} over the network"),
+                    crate::parser::Permission::Env => format!("read the setting {target}"),
+                };
+                vec![(
+                    format!("permit {} {target:?}", access.word()),
+                    format!("allow the program to {what}; anything else is refused"),
+                )]
+            }
+            Statement::Bring { target, quoted, .. } => {
+                let file = if *quoted {
+                    target.clone()
+                } else {
+                    format!("{target}.ql")
+                };
+                vec![(
+                    format!("bring {target}"),
+                    format!("use the functions and types written in {file}"),
+                )]
+            }
+            Statement::Type { name, fields, .. } => {
+                let mut rows = vec![(
+                    format!("type {name}"),
+                    format!("a kind of record: every {name} has the fields below"),
+                )];
+                for field in fields {
+                    let mut meaning = format!("a field, {}", field.kind.written());
+                    if let Some(rule) = &field.rule {
+                        meaning.push_str(&format!(
+                            ", {}, checked each time a {name} is made",
+                            rule.range()
+                        ));
+                    }
+                    rows.push((field.name.clone(), meaning));
+                }
+                rows
+            }
             Statement::Call { name, args, .. } => {
                 let mut rows = vec![(
                     format!("{name}()"),
@@ -448,6 +500,13 @@ impl Describer<'_> {
             ExprKind::Logic { .. } | ExprKind::Not(_) => format!("a condition, {kind}"),
             ExprKind::List { .. } => kind,
             ExprKind::Record { .. } => kind,
+            ExprKind::Typed { name, .. } => format!("a new {name}, {kind}"),
+            ExprKind::Round { .. } => format!("a rounded value, {kind}"),
+            ExprKind::Split { .. } => {
+                format!("parts in whole cents that add up to the amount, {kind}")
+            }
+            ExprKind::Percent { .. } => format!("a percent of a value, {kind}"),
+            ExprKind::Convert { .. } => format!("money changed at the rate written, {kind}"),
             ExprKind::At { .. } => format!("an item from a list, {kind}"),
             ExprKind::Field { .. } => format!("a field of a record, {kind}"),
             ExprKind::Sum { .. } => format!("the sum of one field, {kind}"),
@@ -687,6 +746,15 @@ mod tests {
         let source = "a = record name = \"A\", score = 80\nstudents = list a\npassed = students where score >= 50\n";
         let line = explain(source, 3);
         assert!(line.contains("the records whose condition is true"));
+    }
+
+    #[test]
+    fn explains_a_type() {
+        let source = "type Booking\n  venue: text\n  guests: number where 1..500\nb = Booking venue = \"Hall\", guests = 9\n";
+        let line = explain(source, 1);
+        assert!(line.contains("every Booking has the fields below"));
+        assert!(line.contains("from 1 through 500, checked each time a Booking is made"));
+        assert!(explain(source, 4).contains("a new Booking"));
     }
 
     #[test]

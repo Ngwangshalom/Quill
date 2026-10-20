@@ -1,0 +1,10 @@
+-- Asks a model to rate one piece of feedback.
+-- The permits for the model live in server.ql: a brought file can't give itself any.
+bring ai
+bring types
+bring rules
+
+fn rate(f: Feedback) -> Review
+  fails ModelFailed, Invalid
+  rating = try ask "Rate this customer comment about {f.product}: {f.comment}" as Rating
+  return Review product = f.product, stars = rating.stars, summary = rating.summary, needs_reply = needs_reply(rating)

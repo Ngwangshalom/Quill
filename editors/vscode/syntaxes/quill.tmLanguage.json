@@ -23,6 +23,10 @@
     { "include": "#failure" },
     { "include": "#contract" },
     { "include": "#rule" },
+    { "include": "#money" },
+    { "include": "#module" },
+    { "include": "#permit" },
+    { "include": "#ask-model" },
     { "include": "#constant" },
     { "include": "#operator" },
     { "include": "#identifier" }
@@ -159,8 +163,24 @@
         }
       ]
     },
+    "ask-model": {
+      "match": "\\b(ask)\\b",
+      "name": "keyword.other.ask-model.quill"
+    },
+    "permit": {
+      "match": "\\b(permit)\\b",
+      "name": "keyword.other.permit.quill"
+    },
+    "module": {
+      "match": "\\b(bring|route|respond)\\b",
+      "name": "keyword.other.module.quill"
+    },
+    "money": {
+      "match": "\\b(round|split|convert)\\b",
+      "name": "keyword.other.money.quill"
+    },
     "rule": {
-      "match": "\\b(where)\\b",
+      "match": "\\b(where|type|as)\\b",
       "name": "keyword.other.rule.quill"
     },
     "constant": {

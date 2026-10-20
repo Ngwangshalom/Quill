@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use crate::decimal::Decimal;
+use crate::decimal::{minor_digits, Decimal};
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -87,7 +87,9 @@ impl fmt::Display for Value {
                 }
                 Ok(())
             }
-            Value::Money { amount, currency } => write!(f, "{amount} {currency}"),
+            Value::Money { amount, currency } => {
+                write!(f, "{} {currency}", amount.as_money(minor_digits(currency)))
+            }
             Value::Found(value) => write!(f, "found {value}"),
             Value::Missing => write!(f, "missing"),
             Value::Failure(name) => write!(f, "{name}"),
@@ -114,7 +116,9 @@ impl Value {
                     .collect();
                 format!("record {}", shown.join(", "))
             }
-            Value::Money { amount, currency } => format!("{amount} {currency}"),
+            Value::Money { amount, currency } => {
+                format!("{} {currency}", amount.as_money(minor_digits(currency)))
+            }
             Value::Found(value) => format!("found {}", value.written()),
             Value::Missing => "missing".to_string(),
             Value::Failure(name) => name.clone(),

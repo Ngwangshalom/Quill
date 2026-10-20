@@ -2,10 +2,11 @@
 
 use std::collections::HashMap;
 
-use crate::decimal::Decimal;
+use crate::decimal::{Decimal, Rounding};
 use crate::diagnostic::{Diagnostic, Span};
 use crate::parser::{
-    Arithmetic, Comparison, Contract, Expr, ExprKind, Logic, Part, Program, Recovery, Statement,
+    Arithmetic, Comparison, Contract, Expr, ExprKind, Logic, Param, Part, Permission, Program,
+    Recovery, RoundTo, SigKind, Statement,
 };
 use crate::value::Value;
 
@@ -51,6 +52,25 @@ pub enum Op {
     Length,
     /// Pop an item and a list, and push the list with the item added at the end.
     Append,
+    /// Pop a number or money and push it rounded. `Places` pops the count of places first.
+    Round {
+        rule: Rounding,
+        to: RoundStop,
+    },
+    /// Pop parts and an amount of money, and push the list of parts in whole cents.
+    /// `by_shares`: the parts are a list of shares. Otherwise they are a count.
+    Split {
+        by_shares: bool,
+    },
+    /// Pop a rate and money, and push the money in the currency named by `constants[index]`.
+    Convert(usize),
+    /// Call Quill's own function `native::NATIVES[index]`. The arguments are on the stack.
+    Native(usize),
+    /// Pop JSON text and push it read as `shapes[index]`, or the failure Invalid.
+    Read(usize),
+    /// Pop a question, ask the model, and push the answer: text, or `asks[index]` when
+    /// that is a shape. Or push the failure ModelFailed or Invalid.
+    Ask(usize),
     /// Pop an index and a list, and push the item. Position 1 is the first item.
     GetAt,
     /// Pop a new item, an index and a list, and push the list with that item replaced.
@@ -101,6 +121,14 @@ pub enum Op {
     Contract(usize),
 }
 
+/// Where `Op::Round` stops.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RoundStop {
+    Whole,
+    Cents,
+    Places,
+}
+
 /// A `require` or `ensure` line, kept so a broken one can say what happened.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContractInfo {
@@ -114,6 +142,9 @@ pub struct ContractInfo {
     pub rule: Option<(String, String)>,
     /// The names the condition reads, with their slot in the function's frame.
     pub names: Vec<(String, usize)>,
+    /// `true` when the rule is a type's, checked as a record of that type is made.
+    /// `function` is then the type's name.
+    pub made: bool,
 }
 
 /// A compiled function. Its jumps point into `code`, not the main program.
@@ -146,12 +177,21 @@ pub struct Chunk {
     pub functions: Vec<Function>,
     /// Every `require` and `ensure`, for `Op::Contract`.
     pub contracts: Vec<ContractInfo>,
+    /// Every `permit` the program writes.
+    pub permits: Vec<(Permission, String)>,
+    /// What each `as KIND` reads, for `Op::Read`.
+    pub shapes: Vec<crate::json::Shape>,
+    /// The kind each `ask` answers with, for `Op::Ask`. `None` is text.
+    pub asks: Vec<Option<crate::json::Shape>>,
+    /// The program's folder. Paths in it are counted from here.
+    pub folder: String,
 }
 
 pub fn compile(program: &Program) -> Result<Chunk, Diagnostic> {
     let mut compiler = Compiler {
         sum_currencies: crate::checker::sum_currencies(program),
         where_fields: crate::checker::where_fields(program),
+        types: crate::checker::program_types(program),
         chunk: Chunk::default(),
         code: Vec::new(),
         spans: Vec::new(),
@@ -184,6 +224,8 @@ struct Compiler {
     sum_currencies: Vec<(Span, String)>,
     /// The fields each `where` condition reads, found by the checker.
     where_fields: Vec<(Span, Vec<String>)>,
+    /// Every `type`, for the `where` rules of its fields.
+    types: Vec<crate::checker::KnownType>,
     chunk: Chunk,
     /// Instructions for the code being compiled: the main program, or one function.
     code: Vec<Op>,
@@ -358,6 +400,12 @@ impl Compiler {
             Statement::Fail { name, span } => {
                 self.constant(Value::Text(name.clone()), *span);
                 self.emit(Op::Fail, *span);
+            }
+            // A type only names fields. Records of it are made where they are written.
+            Statement::Type { .. } => {}
+            Statement::Bring { .. } => {}
+            Statement::Permit { access, target, .. } => {
+                self.chunk.permits.push((*access, target.clone()));
             }
             Statement::Return { value, span } => match value {
                 Some(value) => {
@@ -557,6 +605,52 @@ impl Compiler {
             ExprKind::Where {
                 list, condition, ..
             } => self.filter(list, condition, span)?,
+            ExprKind::Typed { name, record, .. } => self.typed(name, record, span)?,
+            ExprKind::Round { value, rule, to } => {
+                self.expression(value)?;
+                let to = match to {
+                    RoundTo::Whole => RoundStop::Whole,
+                    RoundTo::Cents => RoundStop::Cents,
+                    RoundTo::Places(places) => {
+                        self.expression(places)?;
+                        RoundStop::Places
+                    }
+                };
+                self.emit(Op::Round { rule: *rule, to }, span);
+            }
+            ExprKind::Split {
+                amount,
+                parts,
+                by_shares,
+            } => {
+                self.expression(amount)?;
+                self.expression(parts)?;
+                self.emit(
+                    Op::Split {
+                        by_shares: *by_shares,
+                    },
+                    span,
+                );
+            }
+            // `20% of fee` is `fee * 20 / 100`, which stays exact.
+            ExprKind::Percent { percent, of, .. } => {
+                self.expression(of)?;
+                self.expression(percent)?;
+                self.emit(Op::Multiply, span);
+                self.constant(Value::Number(Decimal::from_int(100)), span);
+                self.emit(Op::Divide, span);
+            }
+            ExprKind::Convert {
+                amount,
+                currency,
+                rate,
+                ..
+            } => {
+                self.expression(amount)?;
+                self.expression(rate)?;
+                let index = self.field_name(currency);
+                self.emit(Op::Convert(index), span);
+            }
             ExprKind::GetWith {
                 field,
                 nested,
@@ -622,6 +716,19 @@ impl Compiler {
                 }
             }
         }
+        // A parameter of a type keeps that type's rules, even when it was written as a
+        // plain record.
+        for (slot, param) in params.iter().enumerate() {
+            if let SigKind::Named(type_name) = &param.kind {
+                for field in self.type_fields(type_name) {
+                    if let Some(rule) = &field.rule {
+                        let shown = format!("{}.{}", param.name, field.name);
+                        let at = param.kind_span;
+                        self.field_rule(name, slot, &field.name, &shown, rule, false, at)?;
+                    }
+                }
+            }
+        }
         for contract in contracts.iter().filter(|contract| !contract.ensure) {
             self.contract(name, contract)?;
         }
@@ -684,6 +791,84 @@ impl Compiler {
         compiled
     }
 
+    fn type_fields(&self, name: &str) -> Vec<Param> {
+        self.types
+            .iter()
+            .find(|known| known.name == name)
+            .map(|known| known.fields.clone())
+            .unwrap_or_default()
+    }
+
+    /// `Booking venue = "Town Hall", guests = 120`: the record, with its fields in the
+    /// type's order, after each field's `where` is tested.
+    fn typed(&mut self, name: &str, record: &Expr, span: Span) -> Result<(), Diagnostic> {
+        let ExprKind::Record { fields } = &record.kind else {
+            return Err(Diagnostic::new(
+                span,
+                "Quill made a typed record without its fields.",
+            ));
+        };
+        let wanted = self.type_fields(name);
+        let mut names = Vec::new();
+        for field in &wanted {
+            let Some(given) = fields.iter().find(|given| given.name == field.name) else {
+                continue;
+            };
+            self.expression(&given.value)?;
+            names.push(field.name.clone());
+        }
+        let index = self.chunk.records.len();
+        self.chunk.records.push(names);
+        self.emit(Op::Record(index), span);
+        let slot = self.fresh_slot();
+        self.emit(Op::Store(slot), span);
+        for field in &wanted {
+            if let Some(rule) = &field.rule {
+                self.field_rule(name, slot, &field.name, &field.name, rule, true, span)?;
+            }
+        }
+        self.emit(Op::Load(slot), span);
+        Ok(())
+    }
+
+    /// Tests one field's `where` on the record in `slot`. `shown` names the value in a
+    /// broken rule: `guests`, or `booking.guests` for a parameter.
+    #[allow(clippy::too_many_arguments)]
+    fn field_rule(
+        &mut self,
+        owner: &str,
+        slot: usize,
+        field: &str,
+        shown: &str,
+        rule: &crate::parser::Rule,
+        made: bool,
+        span: Span,
+    ) -> Result<(), Diagnostic> {
+        self.emit(Op::Load(slot), span);
+        let index = self.field_name(field);
+        self.emit(Op::GetField(index), span);
+        let value_slot = self.fresh_slot();
+        self.emit(Op::Store(value_slot), span);
+        let previous = self.slots.insert(shown.to_string(), value_slot);
+        let tested = self.expression(&rule.condition(shown));
+        match previous {
+            Some(old) => self.slots.insert(shown.to_string(), old),
+            None => self.slots.remove(shown),
+        };
+        tested?;
+        let contract = self.chunk.contracts.len();
+        self.chunk.contracts.push(ContractInfo {
+            function: owner.to_string(),
+            ensure: false,
+            condition: format!("{shown} {rule}"),
+            rule: Some((shown.to_string(), rule.range())),
+            names: vec![(shown.to_string(), value_slot)],
+            made,
+        });
+        self.emit(Op::Contract(contract), span);
+        Ok(())
+    }
+
     /// Pushes the condition and tests it with `Op::Contract`.
     fn contract(&mut self, function: &str, contract: &Contract) -> Result<(), Diagnostic> {
         self.expression(&contract.condition)?;
@@ -700,6 +885,7 @@ impl Compiler {
             condition: contract.condition.to_string(),
             rule: None,
             names,
+            made: false,
         });
         self.emit(Op::Contract(index), contract.span);
         Ok(())
@@ -713,7 +899,36 @@ impl Compiler {
         args: &[Expr],
         span: Span,
     ) -> Result<(), Diagnostic> {
-        let Some(&index) = self.functions.get(name) else {
+        if let Some(&index) = self.functions.get(name) {
+            for arg in args {
+                self.expression(arg)?;
+            }
+            self.emit(Op::Call(index), span);
+            return Ok(());
+        }
+        if name == crate::parser::ASK || crate::parser::kind_asked(name).is_some() {
+            for arg in args {
+                self.expression(arg)?;
+            }
+            let shape = crate::parser::kind_asked(name)
+                .map(|kind| crate::json::shape_of(&kind, &self.types));
+            let index = self.chunk.asks.len();
+            self.chunk.asks.push(shape);
+            self.emit(Op::Ask(index), span);
+            return Ok(());
+        }
+        if let Some(kind) = crate::parser::kind_read_as(name) {
+            for arg in args {
+                self.expression(arg)?;
+            }
+            let index = self.chunk.shapes.len();
+            self.chunk
+                .shapes
+                .push(crate::json::shape_of(&kind, &self.types));
+            self.emit(Op::Read(index), span);
+            return Ok(());
+        }
+        let Some((index, _)) = crate::native::find(name) else {
             return Err(Diagnostic::new(
                 name_span,
                 format!(
@@ -725,7 +940,7 @@ impl Compiler {
         for arg in args {
             self.expression(arg)?;
         }
-        self.emit(Op::Call(index), span);
+        self.emit(Op::Native(index), span);
         Ok(())
     }
 
@@ -1027,15 +1242,22 @@ impl Compiler {
             return Ok(());
         };
         self.call(name, *name_span, args, inner.span)?;
-        let Some(&index) = self.functions.get(name) else {
-            return Ok(());
+        let fails = match self.functions.get(name) {
+            Some(&index) => self
+                .chunk
+                .functions
+                .get(index)
+                .map(|function| function.fails.clone())
+                .unwrap_or_default(),
+            None if crate::parser::kind_read_as(name).is_some() => vec!["Invalid".to_string()],
+            None if crate::parser::kind_asked(name).is_some() => {
+                vec!["ModelFailed".to_string(), "Invalid".to_string()]
+            }
+            None if name == crate::parser::ASK => vec!["ModelFailed".to_string()],
+            None => crate::native::find(name)
+                .map(|(_, native)| native.fails.iter().map(|fail| fail.to_string()).collect())
+                .unwrap_or_default(),
         };
-        let fails = self
-            .chunk
-            .functions
-            .get(index)
-            .map(|function| function.fails.clone())
-            .unwrap_or_default();
         let mut jumps = Vec::new();
         for failure in &fails {
             let name_index = self.chunk.constants.len();

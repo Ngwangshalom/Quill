@@ -5,10 +5,7 @@ const { spawn } = require("child_process");
 // Light colors sit on paper. Change PALETTE_MARK when these colors change,
 // or an editor that already saved the old set will keep it.
 //
-// Reserved until the language has the word. Do not paint these yet:
-//   type      type           #6AA8C8  /  #1A5270  (shared with rule: where)
-//   permit    permit         #C47848  /  #8C4E20
-//   module    use, route, respond #A8C0D8 / #3D5270
+// A word gets a color only once the language has it.
 const DARK = {
   say: "#F0A35E",
   when: "#7EAEF5",
@@ -27,6 +24,10 @@ const DARK = {
   failure: "#E08A8A",
   contract: "#C8A06A",
   rule: "#6AA8C8",
+  money: "#8FD3B5",
+  module: "#A8C0D8",
+  permit: "#C47848",
+  ask: "#E57BE0",
   number: "#E7C98A",
   string: "#F3E6D0",
   name: "#F7F1E8",
@@ -53,6 +54,10 @@ const LIGHT = {
   failure: "#A33B3B",
   contract: "#7A5A20",
   rule: "#1A5270",
+  money: "#2E7A5C",
+  module: "#3D5270",
+  permit: "#8C4E20",
+  ask: "#8E2C8A",
   number: "#9A4A12",
   string: "#6B3A22",
   name: "#1C1916",
@@ -61,7 +66,7 @@ const LIGHT = {
   escape: "#C45C12",
 };
 
-const PALETTE_MARK = { dark: "#6AA8C8", light: "#1A5270" };
+const PALETTE_MARK = { dark: "#E57BE0", light: "#8E2C8A" };
 
 const SCOPE = {
   say: "keyword.other.say.quill",
@@ -81,6 +86,10 @@ const SCOPE = {
   failure: "keyword.other.failure.quill",
   contract: "keyword.other.contract.quill, variable.language.result.quill",
   rule: "keyword.other.rule.quill",
+  money: "keyword.other.money.quill",
+  module: "keyword.other.module.quill",
+  permit: "keyword.other.permit.quill",
+  ask: "keyword.other.ask-model.quill",
   number: "constant.numeric.quill",
   string:
     "string.quoted.double.quill, string.quoted.triple.quill, punctuation.definition.string.begin.quill, punctuation.definition.string.end.quill",
