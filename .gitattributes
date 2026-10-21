@@ -1,0 +1,5 @@
+# Quill files and the programs and data the tests read keep \n line endings on
+# every system. Without this, git on Windows checks them out with \r\n, and a test
+# that reads a file with read_file sees "USD 1\r\n" instead of "USD 1\n".
+*.quill text eol=lf
+tests/programs/** text eol=lf
