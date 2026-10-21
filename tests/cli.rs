@@ -444,7 +444,10 @@ fn try_on_its_own_line_explains_on() {
     let output = quill(&["check", "tests/programs/files/bare_try.quill"]);
     assert_reported_problem(&output);
     let text = stderr(&output);
-    assert!(text.contains("try can't stand on a line by itself."), "{text}");
+    assert!(
+        text.contains("try can't stand on a line by itself."),
+        "{text}"
+    );
     assert!(text.contains("on CantWrite -> fail CantWrite"), "{text}");
     assert!(
         text.contains("Did you mean:  write_file(\"out/note.txt\", text)"),
