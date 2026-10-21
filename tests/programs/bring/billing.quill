@@ -1,5 +1,5 @@
--- Brought into app.ql: functions and types only.
-bring "shared/money.ql"
+-- Brought into app.quill: functions and types only.
+bring "shared/money.quill"
 
 --- example: deposit(1000 USD) == 200 USD
 fn deposit(fee: USD) -> USD

@@ -6,8 +6,8 @@
 //! - ```` ```quill ```` must run without problems.
 //! - ```` ```quill,error ```` must stop with a problem.
 //! - ```` ```quill,ignore ```` isn't run (planned features, fragments).
-//! - Add `file=NAME.ql` to choose the file name errors mention (default `example.ql`).
-//! - ```` ```quill,part,file=billing.ql ```` isn't run. It is written next to every
+//! - Add `file=NAME.quill` to choose the file name errors mention (default `example.quill`).
+//! - ```` ```quill,part,file=billing.quill ```` isn't run. It is written next to every
 //!   later example in the same chapter, so those can `bring billing`.
 //! - An ```` ```output ```` block right after an example is exactly what it
 //!   prints: what `say` shows, then any problem report.
@@ -165,7 +165,7 @@ fn examples_in(text: &str) -> Vec<Example> {
         let file_name = attributes
             .iter()
             .find_map(|a| a.strip_prefix("file="))
-            .unwrap_or("example.ql")
+            .unwrap_or("example.quill")
             .to_string();
 
         // An output block may follow, after blank lines.

@@ -22,10 +22,21 @@ use std::io::Write;
 use compiler::Chunk;
 use diagnostic::Diagnostic;
 
+/// The ending of a Quill file: `billing.quill`.
+pub const EXTENSION: &str = ".quill";
+/// The ending Quill files had before 0.8. It still works, with a note to rename.
+pub const OLD_EXTENSION: &str = ".ql";
+
+/// `path` without its Quill ending, when it has one.
+pub fn quill_stem(path: &str) -> Option<&str> {
+    path.strip_suffix(EXTENSION)
+        .or_else(|| path.strip_suffix(OLD_EXTENSION))
+}
+
 /// Runs every stage up to bytecode, stopping at the first stage with problems.
 /// Files it brings are found next to the folder Quill runs in.
 pub fn compile_source(source: &str) -> Result<Chunk, Vec<Diagnostic>> {
-    compile_file("example.ql", source).0
+    compile_file("example.quill", source).0
 }
 
 /// Compiles the program in `path`, with every file it brings. The files come back
@@ -50,7 +61,7 @@ pub fn compile_file(
 
 /// Compiles and runs `source`, writing what it says to `out`.
 pub fn run_source(source: &str, out: &mut impl Write) -> Result<(), Vec<Diagnostic>> {
-    run_file("example.ql", source, out).0
+    run_file("example.quill", source, out).0
 }
 
 /// Compiles and runs the program in `path`, with every file it brings.

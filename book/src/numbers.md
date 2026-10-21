@@ -118,7 +118,7 @@ say 10 / 0
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     say 10 / 0
              ^
@@ -136,7 +136,7 @@ say 100 / count
 
 ```output
 Starting
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     say 100 / count
         ^^^^^^^^^^^
@@ -150,13 +150,13 @@ You'll learn how to handle this with `when` in [Making Decisions](decisions.md).
 
 Calculations only work on numbers. Adding text to a number is a mistake, and Quill finds it before running anything:
 
-```quill,error,file=shop.ql
+```quill,error,file=shop.quill
 price = 100
 total = price + "5"
 ```
 
 ```output
-Problem on line 2 of shop.ql:
+Problem on line 2 of shop.quill:
 
     total = price + "5"
                     ^^^

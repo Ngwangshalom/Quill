@@ -1,10 +1,10 @@
 {
   "name": "quill",
   "displayName": "Quill",
-  "description": "Quill colors, the feather icon, and mistake underlines for .ql files.",
+  "description": "Quill colors, the feather icon, and mistake underlines for .quill files.",
   "main": "./extension.js",
   "activationEvents": ["onLanguage:quill"],
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "quill",
   "license": "Apache-2.0",
   "engines": {
@@ -25,7 +25,7 @@
       {
         "id": "quill",
         "aliases": ["Quill", "quill"],
-        "extensions": [".ql"],
+        "extensions": [".quill", ".ql"],
         "configuration": "./language-configuration.json",
         "icon": {
           "light": "./icons/quill-light.png",

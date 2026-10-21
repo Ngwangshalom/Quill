@@ -81,7 +81,7 @@ receipt = charge(0 USD)
 ```
 
 ```output
-Problem on line 8 of example.ql:
+Problem on line 8 of example.quill:
 
       on Declined -> 0
                      ^

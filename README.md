@@ -37,7 +37,7 @@ What works now:
 - **Ask a model, and trust the answer.** `ask "Rate this review: {text}" as Review` asks Claude, or any OpenAI-compatible model, and checks the answer against every rule of `Review`. A model that fails or breaks the rules is a failure the program handles.
 - **Call other services.** `bring http`, then `fetch(url)` or `post(url, json(order))`. The host needs a `permit net`, and `NetworkDown` has to be handled.
 - **JSON you can trust.** `body as Booking` reads JSON and checks every field and rule before the program uses it, or fails with `Invalid`. `json(booking)` writes it back.
-- **Programs grow across files.** `bring billing` uses the functions and types written in billing.ql. A mistake in a brought file names that file.
+- **Programs grow across files.** `bring billing` uses the functions and types written in billing.quill. A mistake in a brought file names that file.
 - **Failures are part of the function.** `fails Declined` names the failure, `fail Declined` leaves with it, and the caller handles it with `on` (stop, or carry on with a value in its place) or passes it on with `try`.
 - **Functions state their rules.** `require` says what a function needs and `ensure` says what it promises. `where 1..500` gives a parameter its range. A broken one stops the program and names the value that broke it.
 - **Errors teach.** Every error explains what went wrong, why, and how to fix it. `quill explain` shows how Quill read the code.
@@ -63,7 +63,7 @@ Or download a build for your system from the [Releases page](https://github.com/
 
 ```bash
 quill new hello
-quill run hello/hello.ql
+quill run hello/hello.quill
 ```
 
 To update later, run `quill update` and choose a version with the arrow keys. Quill also tells you when a new version is out (set `QUILL_NO_UPDATE_CHECK=1` to turn that off).
@@ -74,7 +74,7 @@ Building from source needs [Rust](https://rustup.rs): `cargo install --git https
 
 **[The Quill Programming Language](book/src/SUMMARY.md)** is a book that teaches Quill from the very beginning, for new and experienced programmers. It grows with the language, and every example in it is tested.
 
-The first time you run Quill, Cursor and VS Code get Quill's own colors, the feather on every `.ql` file, and underlines for mistakes. The feather is pale on a dark editor and deep blue on a light one. Each kind of word has its own color: `say` is nib orange `#F0A35E`, `when` is feather blue `#7EAEF5`, and `true` is green `#5ECA8C`. Vim, Emacs, and Sublime detect `.ql` files from [`editors`](editors). `quill lsp` sends the same mistakes to any editor. Set `QUILL_NO_EDITOR_SETUP=1` to leave Cursor and VS Code alone.
+The first time you run Quill, Cursor and VS Code get Quill's own colors, the feather on every `.quill` file, and underlines for mistakes. The feather is pale on a dark editor and deep blue on a light one. Each kind of word has its own color: `say` is nib orange `#F0A35E`, `when` is feather blue `#7EAEF5`, and `true` is green `#5ECA8C`. Vim, Emacs, and Sublime detect `.quill` files from [`editors`](editors). `quill lsp` sends the same mistakes to any editor. Set `QUILL_NO_EDITOR_SETUP=1` to leave Cursor and VS Code alone.
 
 ## A tour of Quill
 
@@ -237,7 +237,7 @@ fn book(guests: number where 1..500) -> text
 A broken contract stops the program and says which value broke it, and whose mistake it was:
 
 ```
-Problem on line 2 of bank.ql:
+Problem on line 2 of bank.quill:
 
       require amount > 0 USD
       ^^^^^^^^^^^^^^^^^^^^^^
@@ -299,7 +299,7 @@ route POST "/bookings"
 ## Errors that teach
 
 ```
-Problem on line 4 of shop.ql:
+Problem on line 4 of shop.quill:
 
     total = price + "5"
                     ^^^
@@ -310,7 +310,7 @@ Add or subtract two amounts in the same currency, like 100 USD + 50 USD.
 And when you want to see how Quill understood your code:
 
 ```
-$ quill explain shop.ql:4
+$ quill explain shop.quill:4
 
 Line 4:  total = price + "5"
 
@@ -329,13 +329,13 @@ Quill stopped here before running anything.
 
 | Command | What it does |
 |---|---|
-| `quill run file.ql` | Run a program |
-| `quill check file.ql` | Find errors without running anything |
+| `quill run file.quill` | Run a program |
+| `quill check file.quill` | Find errors without running anything |
 | `quill lsp` | Underline those errors in an editor |
 | `quill test` | Run project test files and count executed checks and doc examples |
-| `quill test file.ql` | Run one file and count its executed checks and doc examples |
+| `quill test file.quill` | Run one file and count its executed checks and doc examples |
 | `quill test folder` | Run the test files in one folder and its subfolders |
-| `quill explain file.ql:LINE` | Show how the compiler read a line |
+| `quill explain file.quill:LINE` | Show how the compiler read a line |
 | `quill new NAME` | Start a new project |
 | `quill update` | Choose a version of Quill to install (also `quill upgrade`) |
 
@@ -348,7 +348,7 @@ Quill stopped here before running anything.
 Quill is implemented in **Rust**, which gives it a single-binary install, a fast virtual machine, memory safety, and a WebAssembly build for an in-browser playground.
 
 ```
-source (.ql) → lexer → parser → checker → bytecode compiler → virtual machine
+source (.quill) → lexer → parser → checker → bytecode compiler → virtual machine
 ```
 
 The checker is where Quill earns its keep: type mismatches, unhandled cases, missing values, undeclared failures and broken contracts are caught before anything runs.

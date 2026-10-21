@@ -108,7 +108,7 @@ say key
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     key = read_file("secrets/key.txt")
                     ^^^^^^^^^^^^^^^^^
@@ -130,7 +130,7 @@ say key
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
     key = read_file(path)
           ^^^^^^^^^^^^^^^
@@ -151,7 +151,7 @@ say read_file("config/rates.txt")
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     say read_file("config/rates.txt")
         ^^^^^^^^^
@@ -166,7 +166,7 @@ permit net "https://api.stripe.com/v1"
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     permit net "https://api.stripe.com/v1"
                ^^^^^^^^^^^^^^^^^^^^^^^^^^^

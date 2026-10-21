@@ -119,7 +119,7 @@ fn write_diagnostics(output: &mut impl Write, uri: &str, source: &str) {
 }
 
 fn diagnostics_for(uri: &str, source: &str) -> Vec<Value> {
-    // The document's own path, so `bring billing` finds billing.ql next to it.
+    // The document's own path, so `bring billing` finds billing.quill next to it.
     let path = path_of(uri);
     let (result, files) = compile_file(&path, source);
     let problems = match result {
@@ -156,7 +156,7 @@ fn diagnostics_for(uri: &str, source: &str) -> Vec<Value> {
 /// The file path in a `file://` URI, with `%20` and similar escapes undone.
 fn path_of(uri: &str) -> String {
     let Some(path) = uri.strip_prefix("file://") else {
-        return "example.ql".to_string();
+        return "example.quill".to_string();
     };
     let bytes = path.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -287,7 +287,7 @@ mod tests {
         input.extend(frame(json!({
             "jsonrpc": "2.0",
             "method": "textDocument/didOpen",
-            "params": { "textDocument": { "uri": "file:///shop.ql", "text": "say missing" } }
+            "params": { "textDocument": { "uri": "file:///shop.quill", "text": "say missing" } }
         })));
         let mut output = Vec::new();
         serve_with(&mut Cursor::new(input), &mut output);
@@ -300,7 +300,7 @@ mod tests {
             .iter()
             .find(|message| message["method"] == "textDocument/publishDiagnostics")
             .expect("an underline");
-        assert_eq!(published["params"]["uri"], "file:///shop.ql");
+        assert_eq!(published["params"]["uri"], "file:///shop.quill");
         let diagnostic = &published["params"]["diagnostics"][0];
         assert_eq!(diagnostic["range"]["start"]["line"], 0);
         assert!(diagnostic["message"].as_str().unwrap().contains("missing"));
@@ -308,7 +308,7 @@ mod tests {
 
     #[test]
     fn a_correct_program_clears_underlines() {
-        assert!(diagnostics_for("file:///tmp/hello.ql", "say \"Hello\"\n").is_empty());
+        assert!(diagnostics_for("file:///tmp/hello.quill", "say \"Hello\"\n").is_empty());
     }
 
     #[test]

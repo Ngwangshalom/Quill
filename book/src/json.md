@@ -141,7 +141,7 @@ say point.x
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
     point = "[]" as Point
                  ^^^^^^^^
@@ -162,7 +162,7 @@ point = 5 as Point
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
     point = 5 as Point
             ^

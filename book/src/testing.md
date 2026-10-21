@@ -31,7 +31,7 @@ check total == 37.50
 ```
 
 ```output
-Problem on line 5 of example.ql:
+Problem on line 5 of example.quill:
 
     check total == 37.50
     ^^^^^^^^^^^^^^^^^^^^
@@ -94,7 +94,7 @@ fn with_vat(price: USD) -> USD
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     --- example: with_vat(100 USD) == 105 USD
                  ^^^^^^^^
@@ -104,17 +104,17 @@ An example runs after the fn right below it. Move this example directly above fn
 
 ## Running every test: quill test
 
-`quill test` looks through the current folder and its subfolders, runs every `.ql` file that contains a `check` or `--- example:`, and reports the results:
+`quill test` looks through the current folder and its subfolders, runs every `.quill` file that contains a `check` or `--- example:`, and reports the results:
 
 ```text
 $ quill test
-shop/hello.ql: 1 check passed
-shop/prices.ql: 4 checks passed
+shop/hello.quill: 1 check passed
+shop/prices.quill: 4 checks passed
 
 5 checks passed.
 ```
 
-To run just one file, use `quill test shop/prices.ql`. The file runs even if it contains no checks; in that case, the report says `0 checks passed`. A missing file or a path without `.ql` reports a problem.
+To run just one file, use `quill test shop/prices.quill`. The file runs even if it contains no checks; in that case, the report says `0 checks passed`. A missing file or a path without `.quill` reports a problem.
 
 ## Testing one folder
 
@@ -122,8 +122,8 @@ A bigger project keeps its parts in folders. To test one part, name its folder: 
 
 Here is a small shop. The prices live in one file, with an example above each function:
 
-```quill,part,file=shop/prices.ql
--- shop/prices.ql: what things cost.
+```quill,part,file=shop/prices.quill
+-- shop/prices.quill: what things cost.
 
 --- example: with_vat(100 USD) == 105 USD
 fn with_vat(price: USD) -> USD
@@ -139,7 +139,7 @@ fn bulk_price(each: USD, count: number) -> USD
 
 The cart, in the same folder, brings the prices in and checks its own total:
 
-```quill,file=shop/cart.ql
+```quill,file=shop/cart.quill
 bring prices
 
 total = with_vat(bulk_price(10 USD, 12))
@@ -153,7 +153,7 @@ Total: 113.40 USD
 
 Next to `shop`, a folder called `notes` holds a file you haven't finished, with a check that fails:
 
-```quill,error,file=notes/draft.ql
+```quill,error,file=notes/draft.quill
 check 1 + 1 == 3
 ```
 
@@ -161,13 +161,13 @@ check 1 + 1 == 3
 
 ```text
 $ quill test shop
-shop/cart.ql: 1 check passed
-shop/prices.ql: 3 checks passed
+shop/cart.quill: 1 check passed
+shop/prices.quill: 3 checks passed
 
 4 checks passed.
 ```
 
-Each file reports its own checks. `cart.ql` counts only its `check`; the three examples in `prices.ql` run when `prices.ql` itself is tested, not when `cart.ql` brings it in.
+Each file reports its own checks. `cart.quill` counts only its `check`; the three examples in `prices.quill` run when `prices.quill` itself is tested, not when `cart.quill` brings it in.
 
 The count is the number of successful checks actually executed. Checks inside called functions count, and a check inside a loop counts each time it passes. Skipped branches and functions that are never called do not count. Doc examples count the same way. A failed check stops that file; earlier passes still count in the summary, and project testing continues with the other files.
 
@@ -178,5 +178,5 @@ Run it often, especially before sharing your code.
 1. Write a program that calculates the area of a 4 by 2.5 rectangle, with a `check` that the answer is 10.
 2. Make the check fail on purpose and read the message.
 3. Add a `--- example:` line above a value, then run `quill test`.
-4. Run only that file with `quill test your-file.ql`.
+4. Run only that file with `quill test your-file.quill`.
 5. Put the file in a folder called `shop`, and run `quill test shop`.

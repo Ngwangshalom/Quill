@@ -24,7 +24,9 @@ This document says exactly what Quill programs mean. The [README](https://github
 
 ## 1. Programs and files
 
-A Quill program is a text file ending in `.ql`, written in UTF-8. Quill reads it from top to bottom and runs each statement in order.
+A Quill program is a text file ending in `.quill`, written in UTF-8. Quill reads it from top to bottom and runs each statement in order.
+
+Before 0.8, Quill files ended in `.ql`. Such a file still runs, checks and tests, with a note on standard error asking to rename it (in color in a terminal, unless the setting `NO_COLOR` is set), and `bring NAME` reads `NAME.ql` when there's no `NAME.quill`. A later version will stop reading `.ql` files.
 
 Before anything runs, Quill reads the whole file and checks it (§10). If it finds any mistake, nothing runs at all.
 
@@ -706,10 +708,10 @@ A program can use the functions and types written in other files.
 
 ```quill
 bring billing
-bring "shared/money.ql"
+bring "shared/money.quill"
 ```
 
-- `bring NAME` reads `NAME.ql` in the folder of the file that writes it. `bring "PATH"` reads the file at `PATH`, counted from that folder, with `/` between folders; it must end in `.ql`. `bring` goes at the top level of a file.
+- `bring NAME` reads `NAME.quill` in the folder of the file that writes it. `bring "PATH"` reads the file at `PATH`, counted from that folder, with `/` between folders; it must end in `.quill`. `bring` goes at the top level of a file.
 - A brought file holds `fn`, `type` and `bring` lines, comments, and its own tests. Its functions and types can be used by name in the program, as if written above its first line. Its `check` and `--- example:` lines run only when that file itself is run or tested. Any other line in a brought file is a mistake.
 - A file brought twice, directly or through other files, is read once. Files that bring each other in a circle are a mistake.
 - A function or type name written in two different files is a mistake.
@@ -893,7 +895,7 @@ A few mistakes can only be found while running. When one happens, the program st
 Every problem is reported the same way: where it is, what went wrong, why, and, when Quill can tell, what you probably meant:
 
 ```
-Problem on line 2 of shop.ql:
+Problem on line 2 of shop.quill:
 
     total = price + "5"
                     ^^^
@@ -911,16 +913,16 @@ Quill never crashes on a mistake in a program. If it ever does, that is a bug in
 
 | Command | What it does |
 |---|---|
-| `quill run FILE.ql` | Check the program, then run it |
-| `quill FILE.ql` | Same as `quill run` |
-| `quill check FILE.ql` | Check for mistakes without running anything |
+| `quill run FILE.quill` | Check the program, then run it |
+| `quill FILE.quill` | Same as `quill run` |
+| `quill check FILE.quill` | Check for mistakes without running anything |
 | `quill lsp` | Speak the Language Server Protocol on standard input and output. Report the same mistakes as `quill check`, so an editor can underline them. Do not run the program. |
-| `quill test FILE.ql` | Run the selected file, including files with no checks. Missing files and non-`.ql` paths are errors. |
-| `quill test` | Run every `.ql` file in this folder and its subfolders that contains a `check` or `--- example:`, and report how many passed. Folders starting with `.`, and `target`, are skipped. |
+| `quill test FILE.quill` | Run the selected file, including files with no checks. Missing files and non-`.quill` paths are errors. |
+| `quill test` | Run every `.quill` file in this folder and its subfolders that contains a `check` or `--- example:`, and report how many passed. Folders starting with `.`, and `target`, are skipped. |
 | `quill test FOLDER` | The same as `quill test`, for the files in `FOLDER` and its subfolders. |
-| `quill explain FILE.ql:N` | Show how Quill read line N: what each part means, its kind, and where names were created |
-| `quill new NAME` | Create a folder `NAME` holding a starter `hello.ql` |
-| `quill tokens FILE.ql` | Show the pieces Quill read the file as, with their line and column |
+| `quill explain FILE.quill:N` | Show how Quill read line N: what each part means, its kind, and where names were created |
+| `quill new NAME` | Create a folder `NAME` holding a starter `hello.quill` |
+| `quill tokens FILE.quill` | Show the pieces Quill read the file as, with their line and column |
 | `quill update [VERSION]` | Install a release of Quill. With no version, shows a menu of every release to choose from with the arrow keys (or installs the latest when there's no terminal). `VERSION` is a version like `0.2.0`, or `latest`. Works for copies installed with the installer; a copy built from source explains how to update it with `cargo`. `quill upgrade` is another name for this command. |
 | `quill help` | Show help |
 | `quill version` | Show the version |

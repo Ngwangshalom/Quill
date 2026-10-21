@@ -33,7 +33,7 @@ name = "Omar"
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
     name = "Omar"
     ^^^^
@@ -53,7 +53,7 @@ greeting = "Hello"
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     say greeting
         ^^^^^^^^

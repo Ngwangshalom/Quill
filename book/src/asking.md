@@ -64,7 +64,7 @@ say sum name of roster
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     say sum name of roster
             ^^^^
@@ -144,7 +144,7 @@ say get name, name of roster
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     say get name, name of roster
                   ^^^^
@@ -239,7 +239,7 @@ say get bookings with guest in roster
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     say get bookings with guest in roster
                           ^^^^^
@@ -363,7 +363,7 @@ say people at 1.name
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
     say people at 1.name
                     ^^^^
@@ -383,7 +383,7 @@ say students where scor >= 50
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
     say students where scor >= 50
                  ^^^^^
@@ -413,7 +413,7 @@ say scores where scores > 50
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     say scores where scores > 50
                ^^^^^

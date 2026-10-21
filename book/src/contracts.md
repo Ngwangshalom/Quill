@@ -25,7 +25,7 @@ Together they are the function's contract: what it needs, and what it promises. 
 
 If the caller passes a value the function doesn't accept, the program stops at the `require` line. Quill says what the value was, and which call passed it:
 
-```quill,error,file=bank.ql
+```quill,error,file=bank.quill
 fn withdraw(balance: USD, amount: USD) -> USD
   require amount > 0 USD
   ensure result >= 0 USD
@@ -35,7 +35,7 @@ say withdraw(100 USD, -5 USD)
 ```
 
 ```output
-Problem on line 2 of bank.ql:
+Problem on line 2 of bank.quill:
 
       require amount > 0 USD
       ^^^^^^^^^^^^^^^^^^^^^^
@@ -49,7 +49,7 @@ A broken `require` is the caller's mistake. `withdraw` never ran a line of its o
 
 If the function is about to give back a value that breaks its own promise, the program stops at the `ensure` line instead:
 
-```quill,error,file=bank.ql
+```quill,error,file=bank.quill
 fn withdraw(balance: USD, amount: USD) -> USD
   require amount > 0 USD
   ensure result >= 0 USD
@@ -59,7 +59,7 @@ say withdraw(10 USD, 30 USD)
 ```
 
 ```output
-Problem on line 3 of bank.ql:
+Problem on line 3 of bank.quill:
 
       ensure result >= 0 USD
       ^^^^^^^^^^^^^^^^^^^^^^
@@ -135,7 +135,7 @@ say pay(250 USD)
 
 When the call passes a value written right there, like `book(600)`, Quill catches it before the program runs:
 
-```quill,error,file=hall.ql
+```quill,error,file=hall.quill
 fn book(guests: number where 1..500) -> text
   return "Booked for {guests} guests"
 
@@ -143,7 +143,7 @@ say book(600)
 ```
 
 ```output
-Problem on line 4 of hall.ql:
+Problem on line 4 of hall.quill:
 
     say book(600)
              ^^^
@@ -153,7 +153,7 @@ Line 1 says guests where 1..500. Give book a value in that range.
 
 When the value is only known while the program runs, the call stops at the rule, the same way a broken `require` does:
 
-```quill,error,file=hall.ql
+```quill,error,file=hall.quill
 fn book(guests: number where 1..500) -> text
   return "Booked for {guests} guests"
 
@@ -162,7 +162,7 @@ say book(guests)
 ```
 
 ```output
-Problem on line 1 of hall.ql:
+Problem on line 1 of hall.quill:
 
     fn book(guests: number where 1..500) -> text
                            ^^^^^^^^^^^^
@@ -253,7 +253,7 @@ fn greet(name: text)
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
       ensure name != ""
       ^^^^^^^^^^^^^^^^^
@@ -270,7 +270,7 @@ fn double(n: number) -> number
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
       require result > 0
       ^^^^^^^^^^^^^^^^^^
@@ -288,7 +288,7 @@ fn double(n: number) -> number
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
       require n > 0
       ^^^^^^^
@@ -304,7 +304,7 @@ fn grade(score: number where 100..0) -> text
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     fn grade(score: number where 100..0) -> text
                            ^^^^^^^^^^^^
@@ -322,7 +322,7 @@ fn pay(amount: USD where 0..100 USD) -> USD
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     fn pay(amount: USD where 0..100 USD) -> USD
                              ^

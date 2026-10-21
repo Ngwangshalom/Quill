@@ -107,7 +107,7 @@ answer = ask "Hello"
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     answer = ask "Hello"
              ^^^
@@ -127,7 +127,7 @@ answer = ask "Hello"
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     answer = ask "Hello"
              ^^^
@@ -148,7 +148,7 @@ answer = ask "Hello"
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
     answer = ask "Hello"
              ^^^
@@ -169,7 +169,7 @@ say ask "Hello"
 ```
 
 ```output
-Problem on line 5 of example.ql:
+Problem on line 5 of example.quill:
 
     say ask "Hello"
         ^^^

@@ -32,7 +32,7 @@ when find_price("bread")
 ```
 
 ```output
-Problem on line 6 of example.ql:
+Problem on line 6 of example.quill:
 
     when find_price("bread")
     ^^^^

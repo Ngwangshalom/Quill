@@ -1559,10 +1559,10 @@ mod tests {
     fn render_follows_the_readme_style() {
         let source = "name = \"Amina\"\nsay \"Hello";
         let err = lex(source).unwrap_err();
-        let rendered = err.render("test.ql", source);
+        let rendered = err.render("test.quill", source);
         assert_eq!(
             rendered,
-            "Problem on line 2 of test.ql:\n\
+            "Problem on line 2 of test.quill:\n\
              \n    say \"Hello\
              \n        ^^^^^^\
              \nThis text starts with a quote but never ends.\

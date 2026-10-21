@@ -1,6 +1,6 @@
 //! `bring`: reading the files a program brings in.
 //!
-//! `bring billing` reads billing.ql from the same folder, and `bring "shared/money.ql"`
+//! `bring billing` reads billing.quill from the same folder, and `bring "shared/money.quill"`
 //! reads a file by its path. A brought file holds functions and types, which the
 //! program can then use by name. Its own tests run only when that file is tested.
 //! Each file keeps its own number in every span, so a problem points at the file it
@@ -170,19 +170,25 @@ impl Loader {
             .map(Path::to_path_buf)
             .unwrap_or_default();
         if quoted {
-            if !target.ends_with(".ql") {
+            if crate::quill_stem(target).is_none() {
                 return Err(vec![Diagnostic::new(
                     span,
                     format!(
-                        "bring \"{target}\" needs the whole file name, ending in .ql.\n\
-                         Quill files end in .ql."
+                        "bring \"{target}\" needs the whole file name, ending in .quill.\n\
+                         Quill files end in .quill."
                     ),
                 )
-                .suggest(format!("bring \"{target}.ql\""))]);
+                .suggest(format!("bring \"{target}.quill\""))]);
             }
             return Ok(folder.join(target));
         }
-        Ok(folder.join(format!("{target}.ql")))
+        let path = folder.join(format!("{target}{}", crate::EXTENSION));
+        // A project from before 0.8 still has billing.ql; bring it until it's renamed.
+        let old = folder.join(format!("{target}{}", crate::OLD_EXTENSION));
+        if !path.exists() && old.exists() {
+            return Ok(old);
+        }
+        Ok(path)
     }
 
     fn missing(
@@ -208,7 +214,7 @@ impl Loader {
                 if quoted {
                     target.to_string()
                 } else {
-                    format!("{target}.ql")
+                    format!("{target}.quill")
                 },
                 path.file_name()
                     .map(|name| name.to_string_lossy().into_owned())
@@ -217,7 +223,7 @@ impl Loader {
                 if quoted {
                     target.to_string()
                 } else {
-                    format!("{target}.ql")
+                    format!("{target}.quill")
                 },
                 self.name(file)
             ),
@@ -236,7 +242,7 @@ impl Loader {
             .flatten()
             .filter_map(|entry| {
                 let name = entry.file_name().to_string_lossy().into_owned();
-                name.strip_suffix(".ql").map(str::to_string)
+                crate::quill_stem(&name).map(str::to_string)
             })
             .collect();
         match closest_match(target, names.iter().map(String::as_str)) {
@@ -287,7 +293,7 @@ impl Loader {
         }
     }
 
-    /// The file's name as it is shown: `billing.ql`.
+    /// The file's name as it is shown: `billing.quill`.
     fn name(&self, file: usize) -> String {
         Path::new(&self.files[file].path)
             .file_name()

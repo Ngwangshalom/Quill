@@ -1,5 +1,5 @@
 -- Asks a model to rate one piece of feedback.
--- The permits for the model live in server.ql: a brought file can't give itself any.
+-- The permits for the model live in server.quill: a brought file can't give itself any.
 bring ai
 bring types
 bring rules

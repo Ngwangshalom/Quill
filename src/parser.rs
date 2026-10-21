@@ -113,12 +113,12 @@ pub enum Statement {
     },
     /// `fail Declined`, leaving the function with a declared failure.
     Fail { name: String, span: Span },
-    /// `bring billing` (billing.ql beside this file), `bring "shared/money.ql"`, or a
+    /// `bring billing` (billing.quill beside this file), `bring "shared/money.quill"`, or a
     /// Quill module such as `bring web`.
     Bring {
         /// The name, or the path when it was written in quotes.
         target: String,
-        /// `true` for `bring "shared/money.ql"`.
+        /// `true` for `bring "shared/money.quill"`.
         quoted: bool,
         target_span: Span,
         span: Span,
@@ -2274,7 +2274,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// `bring billing` or `bring "shared/money.ql"`, at the top level of a file.
+    /// `bring billing` or `bring "shared/money.quill"`, at the top level of a file.
     fn bring_statement(&mut self) -> Result<Statement, Diagnostic> {
         let keyword = self.advance().clone();
         if self.in_function {
@@ -2293,7 +2293,7 @@ impl<'a> Parser<'a> {
                     keyword.span(),
                     format!(
                         "bring needs the name of a file, or of a Quill module, but found {}.\n\
-                         bring billing uses the functions and types in billing.ql, \
+                         bring billing uses the functions and types in billing.quill, \
                          next to this file.",
                         describe(other)
                     ),
@@ -2307,9 +2307,9 @@ impl<'a> Parser<'a> {
             return Err(Diagnostic::new(
                 self.peek().span(),
                 format!(
-                    "bring names the file without .ql.\n\
-                     bring {stem} brings {stem}.ql. For a file in another folder, \
-                     write its path in quotes: bring \"shared/{stem}.ql\"."
+                    "bring names the file without .quill.\n\
+                     bring {stem} brings {stem}.quill. For a file in another folder, \
+                     write its path in quotes: bring \"shared/{stem}.quill\"."
                 ),
             )
             .suggest(format!("bring {stem}")));
@@ -5503,13 +5503,13 @@ mod tests {
 
     #[test]
     fn bring_names_a_file_or_a_path() {
-        let program = parse_source("bring billing\nbring \"shared/money.ql\"\n").unwrap();
+        let program = parse_source("bring billing\nbring \"shared/money.quill\"\n").unwrap();
         assert_eq!(program.statements[0].to_string(), "bring billing");
         assert_eq!(
             program.statements[1].to_string(),
-            "bring \"shared/money.ql\""
+            "bring \"shared/money.quill\""
         );
-        let dotted = error("bring billing.ql\n");
+        let dotted = error("bring billing.quill\n");
         assert_eq!(dotted.suggestion.as_deref(), Some("bring billing"));
         let inside = error("fn f() -> number\n  bring billing\n  return 1\n");
         assert!(inside.message.starts_with("bring goes at the top level"));

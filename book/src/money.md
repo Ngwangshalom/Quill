@@ -183,7 +183,7 @@ say 100 USD + 20 EUR
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     say 100 USD + 20 EUR
         ^^^^^^^^^^^^^^^^
@@ -200,7 +200,7 @@ say split 10.005 USD into 2
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     say split 10.005 USD into 2
         ^^^^^^^^^^^^^^^^^^^^^^^
@@ -215,7 +215,7 @@ say convert 100 USD to EUR
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     say convert 100 USD to EUR
                            ^^^

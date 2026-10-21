@@ -6,13 +6,13 @@ Everyone makes mistakes when programming, beginners and experts alike. What matt
 
 Every Quill error has the same parts:
 
-```quill,error,file=shop.ql
+```quill,error,file=shop.quill
 greeting = "Hello"
 say greting
 ```
 
 ```output
-Problem on line 2 of shop.ql:
+Problem on line 2 of shop.quill:
 
     say greting
         ^^^^^^^
@@ -38,14 +38,14 @@ name = "Omar"
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     say total
         ^^^^^
 There's no value called total.
 Values must be created with total = ... before they can be used.
 
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     name = "Omar"
     ^^^^
@@ -62,8 +62,8 @@ A few mistakes can only be found while running, like dividing by a value that tu
 `quill check` looks for mistakes without running anything. It's useful when a program does something you don't want to happen yet, like sending emails:
 
 ```text
-$ quill check shop.ql
-No problems found in shop.ql.
+$ quill check shop.quill
+No problems found in shop.quill.
 ```
 
 ## quill explain
@@ -71,7 +71,7 @@ No problems found in shop.ql.
 When you're not sure how Quill understood a line, ask it. `quill explain` takes the file and a line number:
 
 ```text
-$ quill explain shop.ql:3
+$ quill explain shop.quill:3
 
 Line 3:  total = price * qty
 

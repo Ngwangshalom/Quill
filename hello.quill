@@ -25,7 +25,7 @@ fn collect(fee: USD) -> USD
     receipt == "paid" -> return fee
     else -> return 0 USD
 
-fn post(place: text, act: text, fee: USD) -> USD
+fn confirm(place: text, act: text, fee: USD) -> USD
   var paid = collect(fee)
   when
     paid == 0 USD -> say "  {place}  ·  {act}  ·  declined"
@@ -38,7 +38,7 @@ fn absent(place: text, act: text) -> USD
 
 fn close_one(place: text, act: text) -> USD
   when fee_for(act)
-    found fee -> return post(place, act, fee)
+    found fee -> return confirm(place, act, fee)
     missing -> return absent(place, act)
 
 -- The same rule as charge, used only to count. It does not take money.

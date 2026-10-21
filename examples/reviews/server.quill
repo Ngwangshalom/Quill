@@ -1,7 +1,7 @@
 -- A web service that reads customer feedback as JSON, asks a model to rate it,
 -- and answers with a review as JSON.
 --
--- Run it:   ANTHROPIC_API_KEY=... quill run examples/reviews/server.ql
+-- Run it:   ANTHROPIC_API_KEY=... quill run examples/reviews/server.quill
 -- Try it:   curl -X POST localhost:8080/reviews \
 --             -d '{"product": "Desk lamp", "comment": "Bright, but it wobbles."}'
 bring web

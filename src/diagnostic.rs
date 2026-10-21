@@ -140,8 +140,8 @@ mod tests {
             "Something is wrong.\nHere is why.",
         );
         assert_eq!(
-            diagnostic.render("a.ql", "say foo"),
-            "Problem on line 1 of a.ql:\n\n    say foo\n        ^^^\nSomething is wrong.\nHere is why.\n"
+            diagnostic.render("a.quill", "say foo"),
+            "Problem on line 1 of a.quill:\n\n    say foo\n        ^^^\nSomething is wrong.\nHere is why.\n"
         );
     }
 }

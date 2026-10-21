@@ -1,1 +1,1 @@
-au BufRead,BufNewFile *.ql setfiletype quill
+au BufRead,BufNewFile *.quill,*.ql setfiletype quill

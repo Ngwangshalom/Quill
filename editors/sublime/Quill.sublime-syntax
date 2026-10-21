@@ -2,6 +2,7 @@
 ---
 name: Quill
 file_extensions:
+  - quill
   - ql
 scope: source.quill
 contexts:

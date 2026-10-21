@@ -86,7 +86,7 @@ answer = fetch("https://api.example.com/rates")
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     answer = fetch("https://api.example.com/rates")
              ^^^^^
@@ -106,7 +106,7 @@ answer = fetch("https://api.example.com/rates")
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     answer = fetch("https://api.example.com/rates")
                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -127,7 +127,7 @@ answer = fetch("api.example.com/rates")
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
     answer = fetch("api.example.com/rates")
                    ^^^^^^^^^^^^^^^^^^^^^^^

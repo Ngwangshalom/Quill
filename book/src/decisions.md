@@ -124,7 +124,7 @@ when
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
         temperature > 30 -> say "It's hot"
     ^^^^
@@ -160,7 +160,7 @@ when
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
       total > 100 -> delivery = 0
                      ^^^^^^^^
@@ -220,7 +220,7 @@ delivery = when
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
     delivery = when
                ^^^^
@@ -240,7 +240,7 @@ delivery = when
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
       else        -> "ten"
                      ^^^^^
@@ -300,7 +300,7 @@ when
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
       count -> say "We have some"
       ^^^^^

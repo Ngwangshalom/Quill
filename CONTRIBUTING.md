@@ -6,7 +6,7 @@ Every kind of help counts:
 
 - **Code:** new language features, better errors, faster runtime.
 - **Language design:** opinions on syntax and behaviour while the design is still flexible. Open a [Discussion](../../discussions).
-- **Examples and docs:** small `.ql` programs, clearer explanations, fixed typos.
+- **Examples and docs:** small `.quill` programs, clearer explanations, fixed typos.
 - **Bug reports:** especially confusing error messages. If an error didn't help you, that's a bug.
 
 ## Getting started
@@ -17,26 +17,26 @@ You need Rust (stable). Install it from [rustup.rs](https://rustup.rs), then:
 git clone https://github.com/<your-username>/quill.git
 cd quill
 cargo test                   # everything should pass
-cargo run -- run hello.ql    # runs the example program
+cargo run -- run hello.quill    # runs the example program
 ```
 
 Useful commands while you work:
 
 | Command | What it does |
 |---|---|
-| `cargo run -- run FILE.ql` | Run a Quill program |
-| `cargo run -- check FILE.ql` | Find problems without running |
+| `cargo run -- run FILE.quill` | Run a Quill program |
+| `cargo run -- check FILE.quill` | Find problems without running |
 | `cargo run -- test` | Run every `check` and doc example in the folder |
-| `cargo run -- test FILE.ql` | Run one file and count executed checks and doc examples |
-| `cargo run -- tokens FILE.ql` | See how the lexer read a file |
-| `cargo run -- explain FILE.ql:N` | See how Quill understood line N |
+| `cargo run -- test FILE.quill` | Run one file and count executed checks and doc examples |
+| `cargo run -- tokens FILE.quill` | See how the lexer read a file |
+| `cargo run -- explain FILE.quill:N` | See how Quill understood line N |
 
 ## How Quill is built
 
 The [language specification](docs/spec.md) defines what Quill does today, and the [README](README.md) shows the full design. A change to how the language behaves should update the spec too. The implementation is a pipeline, one module per stage:
 
 ```
-source (.ql) → lexer → parser → checker → compiler → VM
+source (.quill) → lexer → parser → checker → compiler → VM
 ```
 
 | File | Job |
@@ -49,11 +49,11 @@ source (.ql) → lexer → parser → checker → compiler → VM
 | `src/value.rs` | The values programs work with at runtime |
 | `src/diagnostic.rs` | The shared error type and the README-style error format |
 | `src/explain.rs` | `quill explain` |
-| `editors/` | How editors know `.ql` files: Quill's colors, the feather, and `quill lsp` for underlines. Cursor and VS Code live in `editors/vscode` and are copied in the first time Quill runs. Each kind of word has its own color. When the language gains a function, keyword, operator, or other word, update the grammar and colors there, and in the Vim, Emacs, and Sublime files, in the same change. Use the reserved color from the book. Color a word only once the language actually has it |
+| `editors/` | How editors know `.quill` files: Quill's colors, the feather, and `quill lsp` for underlines. Cursor and VS Code live in `editors/vscode` and are copied in the first time Quill runs. Each kind of word has its own color. When the language gains a function, keyword, operator, or other word, update the grammar and colors there, and in the Vim, Emacs, and Sublime files, in the same change. Use the reserved color from the book. Color a word only once the language actually has it |
 | `src/lib.rs` | Connects the stages together |
 | `src/main.rs` | The `quill` command line tool |
 | `tests/cli.rs` | End-to-end tests that run the real `quill` binary |
-| `tests/programs/` | Small `.ql` programs used by those tests |
+| `tests/programs/` | Small `.quill` programs used by those tests |
 | `tests/book.rs` | Runs every example in the book |
 | `docs/spec.md` | The language specification |
 | `book/src/` | The Quill book, one Markdown file per chapter |
@@ -91,7 +91,7 @@ Diagnostic::new(
 which the user sees as:
 
 ```
-Problem on line 3 of shop.ql:
+Problem on line 3 of shop.quill:
 
     say
     ^^^
@@ -141,9 +141,9 @@ fn double(n: Int) -> Int   -- a planned feature: not run
 ```
 ````
 
-A ```` ```quill,part,file=billing.ql ```` block isn't run. It is written next to every later example in the same chapter, so those examples can `bring billing`.
+A ```` ```quill,part,file=billing.quill ```` block isn't run. It is written next to every later example in the same chapter, so those examples can `bring billing`.
 
-An `output` block right after an example must match exactly what Quill prints. Add `file=shop.ql` (as in ```` ```quill,error,file=shop.ql ````) to choose the file name an error mentions. After a change that intentionally changes output, refresh the output blocks with `QUILL_BLESS=1 cargo test --test book`, and read the diff to make sure the book still says what you mean.
+An `output` block right after an example must match exactly what Quill prints. Add `file=shop.quill` (as in ```` ```quill,error,file=shop.quill ````) to choose the file name an error mentions. After a change that intentionally changes output, refresh the output blocks with `QUILL_BLESS=1 cargo test --test book`, and read the diff to make sure the book still says what you mean.
 
 To read the book as a website while you write, install [mdBook](https://rust-lang.github.io/mdBook/) and run:
 
@@ -182,7 +182,7 @@ Look for the [`good first issue`](../../labels/good%20first%20issue) label. Some
 - **Comparing text:** let `<` and `>` put text in alphabetical order (checker and VM).
 - **`var` that never changes:** warn when a value is marked `var` but never changed with `set` (checker only).
 - **Better suggestions:** find an error message that confused you and improve it.
-- **Example programs:** add small, well-commented `.ql` files.
+- **Example programs:** add small, well-commented `.quill` files.
 - **Editor coloring:** when a function or other syntax lands, paint it with the color reserved for it in the book, in `editors/vscode` and in the Vim, Emacs, and Sublime files.
 
 The [Roadmap](README.md#roadmap) in the README lists the bigger milestones.

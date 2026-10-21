@@ -1,8 +1,8 @@
-//! Editor support for `.ql` files.
+//! Editor support for `.quill` files.
 //!
 //! The first time `quill` runs, it installs the extension in `editors/vscode`
 //! into Cursor and VS Code on this computer. That extension colors Quill and
-//! shows the feather on every `.ql` file. It does nothing if the same files
+//! shows the feather on every `.quill` file. It does nothing if the same files
 //! are already installed, and `QUILL_NO_EDITOR_SETUP=1` skips it.
 
 use std::env;
@@ -55,7 +55,7 @@ pub fn install() {
     let fresh = install_editor_support_under(&home, &[".cursor", ".vscode"]);
     if fresh && std::io::stderr().is_terminal() {
         eprintln!(
-            "\nQuill added colors and the feather icon for .ql files to Cursor and VS Code.\n\
+            "\nQuill added colors and the feather icon for .quill files to Cursor and VS Code.\n\
              Reload the editor window to see them."
         );
     }
@@ -66,11 +66,39 @@ fn install_editor_support_under(root: &Path, editors: &[&str]) -> bool {
     let name = extension_dir_name();
     let mut fresh = false;
     for editor in editors {
-        if install_into(&root.join(editor).join("extensions").join(&name)) {
+        let extensions = root.join(editor).join("extensions");
+        if install_into(&extensions.join(&name)) {
             fresh = true;
         }
+        remove_older_copies(&extensions);
     }
     fresh
+}
+
+/// An editor shows one copy of an extension, so an older Quill extension left
+/// beside this one would decide which files are Quill's. A newer one is kept.
+fn remove_older_copies(extensions: &Path) {
+    let ours = version_parts(manifest_version(MANIFEST));
+    let Ok(entries) = fs::read_dir(extensions) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(version) = name.strip_prefix("quill.quill-") else {
+            continue;
+        };
+        if version_parts(version) < ours && !is_symlink(&entry.path()) {
+            let _ = fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+/// `0.2.0` as numbers, so `0.10.0` comes after `0.9.0`.
+fn version_parts(version: &str) -> Vec<u64> {
+    version
+        .split('.')
+        .map(|part| part.parse().unwrap_or(0))
+        .collect()
 }
 
 fn extension_dir_name() -> String {
@@ -163,7 +191,7 @@ mod tests {
         for editor in ["cursor", "vscode"] {
             let ext = root.join(editor).join("extensions").join(&name);
             let manifest = fs::read_to_string(ext.join("package.json")).unwrap();
-            assert!(manifest.contains("\".ql\""));
+            assert!(manifest.contains("\".quill\""));
             assert!(manifest.contains("icons/quill-light.png"));
             assert!(manifest.contains("icons/quill-dark.png"));
             for icon_name in ["icons/quill-light.png", "icons/quill-dark.png"] {
@@ -192,5 +220,31 @@ mod tests {
 
         assert!(!install_editor_support_under(&root, &["cursor", "vscode"]));
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_older_copy_of_the_extension_is_removed_and_a_newer_one_kept() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/quill-editor-old-test");
+        let _ = fs::remove_dir_all(&root);
+        let extensions = root.join("vscode").join("extensions");
+        let older = extensions.join("quill.quill-0.0.1");
+        let newer = extensions.join("quill.quill-99.0.0");
+        let other = extensions.join("someone.else-0.0.1");
+        for dir in [&older, &newer, &other] {
+            fs::create_dir_all(dir).unwrap();
+        }
+
+        install_editor_support_under(&root, &["vscode"]);
+        assert!(extensions.join(extension_dir_name()).exists());
+        assert!(!older.exists());
+        assert!(newer.exists());
+        assert!(other.exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn versions_compare_as_numbers() {
+        assert!(version_parts("0.1.0") < version_parts("0.2.0"));
+        assert!(version_parts("0.9.0") < version_parts("0.10.0"));
     }
 }

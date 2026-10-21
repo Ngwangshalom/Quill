@@ -5,7 +5,7 @@ mod update;
 use std::env;
 use std::fmt::Write as _;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -17,20 +17,20 @@ const USAGE: &str = "\
 Quill: write what you mean.
 
 Usage:
-  quill run FILE.ql         Run a program
-  quill FILE.ql             Same thing: a file on its own runs
-  quill check FILE.ql       Find problems without running anything
-  quill lsp                 Report those problems to an editor
-  quill test                Run every check and doc example in this folder
-  quill test FILE.ql        Run one file and report its checks
-  quill test FOLDER         Run every check and doc example in that folder
-  quill explain FILE.ql:N   Show how Quill read line N
-  quill new NAME            Create a folder NAME with hello.ql inside
-  quill tokens FILE.ql      Show how Quill reads a file, token by token
-  quill update              Choose a version of Quill to install (also: upgrade)
-  quill update VERSION      Install that version, or latest
-  quill help                Show this message
-  quill version             Show which version of Quill this is
+  quill run FILE.quill         Run a program
+  quill FILE.quill             Same thing: a file on its own runs
+  quill check FILE.quill       Find problems without running anything
+  quill lsp                    Report those problems to an editor
+  quill test                   Run every check and doc example in this folder
+  quill test FILE.quill        Run one file and report its checks
+  quill test FOLDER            Run every check and doc example in that folder
+  quill explain FILE.quill:N   Show how Quill read line N
+  quill new NAME               Create a folder NAME with hello.quill inside
+  quill tokens FILE.quill      Show how Quill reads a file, token by token
+  quill update                 Choose a version of Quill to install (also: upgrade)
+  quill update VERSION         Install that version, or latest
+  quill help                   Show this message
+  quill version                Show which version of Quill this is
 
 A program is one statement per line:
 
@@ -96,8 +96,8 @@ A record keeps named fields together. A dot reads one field:
 
 bring uses the functions and types written in another file, next to this one:
 
-  bring billing                -- billing.ql
-  bring \"shared/money.ql\"     -- a file in another folder
+  bring billing                   -- billing.quill
+  bring \"shared/money.quill\"     -- a file in another folder
 
 permit says what a program may touch outside itself. Anything else is refused:
 
@@ -207,15 +207,15 @@ Quill checks for a new version at most once a day and tells you when one is
 out. It never updates by itself. Set QUILL_NO_UPDATE_CHECK=1 to turn this off.
 
 The first time Quill runs, it adds Quill's own colors and the feather icon
-for .ql files to Cursor and VS Code, and underlines mistakes as you type.
+for .quill files to Cursor and VS Code, and underlines mistakes as you type.
 The feather is pale on a dark editor and deep blue on a light one.
 Reload the editor window to see them.
 Set QUILL_NO_EDITOR_SETUP=1 to leave your editor alone.
 
 Examples:
   quill new shop
-  quill run shop/hello.ql
-  quill explain shop/hello.ql:1
+  quill run shop/hello.quill
+  quill explain shop/hello.quill:1
   quill test
 ";
 
@@ -270,7 +270,7 @@ fn command(args: &[&str]) -> ExitCode {
             println!("quill {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
-        // A lone argument that looks like a file is run, so `quill hello.ql` works.
+        // A lone argument that looks like a file is run, so `quill hello.quill` works.
         [path] if path.contains(['.', '/', '\\']) => run(path),
         ["run", path] => run(path),
         ["check", path] => check(path),
@@ -286,8 +286,8 @@ fn command(args: &[&str]) -> ExitCode {
             Some("quill test".to_string()),
         ),
         ["explain"] => fail(
-            "quill explain needs a file and a line number, written as file.ql:LINE.".to_string(),
-            Some("quill explain hello.ql:1".to_string()),
+            "quill explain needs a file and a line number, written as file.quill:LINE.".to_string(),
+            Some("quill explain hello.quill:1".to_string()),
         ),
         ["new"] => fail(
             "quill new needs a name for the project.".to_string(),
@@ -295,7 +295,7 @@ fn command(args: &[&str]) -> ExitCode {
         ),
         [command @ ("run" | "check" | "tokens")] => fail(
             format!("quill {command} needs a file to work on."),
-            Some(format!("quill {command} hello.ql")),
+            Some(format!("quill {command} hello.quill")),
         ),
         [command, rest @ ..] if !COMMANDS.contains(command) => {
             let suggestion = closest_match(command, COMMANDS).map(|fixed| {
@@ -456,14 +456,14 @@ fn test(target: Option<&str>) -> ExitCode {
 fn explain_file(target: &str) -> ExitCode {
     let Some((path, line_text)) = target.rsplit_once(':') else {
         return fail(
-            "quill explain needs a file and a line number, written as file.ql:LINE.".to_string(),
+            "quill explain needs a file and a line number, written as file.quill:LINE.".to_string(),
             Some(format!("quill explain {target}:1")),
         );
     };
     if path.is_empty() {
         return fail(
             "quill explain needs a file before the line number.".to_string(),
-            Some("quill explain hello.ql:1".to_string()),
+            Some("quill explain hello.quill:1".to_string()),
         );
     }
     let Ok(line) = line_text.parse::<usize>() else {
@@ -532,29 +532,29 @@ fn new_project(name: &str) -> ExitCode {
             None,
         );
     }
-    let file = dir.join("hello.ql");
+    let file = dir.join("hello.quill");
     if let Err(err) = fs::write(&file, STARTER) {
         let _ = fs::remove_dir_all(dir);
         return fail(
             format!(
-                "Quill created {name} but couldn't write hello.ql: {err}.\n\
+                "Quill created {name} but couldn't write hello.quill: {err}.\n\
                  Check that you're allowed to create files in that folder."
             ),
             None,
         );
     }
-    println!("Created {name}/hello.ql.");
-    println!("Run it with:  quill run {name}/hello.ql");
+    println!("Created {name}/hello.quill.");
+    println!("Run it with:  quill run {name}/hello.quill");
     println!("Test it with:  quill test");
     ExitCode::SUCCESS
 }
 
 fn invalid_project_name(name: &str) -> Option<(String, Option<String>)> {
-    if let Some(stem) = name.strip_suffix(".ql") {
+    if let Some(stem) = quill::quill_stem(name) {
         return Some((
             format!(
                 "{name} looks like a source file, and quill new starts a project folder.\n\
-                 The name is the folder, not a .ql file."
+                 The name is the folder, not a .quill file."
             ),
             Some(format!("quill new {stem}")),
         ));
@@ -610,7 +610,7 @@ fn collect_tests(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
         }
         if kind.is_dir() {
             collect_tests(&path, files)?;
-        } else if name.ends_with(".ql") && file_has_tests(&path) {
+        } else if quill::quill_stem(&name).is_some() && file_has_tests(&path) {
             files.push(path);
         }
     }
@@ -679,16 +679,29 @@ fn finish(path: &str, source: &str, result: Result<(), Vec<Diagnostic>>) -> Exit
 }
 
 fn read(path: &str) -> Option<String> {
-    if !path.ends_with(".ql") {
+    let Some(stem) = quill::quill_stem(path) else {
         let stem = path.rsplit_once('.').map_or(path, |(stem, _)| stem);
         fail(
             format!(
-                "{path} doesn't end in .ql, so it doesn't look like Quill code.\n\
-                 Quill source files use the .ql extension."
+                "{path} doesn't end in .quill, so it doesn't look like Quill code.\n\
+                 Quill source files use the .quill extension."
             ),
-            Some(format!("{stem}.ql")),
+            Some(format!("{stem}.quill")),
         );
         return None;
+    };
+    if !path.ends_with(quill::EXTENSION) {
+        let colored = io::stderr().is_terminal() && env::var_os("NO_COLOR").is_none();
+        eprintln!(
+            "{}",
+            note(
+                &format!(
+                    "Quill files now end in .quill. Rename {path} to {stem}.quill.\n\
+                     Files ending in .ql still work in this version, but a later one will stop reading them.\n"
+                ),
+                colored
+            )
+        );
     }
     match fs::read_to_string(path) {
         Ok(source) => Some(source),
@@ -705,6 +718,17 @@ fn read(path: &str) -> Option<String> {
     }
 }
 
+/// A note beside a program's own output: "Note:" in nib orange, the rest dimmed,
+/// so what the program says stands out. Plain when `colored` is false.
+fn note(message: &str, colored: bool) -> String {
+    if !colored {
+        return format!("Note: {message}");
+    }
+    let message = message.trim_end_matches('\n');
+    // 215 is the 256-color orange closest to nib orange, #F0A35E.
+    format!("\x1b[1;38;5;215mNote:\x1b[0m \x1b[2m{message}\x1b[0m\n")
+}
+
 /// Reports a problem that isn't tied to a line of code.
 fn fail(message: String, suggestion: Option<String>) -> ExitCode {
     eprintln!("Problem: {message}");
@@ -719,9 +743,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_note_is_plain_unless_colored() {
+        assert_eq!(note("Rename it.\n", false), "Note: Rename it.\n");
+        let colored = note("Rename it.\n", true);
+        assert!(colored.starts_with("\x1b[1;38;5;215mNote:\x1b[0m"));
+        assert!(colored.contains("\x1b[2mRename it.\x1b[0m"));
+    }
+
+    #[test]
     fn relative_paths_use_forward_slashes_everywhere() {
         let root = Path::new("project");
-        let file = root.join("tests").join("programs").join("checks.ql");
-        assert_eq!(relative(&file, root), "tests/programs/checks.ql");
+        let file = root.join("tests").join("programs").join("checks.quill");
+        assert_eq!(relative(&file, root), "tests/programs/checks.quill");
     }
 }

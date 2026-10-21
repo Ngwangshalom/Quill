@@ -1,4 +1,4 @@
--- Run this file: quill run examples/events/main.ql
+-- Run this file: quill run examples/events/main.quill
 -- It bills this week's bookings and writes a report to reports/bookings.txt.
 permit write "reports"
 

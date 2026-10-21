@@ -70,7 +70,7 @@ Quill never updates itself without asking, so a program that works today won't c
 
 It's a tradition to start with a program that shows the words "Hello, World!". In Quill, that program is one line.
 
-Create a file called `hello.ql` (Quill programs always end in `.ql`) and write:
+Create a file called `hello.quill` (Quill programs always end in `.quill`) and write:
 
 ```quill
 say "Hello, World!"
@@ -79,7 +79,7 @@ say "Hello, World!"
 Then run it:
 
 ```bash
-quill run hello.ql
+quill run hello.quill
 ```
 
 ```output
@@ -87,6 +87,14 @@ Hello, World!
 ```
 
 `say` shows a value. Here the value is the text `"Hello, World!"`. The quotes mark where the text starts and ends; they aren't shown.
+
+> **Files from an older Quill.** Before 0.8, Quill files ended in `.ql`. They still run, and Quill reminds you to rename them:
+>
+> ```text
+> Note: Quill files now end in .quill. Rename hello.ql to hello.quill.
+> ```
+>
+> Rename each file once, and the note goes away. `bring billing` finds `billing.ql` until you do.
 
 A program can have many lines. Quill runs them from top to bottom:
 
@@ -109,12 +117,12 @@ quill new shop
 ```
 
 ```text
-Created shop/hello.ql.
-Run it with:  quill run shop/hello.ql
+Created shop/hello.quill.
+Run it with:  quill run shop/hello.quill
 Test it with:  quill test
 ```
 
-Inside `shop/hello.ql` you'll find:
+Inside `shop/hello.quill` you'll find:
 
 ```quill
 greeting = "Hello, World!"
@@ -144,7 +152,7 @@ Welcome!
 
 ## Colors in your editor
 
-Quill has its own colors, taken from the feather, the nib, and ink. `say`, `when`, and `true` each have their own color. The first time you run Quill, it gives those colors to Cursor and VS Code, puts the feather on every `.ql` file, and underlines mistakes while you type. Reload the editor window once to see it. Other languages keep the colors they already had.
+Quill has its own colors, taken from the feather, the nib, and ink. `say`, `when`, and `true` each have their own color. The first time you run Quill, it gives those colors to Cursor and VS Code, puts the feather on every `.quill` file, and underlines mistakes while you type. Reload the editor window once to see it. Other languages keep the colors they already had.
 
 The feather follows the editor. On a dark window it is pale, so it shows against the dark file list. On a light window it is the deep blue feather from the logo.
 
@@ -183,17 +191,17 @@ Every word Quill has today has its color. A word is painted only once the langua
 
 This is installed on each computer where Quill runs. Set `QUILL_NO_EDITOR_SETUP=1` to leave the editor alone.
 
-Vim, Emacs, and Sublime also know `.ql` files. The files are in the `editors` folder. Any editor that can talk to a language server, including Neovim, Helix, and Zed, gets the underlines from `quill lsp`. That is the same check as `quill check`, and it does not run the program.
+Vim, Emacs, and Sublime also know `.quill` files. The files are in the `editors` folder. Any editor that can talk to a language server, including Neovim, Helix, and Zed, gets the underlines from `quill lsp`. That is the same check as `quill check`, and it does not run the program.
 
 ## The commands you'll use
 
 | Command | What it does |
 |---|---|
-| `quill run FILE.ql` | Run a program |
-| `quill check FILE.ql` | Look for mistakes without running anything |
+| `quill run FILE.quill` | Run a program |
+| `quill check FILE.quill` | Look for mistakes without running anything |
 | `quill lsp` | Underline those mistakes in an editor |
 | `quill test` | Run the tests in every file in this folder |
-| `quill explain FILE.ql:N` | Show how Quill understood line N |
+| `quill explain FILE.quill:N` | Show how Quill understood line N |
 | `quill new NAME` | Start a new project |
 | `quill update` | Choose a version of Quill to install |
 | `quill help` | Show all the commands |

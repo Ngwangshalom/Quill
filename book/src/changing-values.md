@@ -42,7 +42,7 @@ set name = "Omar"
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
     set name = "Omar"
         ^^^^
@@ -62,7 +62,7 @@ set vistis = 2
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
     set vistis = 2
         ^^^^^^
@@ -80,7 +80,7 @@ count = 5
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
     count = 5
     ^^^^^
@@ -100,7 +100,7 @@ set total = "10"
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
     set total = "10"
                 ^^^^

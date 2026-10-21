@@ -113,7 +113,7 @@ Town Hall
 
 A field's `where` is checked every time a record of the type is made. When the value is written right there, Quill finds the mistake before the program runs:
 
-```quill,error,file=hall.ql
+```quill,error,file=hall.quill
 type Booking
   venue: text
   guests: number where 1..500
@@ -122,7 +122,7 @@ big = Booking venue = "Stadium", guests = 9000
 ```
 
 ```output
-Problem on line 5 of hall.ql:
+Problem on line 5 of hall.quill:
 
     big = Booking venue = "Stadium", guests = 9000
                                               ^^^^
@@ -132,7 +132,7 @@ Line 3 says guests where 1..500.
 
 When the value is worked out while the program runs, making the record stops the program:
 
-```quill,error,file=hall.ql
+```quill,error,file=hall.quill
 type Booking
   venue: text
   guests: number where 1..500
@@ -142,7 +142,7 @@ big = Booking venue = "Stadium", guests = crowd
 ```
 
 ```output
-Problem on line 6 of hall.ql:
+Problem on line 6 of hall.quill:
 
     big = Booking venue = "Stadium", guests = crowd
           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -165,7 +165,7 @@ hall = Booking venue = "Town Hall"
 ```
 
 ```output
-Problem on line 5 of example.ql:
+Problem on line 5 of example.quill:
 
     hall = Booking venue = "Town Hall"
            ^^^^^^^
@@ -184,7 +184,7 @@ hall = Booking venue = "Town Hall", gests = 120
 ```
 
 ```output
-Problem on line 5 of example.ql:
+Problem on line 5 of example.quill:
 
     hall = Booking venue = "Town Hall", gests = 120
                                         ^^^^^
@@ -203,7 +203,7 @@ type Person
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
       manager: maybe Person
                ^^^^^^^^^^^^

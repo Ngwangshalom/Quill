@@ -26,20 +26,20 @@ fn assert_reported_problem(output: &Output) {
 
 #[test]
 fn runs_hello_world() {
-    let output = quill(&["run", "tests/programs/hello.ql"]);
+    let output = quill(&["run", "tests/programs/hello.quill"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert_eq!(stdout(&output), "Hello, World!\n");
 }
 
 #[test]
 fn a_file_on_its_own_runs_it() {
-    let output = quill(&["tests/programs/hello.ql"]);
+    let output = quill(&["tests/programs/hello.quill"]);
     assert_eq!(stdout(&output), "Hello, World!\n");
 }
 
 #[test]
 fn runs_values_and_escapes() {
-    let output = quill(&["run", "tests/programs/values.ql"]);
+    let output = quill(&["run", "tests/programs/values.quill"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert_eq!(
         stdout(&output),
@@ -49,7 +49,7 @@ fn runs_values_and_escapes() {
 
 #[test]
 fn typo_gets_a_readme_style_error() {
-    let output = quill(&["run", "tests/programs/typo.ql"]);
+    let output = quill(&["run", "tests/programs/typo.quill"]);
     assert_reported_problem(&output);
     assert_eq!(
         stdout(&output),
@@ -58,7 +58,7 @@ fn typo_gets_a_readme_style_error() {
     );
     assert_eq!(
         stderr(&output),
-        "Problem on line 2 of tests/programs/typo.ql:\n\
+        "Problem on line 2 of tests/programs/typo.quill:\n\
          \n    say greting\
          \n        ^^^^^^^\
          \nThere's no value called greting.\
@@ -70,7 +70,7 @@ fn typo_gets_a_readme_style_error() {
 
 #[test]
 fn reports_every_problem() {
-    let output = quill(&["check", "tests/programs/many_problems.ql"]);
+    let output = quill(&["check", "tests/programs/many_problems.quill"]);
     assert_reported_problem(&output);
     let err = stderr(&output);
     assert!(err.contains("Problem on line 1"));
@@ -80,24 +80,24 @@ fn reports_every_problem() {
 
 #[test]
 fn lexer_errors_stop_before_running() {
-    let output = quill(&["run", "tests/programs/unclosed.ql"]);
+    let output = quill(&["run", "tests/programs/unclosed.quill"]);
     assert_reported_problem(&output);
     assert!(stderr(&output).contains("never ends"));
 }
 
 #[test]
 fn check_reports_success() {
-    let output = quill(&["check", "tests/programs/values.ql"]);
+    let output = quill(&["check", "tests/programs/values.quill"]);
     assert!(output.status.success());
     assert_eq!(
         stdout(&output),
-        "No problems found in tests/programs/values.ql.\n"
+        "No problems found in tests/programs/values.quill.\n"
     );
 }
 
 #[test]
 fn tokens_shows_positions() {
-    let output = quill(&["tokens", "tests/programs/hello.ql"]);
+    let output = quill(&["tokens", "tests/programs/hello.quill"]);
     assert_eq!(
         stdout(&output),
         "1:1     say\n1:5     Text \"Hello, World!\"\n1:20    Newline\n2:1     EndOfFile\n"
@@ -106,23 +106,23 @@ fn tokens_shows_positions() {
 
 #[test]
 fn missing_file_is_explained() {
-    let output = quill(&["run", "nowhere.ql"]);
+    let output = quill(&["run", "nowhere.quill"]);
     assert_reported_problem(&output);
-    assert!(stderr(&output).contains("Quill couldn't read nowhere.ql"));
+    assert!(stderr(&output).contains("Quill couldn't read nowhere.quill"));
 }
 
 #[test]
 fn wrong_extension_is_explained() {
     let output = quill(&["hello.txt"]);
     assert_reported_problem(&output);
-    assert!(stderr(&output).contains("Did you mean:  hello.ql"));
+    assert!(stderr(&output).contains("Did you mean:  hello.quill"));
 }
 
 #[test]
 fn misspelled_command_gets_a_suggestion() {
-    let output = quill(&["rnu", "hello.ql"]);
+    let output = quill(&["rnu", "hello.quill"]);
     assert_reported_problem(&output);
-    assert!(stderr(&output).contains("Did you mean:  quill run hello.ql"));
+    assert!(stderr(&output).contains("Did you mean:  quill run hello.quill"));
 }
 
 #[test]
@@ -135,16 +135,16 @@ fn command_without_file_is_explained() {
 #[test]
 fn help_and_version() {
     let help = stdout(&quill(&["help"]));
-    assert!(help.contains("quill run FILE.ql"));
+    assert!(help.contains("quill run FILE.quill"));
     assert!(help.contains("quill test"));
-    assert!(help.contains("quill explain FILE.ql:N"));
+    assert!(help.contains("quill explain FILE.quill:N"));
     assert!(help.contains("quill new NAME"));
     assert!(help.contains("check total == 38.50"));
     assert!(help.contains("--- example: price > 10"));
     assert!(help.contains("var total = price * 3"));
     assert!(help.contains("say \"Total: {total}\""));
     assert!(help.contains("total > 100 -> say \"Free delivery\""));
-    assert!(help.contains("quill run shop/hello.ql"));
+    assert!(help.contains("quill run shop/hello.quill"));
     assert!(help.contains("\"\"\"She said \"hi\".\"\"\""));
     assert_eq!(
         stdout(&quill(&["--version"])),
@@ -160,9 +160,9 @@ fn test_runs_checks_and_examples() {
     let output = quill_in(&programs, &["test"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let out = stdout(&output);
-    assert!(out.contains("checks.ql: 3 checks passed"));
-    assert!(out.contains("receipt.ql: 3 checks passed"));
-    assert!(out.contains("bring/billing.ql: 1 check passed"), "{out}");
+    assert!(out.contains("checks.quill: 3 checks passed"));
+    assert!(out.contains("receipt.quill: 3 checks passed"));
+    assert!(out.contains("bring/billing.quill: 1 check passed"), "{out}");
     assert!(out.ends_with("\n7 checks passed.\n"), "{out}");
 }
 
@@ -172,14 +172,14 @@ fn test_runs_the_checks_in_one_folder() {
     let output = quill_in(&programs, &["test", "bring"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let out = stdout(&output);
-    assert!(out.contains("bring/billing.ql: 1 check passed"), "{out}");
-    assert!(!out.contains("checks.ql"), "{out}");
+    assert!(out.contains("bring/billing.quill: 1 check passed"), "{out}");
+    assert!(!out.contains("checks.quill"), "{out}");
     assert!(out.ends_with("\n1 check passed.\n"), "{out}");
 }
 
 #[test]
 fn explain_describes_a_line() {
-    let output = quill(&["explain", "tests/programs/checks.ql:1"]);
+    let output = quill(&["explain", "tests/programs/checks.quill:1"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     let out = stdout(&output);
     assert!(out.contains("Line 1:  greeting = \"Hello\""));
@@ -191,13 +191,13 @@ fn explain_describes_a_line() {
 fn explain_needs_a_line() {
     let output = quill(&["explain"]);
     assert_reported_problem(&output);
-    assert!(stderr(&output).contains("file.ql:LINE"));
-    assert!(stderr(&output).contains("Did you mean:  quill explain hello.ql:1"));
+    assert!(stderr(&output).contains("file.quill:LINE"));
+    assert!(stderr(&output).contains("Did you mean:  quill explain hello.quill:1"));
 }
 
 #[test]
 fn a_missing_line_is_explained() {
-    let output = quill(&["explain", "tests/programs/hello.ql:9"]);
+    let output = quill(&["explain", "tests/programs/hello.quill:9"]);
     assert_reported_problem(&output);
     assert!(stderr(&output).contains("isn't there"));
 }
@@ -207,15 +207,15 @@ fn new_starts_a_project_that_runs_and_tests() {
     let root = scratch("new-project");
     let output = quill_in(&root, &["new", "shop"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(stdout(&output).contains("Created shop/hello.ql."));
+    assert!(stdout(&output).contains("Created shop/hello.quill."));
 
-    let output = quill_in(&root, &["run", "shop/hello.ql"]);
+    let output = quill_in(&root, &["run", "shop/hello.quill"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert_eq!(stdout(&output), "Hello, World!\n");
 
     let output = quill_in(&root, &["test"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(stdout(&output).contains("shop/hello.ql: 1 check passed"));
+    assert!(stdout(&output).contains("shop/hello.quill: 1 check passed"));
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn new_wont_replace_a_folder() {
 #[test]
 fn a_failed_check_fails_the_test_run() {
     let root = scratch("failed-check");
-    let file = root.join("shop.ql");
+    let file = root.join("shop.quill");
     std::fs::write(&file, "greeting = \"Hello\"\ncheck greeting == \"Hi\"\n").unwrap();
     let output = quill_in(&root, &["test"]);
     assert_reported_problem(&output);
@@ -243,7 +243,7 @@ fn a_failed_check_fails_the_test_run() {
 
 #[test]
 fn runs_arithmetic_text_values_var_set_and_when() {
-    let output = quill(&["run", "tests/programs/receipt.ql"]);
+    let output = quill(&["run", "tests/programs/receipt.quill"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert_eq!(
         stdout(&output),
@@ -253,12 +253,12 @@ fn runs_arithmetic_text_values_var_set_and_when() {
 
 #[test]
 fn adding_text_to_a_number_matches_the_readme() {
-    let output = quill(&["run", "tests/programs/kind_mistake.ql"]);
+    let output = quill(&["run", "tests/programs/kind_mistake.quill"]);
     assert_reported_problem(&output);
     assert_eq!(stdout(&output), "");
     assert_eq!(
         stderr(&output),
-        "Problem on line 2 of tests/programs/kind_mistake.ql:\n\
+        "Problem on line 2 of tests/programs/kind_mistake.quill:\n\
          \n    total = price + \"5\"\
          \n                    ^^^\
          \nYou're adding Number (price) to Text (\"5\").\
@@ -270,7 +270,7 @@ fn adding_text_to_a_number_matches_the_readme() {
 
 #[test]
 fn set_needs_var() {
-    let output = quill(&["check", "tests/programs/not_var.ql"]);
+    let output = quill(&["check", "tests/programs/not_var.quill"]);
     assert_reported_problem(&output);
     let err = stderr(&output);
     assert!(err.contains("name can't change, because it isn't marked var."));
@@ -279,7 +279,7 @@ fn set_needs_var() {
 
 #[test]
 fn dividing_by_zero_stops_the_program_with_an_explanation() {
-    let output = quill(&["run", "tests/programs/divide_by_zero.ql"]);
+    let output = quill(&["run", "tests/programs/divide_by_zero.quill"]);
     assert_reported_problem(&output);
     assert_eq!(stdout(&output), "Before\n");
     let err = stderr(&output);
@@ -334,13 +334,13 @@ fn scratch(name: &str) -> std::path::PathBuf {
 #[test]
 fn targeted_tests_count_executed_assertions() {
     let dir = scratch("executed-checks");
-    std::fs::write(dir.join("selected.ql"), "fn verify()\n  check 1 == 1\nverify()\nfor i in 1..3\n  check i > 0\nwhen\n  false -> check 1 == 2\n  else -> say \"ok\"\n--- example: 2 == 2\n").unwrap();
-    std::fs::write(dir.join("other.ql"), "check 1 == 2\n").unwrap();
-    let output = quill_in(&dir, &["test", "selected.ql"]);
+    std::fs::write(dir.join("selected.quill"), "fn verify()\n  check 1 == 1\nverify()\nfor i in 1..3\n  check i > 0\nwhen\n  false -> check 1 == 2\n  else -> say \"ok\"\n--- example: 2 == 2\n").unwrap();
+    std::fs::write(dir.join("other.quill"), "check 1 == 2\n").unwrap();
+    let output = quill_in(&dir, &["test", "selected.quill"]);
     assert!(output.status.success(), "{}", stderr(&output));
     assert_eq!(
         stdout(&output),
-        "selected.ql: 5 checks passed\n\n5 checks passed.\n"
+        "selected.quill: 5 checks passed\n\n5 checks passed.\n"
     );
     let output = quill_in(&dir, &["test"]);
     assert_reported_problem(&output);
@@ -351,11 +351,11 @@ fn targeted_tests_count_executed_assertions() {
 fn targeted_tests_keep_passes_before_failure() {
     let dir = scratch("partial-checks");
     std::fs::write(
-        dir.join("case.ql"),
+        dir.join("case.quill"),
         "check 1 == 1\ncheck 1 == 2\ncheck 2 == 2\n",
     )
     .unwrap();
-    let output = quill_in(&dir, &["test", "case.ql"]);
+    let output = quill_in(&dir, &["test", "case.quill"]);
     assert_reported_problem(&output);
     assert!(stdout(&output).contains("1 check passed, 1 file failed."));
 }
@@ -363,14 +363,14 @@ fn targeted_tests_keep_passes_before_failure() {
 #[test]
 fn targeted_tests_validate_files_and_accept_zero_checks() {
     let dir = scratch("test-paths");
-    std::fs::write(dir.join("empty.ql"), "say \"hello\"\n").unwrap();
-    let output = quill_in(&dir, &["test", "empty.ql"]);
+    std::fs::write(dir.join("empty.quill"), "say \"hello\"\n").unwrap();
+    let output = quill_in(&dir, &["test", "empty.quill"]);
     assert!(output.status.success());
     assert!(stdout(&output).contains("0 checks passed."));
     for args in [
-        &["test", "missing.ql"][..],
+        &["test", "missing.quill"][..],
         &["test", "empty.txt"],
-        &["test", "a.ql", "b.ql"],
+        &["test", "a.quill", "b.quill"],
     ] {
         assert_reported_problem(&quill_in(&dir, args));
     }
@@ -380,39 +380,39 @@ fn targeted_tests_validate_files_and_accept_zero_checks() {
 fn remainder_overflow_reports_a_problem_without_panicking() {
     let dir = scratch("remainder-overflow");
     std::fs::write(
-        dir.join("case.ql"),
+        dir.join("case.quill"),
         "var n = -170141183460469231731687303715884105727 - 1\nsay n % -1\n",
     )
     .unwrap();
-    let output = quill_in(&dir, &["run", "case.ql"]);
+    let output = quill_in(&dir, &["run", "case.quill"]);
     assert_reported_problem(&output);
     assert!(!stderr(&output).contains("panicked"));
 }
 
 #[test]
 fn bring_uses_the_functions_and_types_of_other_files() {
-    let output = quill(&["run", "tests/programs/bring/app.ql"]);
+    let output = quill(&["run", "tests/programs/bring/app.quill"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert_eq!(stdout(&output), "Amina pays 100 USD\n");
 }
 
 #[test]
 fn a_missing_brought_file_suggests_the_closest_one() {
-    let output = quill(&["run", "tests/programs/bring/typo.ql"]);
+    let output = quill(&["run", "tests/programs/bring/typo.quill"]);
     assert_reported_problem(&output);
     let text = stderr(&output);
-    assert!(text.contains("there's no file biling.ql"), "{text}");
+    assert!(text.contains("there's no file biling.quill"), "{text}");
     assert!(text.contains("Did you mean:  bring billing"), "{text}");
 }
 
 #[test]
 fn a_problem_in_a_brought_file_shows_that_file() {
-    let output = quill(&["run", "tests/programs/bring/uses_broken.ql"]);
+    let output = quill(&["run", "tests/programs/bring/uses_broken.quill"]);
     assert_reported_problem(&output);
     let text = stderr(&output);
     assert!(
         text.starts_with(
-            "Problem on line 2 of tests/programs/bring/broken.ql:\n\n      return \"many\""
+            "Problem on line 2 of tests/programs/bring/broken.quill:\n\n      return \"many\""
         ),
         "{text}"
     );
@@ -420,7 +420,7 @@ fn a_problem_in_a_brought_file_shows_that_file() {
 
 #[test]
 fn files_and_settings_need_permits() {
-    let output = quill(&["run", "tests/programs/files/rates.ql"]);
+    let output = quill(&["run", "tests/programs/files/rates.quill"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
     assert_eq!(
         stdout(&output),
@@ -430,18 +430,18 @@ fn files_and_settings_need_permits() {
 
 #[test]
 fn a_path_cannot_leave_its_permitted_folder() {
-    let output = quill(&["run", "tests/programs/files/escape.ql"]);
+    let output = quill(&["run", "tests/programs/files/escape.quill"]);
     assert_reported_problem(&output);
     let text = stderr(&output);
     assert!(
-        text.contains("read_file can't read config/../rates.ql"),
+        text.contains("read_file can't read config/../rates.quill"),
         "{text}"
     );
 }
 
 #[test]
 fn try_on_its_own_line_explains_on() {
-    let output = quill(&["check", "tests/programs/files/bare_try.ql"]);
+    let output = quill(&["check", "tests/programs/files/bare_try.quill"]);
     assert_reported_problem(&output);
     let text = stderr(&output);
     assert!(text.contains("try can't stand on a line by itself."), "{text}");
@@ -498,8 +498,8 @@ fn run_program(source: &str) -> Output {
     let dir =
         std::env::temp_dir().join(format!("quill-cli-{}-{}", std::process::id(), source.len()));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("app.ql"), source).unwrap();
-    quill_in(&dir, &["run", "app.ql"])
+    std::fs::write(dir.join("app.quill"), source).unwrap();
+    quill_in(&dir, &["run", "app.quill"])
 }
 
 #[test]
@@ -539,10 +539,10 @@ fn run_with_settings(source: &str, settings: &[(&str, String)]) -> Output {
     let dir =
         std::env::temp_dir().join(format!("quill-ai-{}-{}", std::process::id(), source.len()));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join("app.ql"), source).unwrap();
+    std::fs::write(dir.join("app.quill"), source).unwrap();
     let mut command = Command::new(env!("CARGO_BIN_EXE_quill"));
     command
-        .args(["run", "app.ql"])
+        .args(["run", "app.quill"])
         .current_dir(&dir)
         .env("QUILL_NO_EDITOR_SETUP", "1")
         .env_remove("ANTHROPIC_API_KEY")
@@ -681,12 +681,12 @@ fn a_program_with_routes_serves_them() {
     let dir = std::env::temp_dir().join(format!("quill-web-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
-        dir.join("app.ql"),
+        dir.join("app.quill"),
         "bring web\nsay \"ready\"\nroute GET \"/hello/{name}\"\n  respond 200, \"Hello, {name}!\"\n",
     )
     .unwrap();
     let mut server = Command::new(env!("CARGO_BIN_EXE_quill"))
-        .args(["run", "app.ql"])
+        .args(["run", "app.quill"])
         .current_dir(&dir)
         .env("QUILL_NO_EDITOR_SETUP", "1")
         .env("PORT", port.to_string())
@@ -709,4 +709,45 @@ fn a_program_with_routes_serves_them() {
     let _ = server.wait();
     assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
     assert!(reply.ends_with("Hello, Amina!"), "{reply}");
+}
+
+#[test]
+fn a_file_ending_in_ql_still_runs_with_a_note() {
+    let output = quill(&["run", "tests/programs/old/hello.ql"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "still runs\n");
+    let text = stderr(&output);
+    assert!(
+        text.contains("Note: Quill files now end in .quill. Rename tests/programs/old/hello.ql to tests/programs/old/hello.quill."),
+        "{text}"
+    );
+}
+
+#[test]
+fn bring_still_finds_a_file_ending_in_ql() {
+    let output = quill(&["run", "tests/programs/old/shop.quill"]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+    assert_eq!(stdout(&output), "5 USD\n");
+}
+
+#[test]
+fn a_file_with_another_ending_is_refused() {
+    let output = quill(&["run", "notes.txt"]);
+    assert_reported_problem(&output);
+    let text = stderr(&output);
+    assert!(text.contains("notes.txt doesn't end in .quill"), "{text}");
+    assert!(text.contains("Did you mean:  notes.quill"), "{text}");
+}
+
+#[test]
+fn the_sample_programs_in_the_repository_still_work() {
+    for path in [
+        "hello.quill",
+        "examples/events/main.quill",
+        "examples/myapi/server.quill",
+        "examples/reviews/server.quill",
+    ] {
+        let output = quill(&["check", path]);
+        assert!(output.status.success(), "{path}: {}", stderr(&output));
+    }
 }

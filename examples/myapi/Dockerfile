@@ -1,4 +1,4 @@
-# Builds Quill, then runs server.ql. Hosting services like Render, Railway
+# Builds Quill, then runs server.quill. Hosting services like Render, Railway
 # and Fly.io read this file, build it, and set PORT for you.
 
 FROM rust:1-slim AS build
@@ -10,4 +10,4 @@ COPY --from=build /usr/local/cargo/bin/quill /usr/local/bin/quill
 WORKDIR /app
 COPY . .
 ENV QUILL_NO_EDITOR_SETUP=1
-CMD ["quill", "run", "server.ql"]
+CMD ["quill", "run", "server.quill"]

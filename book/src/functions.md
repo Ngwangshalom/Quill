@@ -69,7 +69,7 @@ fn double(n: number) -> number
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
       return "hi"
              ^^^^
@@ -118,7 +118,7 @@ fn greet(name: text)
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
       return "Hello"
              ^^^^^^^
@@ -177,7 +177,7 @@ fn double(n: number) -> number
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     fn double(n: number) -> number
        ^^^^^^

@@ -46,7 +46,7 @@ say "Hi " + name
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
     say "Hi " + name
         ^^^^^^^^^^^^
@@ -103,7 +103,7 @@ say "Hello
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     say "Hello
         ^^^^^^
@@ -121,7 +121,7 @@ say "Hi {name"
 ```
 
 ```output
-Problem on line 2 of example.ql:
+Problem on line 2 of example.quill:
 
     say "Hi {name"
             ^

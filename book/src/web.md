@@ -9,7 +9,7 @@ route GET "/hello/{name}"
   respond 200, "Hello, {name}!"
 ```
 
-Run it with `quill run hello.ql`, and Quill answers:
+Run it with `quill run hello.quill`, and Quill answers:
 
 ```text
 Serving 1 routes on http://localhost:8080. Press Ctrl+C to stop.
@@ -106,7 +106,7 @@ route POST "/quote"
 
 The lines outside routes run once, when the program starts. Then Quill serves the routes.
 
-The server listens on port 8080. Set the setting `PORT` to use another one, like `PORT=3000 quill run desk.ql`.
+The server listens on port 8080. Set the setting `PORT` to use another one, like `PORT=3000 quill run desk.quill`.
 
 ## Growing your service
 
@@ -130,7 +130,7 @@ route GET "/hello"
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     route GET "/hello"
           ^^^^^^^^^^^^
@@ -150,7 +150,7 @@ route GET "/hello"
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     route GET "/hello"
           ^^^^^^^^^^^^
@@ -170,7 +170,7 @@ route GET "/hello"
 ```
 
 ```output
-Problem on line 4 of example.ql:
+Problem on line 4 of example.quill:
 
       return "Hello"
       ^^^^^^
@@ -190,7 +190,7 @@ route post "/bookings"
 ```
 
 ```output
-Problem on line 3 of example.ql:
+Problem on line 3 of example.quill:
 
     route post "/bookings"
           ^^^^

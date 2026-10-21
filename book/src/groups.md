@@ -32,7 +32,7 @@ hobbies = list "coding", 2
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     hobbies = list "coding", 2
                              ^
@@ -47,7 +47,7 @@ hobbies = ["coding", "reading"]
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     hobbies = ["coding", "reading"]
               ^
@@ -116,7 +116,7 @@ waiting = list
 ```
 
 ```output
-Problem on line 1 of example.ql:
+Problem on line 1 of example.quill:
 
     waiting = list
               ^^^^

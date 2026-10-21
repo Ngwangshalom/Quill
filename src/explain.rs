@@ -6,7 +6,7 @@ use crate::parser::{self, Arm, Contract, Expr, ExprKind, Program, Statement, Val
 
 /// Describes line `line` (1-based) of `source`, a program with no file of its own.
 pub fn explain(source: &str, line: usize) -> String {
-    explain_file("example.ql", source, line)
+    explain_file("example.quill", source, line)
 }
 
 /// Describes line `line` (1-based) of the program in `path`, with the files it brings.
@@ -327,7 +327,7 @@ impl Describer<'_> {
                 let file = if *quoted {
                     target.clone()
                 } else {
-                    format!("{target}.ql")
+                    format!("{target}.quill")
                 };
                 vec![(
                     format!("bring {target}"),

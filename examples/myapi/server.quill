@@ -1,5 +1,5 @@
 -- My first Quill web service.
--- Run it on your computer:  quill run server.ql
+-- Run it on your computer:  quill run server.quill
 -- Then open http://localhost:8080
 bring web
 

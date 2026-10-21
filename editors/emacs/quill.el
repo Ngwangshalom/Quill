@@ -141,6 +141,8 @@
     (eglot-ensure)))
 
 ;;;###autoload
+(add-to-list 'auto-mode-alist '("\\.quill\\'" . quill-mode))
+;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.ql\\'" . quill-mode))
 
 (with-eval-after-load 'eglot
