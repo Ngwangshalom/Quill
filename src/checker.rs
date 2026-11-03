@@ -2026,6 +2026,32 @@ impl<'a> Checker<'a> {
             ));
             return;
         }
+        if matches!(
+            name,
+            "trim" | "uppercase" | "lowercase" | "join" | "replace" | "length"
+        ) {
+            let example = match name {
+                "join" => "join names with \", \"",
+                "replace" => "replace \"-\" with \" \" in code",
+                "length" => "length of name",
+                _ => "",
+            };
+            let example = if example.is_empty() {
+                format!("{name} name")
+            } else {
+                example.to_string()
+            };
+            self.problems.push(Diagnostic::new(
+                span,
+                format!(
+                    "There's no function called {name}, and the text tool {name} takes no brackets.\n\
+                     Write {example}. For a longer value, put a space before the bracket: \
+                     {} (parts at 1).",
+                    if name == "length" { "length of" } else { name }
+                ),
+            ));
+            return;
+        }
         let problem = Diagnostic::new(
             span,
             format!(
@@ -4593,6 +4619,22 @@ roster = list record name = \"Nchang Sisters\", fee = 80000 USD, open = true
         assert!(found
             .message
             .contains("join puts the items of a list into one text"));
+    }
+
+    #[test]
+    fn a_text_tool_with_a_space_before_its_bracket_is_the_tool() {
+        assert_eq!(
+            problems("parts = list \" a \"\nsay trim (parts at 1)"),
+            vec![]
+        );
+        let found = problem("parts = list \" a \"\nsay trim(parts at 1)");
+        assert!(found
+            .message
+            .contains("the text tool trim takes no brackets"));
+        assert_eq!(
+            problems("fn trim(t: text) -> text\n  return t\nsay trim(\" a \")"),
+            vec![]
+        );
     }
 
     #[test]

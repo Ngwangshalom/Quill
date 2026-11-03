@@ -1,0 +1,19 @@
+-- The shape of a payment notice, and what we decide about one. No network here,
+-- so quill test can prove every rule.
+
+-- A payment provider sends JSON like:
+-- {"id": "pay_1001", "customer": "Amina", "amount": "250.00", "status": "paid"}
+type Payment
+  id: text
+  customer: text
+  amount: USD where 0.01 USD..1000000 USD
+  status: text
+
+--- example: decision(Payment id = "p1", customer = "Amina", amount = 250 USD, status = "paid") == "Thank Amina for 250 USD"
+--- example: decision(Payment id = "p2", customer = "Omar", amount = 90 USD, status = "failed") == "Ask Omar to pay again"
+--- example: decision(Payment id = "p3", customer = "John", amount = 10 USD, status = "refunded") == "Note: p3 is refunded"
+fn decision(p: Payment) -> text
+  return when
+    p.status == "paid" -> "Thank {p.customer} for {p.amount}"
+    p.status == "failed" -> "Ask {p.customer} to pay again"
+    else -> "Note: {p.id} is {p.status}"

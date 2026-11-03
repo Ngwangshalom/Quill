@@ -1,5 +1,6 @@
 mod editor;
 mod lsp;
+mod templates;
 mod update;
 
 use std::env;
@@ -25,7 +26,8 @@ Usage:
   quill test FILE.quill        Run one file and report its checks
   quill test FOLDER            Run every check and doc example in that folder
   quill explain FILE.quill:N   Show how Quill read line N
-  quill new NAME               Create a folder NAME with hello.quill inside
+  quill new NAME               Start a project in a folder NAME; a menu asks which kind
+  quill new NAME TEMPLATE      Start one from that template, with no menu
   quill tokens FILE.quill      Show how Quill reads a file, token by token
   quill update                 Choose a version of Quill to install (also: upgrade)
   quill update VERSION         Install that version, or latest
@@ -221,6 +223,26 @@ A quote inside text needs no backslash when the text uses three quotes:
 
   \"\"\"She said \"hi\".\"\"\"
 
+quill new starts a project from a template. Each one runs and passes its tests
+straight away, with a README.md and QUILL.md, a short tour of the language:
+
+  For learning
+    learn        six exercises with checks that fail until you fix the code
+    starter      one file with values, when, for, a function, and a test
+  For backend work
+    backend      a service that web, desktop, and mobile apps call, with JSON and tests
+    integration  call another service, read its JSON safely, and handle NetworkDown
+    webhook      receive a payment notice, check every field, answer 200 or 400
+  For AI
+    ai           ask a model, and check its answer against a type
+    ai-backend   a service route that asks a model, ready to deploy
+  For business and finance
+    finance      an invoice with exact money, VAT, split, and contracts
+    banking      accounts that can never go below zero, with require and ensure
+  For automation and general programs
+    automation   read a file, tidy it, count and sort, and save a report
+    library      reusable functions with tests, used with bring
+
 Quill checks for a new version at most once a day and tells you when one is
 out. It never updates by itself. Set QUILL_NO_UPDATE_CHECK=1 to turn this off.
 
@@ -231,23 +253,17 @@ Reload the editor window to see them.
 Set QUILL_NO_EDITOR_SETUP=1 to leave your editor alone.
 
 Examples:
-  quill new shop
+  quill new shop starter
   quill run shop/hello.quill
   quill explain shop/hello.quill:1
-  quill test
+  quill test shop
+  quill new orders backend
 ";
 
 const COMMANDS: [&str; 11] = [
     "run", "check", "lsp", "tokens", "test", "explain", "new", "update", "upgrade", "help",
     "version",
 ];
-
-const STARTER: &str = "\
-greeting = \"Hello, World!\"
-say greeting
-
-check greeting == \"Hello, World!\"
-";
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -296,7 +312,8 @@ fn command(args: &[&str]) -> ExitCode {
         ["test"] => test(None),
         ["test", path] => test(Some(path)),
         ["explain", target] => explain_file(target),
-        ["new", name] => new_project(name),
+        ["new", name] => new_project(name, None),
+        ["new", name, template] => new_project(name, Some(template)),
         ["test", ..] => fail(
             "quill test accepts at most one file.\n\
              Run it without a file to test the project folder."
@@ -308,8 +325,12 @@ fn command(args: &[&str]) -> ExitCode {
             Some("quill explain hello.quill:1".to_string()),
         ),
         ["new"] => fail(
-            "quill new needs a name for the project.".to_string(),
-            Some("quill new hello".to_string()),
+            format!(
+                "quill new needs a name for the project, and can take a template after it.\n\
+                 The templates are:\n{}",
+                templates::listing().trim_end()
+            ),
+            Some("quill new shop backend".to_string()),
         ),
         [command @ ("run" | "check" | "tokens")] => fail(
             format!("quill {command} needs a file to work on."),
@@ -527,10 +548,36 @@ fn explain_file(target: &str) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn new_project(name: &str) -> ExitCode {
+fn new_project(name: &str, template: Option<&str>) -> ExitCode {
     if let Some((message, suggestion)) = invalid_project_name(name) {
         return fail(message, suggestion);
     }
+    let template = match template {
+        Some(chosen) => match templates::find(chosen) {
+            Some(template) => template,
+            None => {
+                return fail(
+                    format!(
+                        "Quill doesn't have a template called {chosen}.\n\
+                         The templates are:\n{}",
+                        templates::listing().trim_end()
+                    ),
+                    closest_match(chosen, templates::names())
+                        .map(|fixed| format!("quill new {name} {fixed}")),
+                );
+            }
+        },
+        None if io::stdin().is_terminal() && io::stderr().is_terminal() => {
+            match choose_template(name) {
+                Some(template) => template,
+                None => {
+                    println!("Nothing was created.");
+                    return ExitCode::SUCCESS;
+                }
+            }
+        }
+        None => templates::find(templates::DEFAULT).expect("the default template exists"),
+    };
     let dir = Path::new(name);
     if dir.exists() {
         return fail(
@@ -550,21 +597,56 @@ fn new_project(name: &str) -> ExitCode {
             None,
         );
     }
-    let file = dir.join("hello.quill");
-    if let Err(err) = fs::write(&file, STARTER) {
-        let _ = fs::remove_dir_all(dir);
-        return fail(
-            format!(
-                "Quill created {name} but couldn't write hello.quill: {err}.\n\
-                 Check that you're allowed to create files in that folder."
-            ),
-            None,
-        );
+    let files = template
+        .files
+        .iter()
+        .chain(std::iter::once(&templates::GUIDE));
+    for (path, contents) in files {
+        let file = dir.join(path);
+        let written = file
+            .parent()
+            .map_or(Ok(()), fs::create_dir_all)
+            .and_then(|()| fs::write(&file, contents.replace("{{name}}", name)));
+        if let Err(err) = written {
+            let _ = fs::remove_dir_all(dir);
+            return fail(
+                format!(
+                    "Quill created {name} but couldn't write {path}: {err}.\n\
+                     Check that you're allowed to create files in that folder."
+                ),
+                None,
+            );
+        }
     }
-    println!("Created {name}/hello.quill.");
-    println!("Run it with:  quill run {name}/hello.quill");
-    println!("Test it with:  quill test");
+    println!("Created {name}, a {} project.", template.name);
+    println!("Run it with:   quill run {name}/{}", template.run);
+    println!("Test it with:  quill test {name}");
+    println!(
+        "Read {name}/README.md to see what's inside, and {name}/QUILL.md for a tour of Quill."
+    );
     ExitCode::SUCCESS
+}
+
+/// The template menu. `None` when the person presses Esc.
+fn choose_template(name: &str) -> Option<&'static templates::Template> {
+    let default = templates::TEMPLATES
+        .iter()
+        .position(|template| template.name == templates::DEFAULT)
+        .unwrap_or(0);
+    let choice = dialoguer::Select::new()
+        .with_prompt(format!(
+            "What kind of program is {name}? (↑ ↓ to move, Enter to choose, Esc to cancel)"
+        ))
+        .items(
+            templates::TEMPLATES
+                .iter()
+                .map(templates::choice_line)
+                .collect::<Vec<_>>(),
+        )
+        .default(default)
+        .interact_opt()
+        .ok()??;
+    templates::TEMPLATES.get(choice)
 }
 
 fn invalid_project_name(name: &str) -> Option<(String, Option<String>)> {
@@ -759,6 +841,11 @@ fn fail(message: String, suggestion: Option<String>) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn help_lists_every_template_as_quill_new_names_it() {
+        assert!(USAGE.contains(templates::listing().trim_end()));
+    }
 
     #[test]
     fn a_note_is_plain_unless_colored() {

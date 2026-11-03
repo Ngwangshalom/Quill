@@ -1,0 +1,25 @@
+-- Reads data/students.json, works out a summary, and saves it to reports/summary.txt.
+-- Run it:  quill run main.quill
+-- Change the data file and run it again: that's the whole job of an automation.
+bring report
+
+permit read "data"
+permit write "reports"
+
+file = read_file("data/students.json")
+  on FileMissing -> say "Put students.json in the data folder."
+students = file as list of Student
+  on Invalid -> say "students.json has a student without a name, a score from 0 to 100, or paid."
+
+var report = "Class summary\n\n"
+for s in students sorted by highest score
+  set report = "{report}{line_for(s)}\n"
+set report = "{report}\nStudents: {count of students}\n"
+set report = "{report}Passed: {count of students where score >= 50}\n"
+set report = "{report}Average score: {round average score of students to 2 places}\n"
+set report = "{report}Still to pay: {count of students where paid == false}\n"
+
+say report
+write_file("reports/summary.txt", report)
+  on CantWrite -> say "Couldn't save reports/summary.txt."
+say "Saved to reports/summary.txt"

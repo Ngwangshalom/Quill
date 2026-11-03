@@ -1,0 +1,21 @@
+-- Your first Quill program. Run it:  quill run hello.quill
+-- Change a value, run it again, and watch what changes.
+
+name = "Amina"
+say "Hello, {name}!"
+
+scores = list 80, 64, 45
+say "{count of scores} scores"
+for score in scores
+  when
+    score >= 50 -> say "{score}: a pass"
+    else -> say "{score}: try again"
+
+--- Doubles a number. The example below is a test: quill test runs it.
+--- example: double(21) == 42
+fn double(n: number) -> number
+  return n * 2
+
+say "Double 21 is {double(21)}"
+
+check name == "Amina"

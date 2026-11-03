@@ -1,0 +1,21 @@
+-- Opens an account, pays money in and out, and refuses a withdrawal that would
+-- take it below zero. Run it:  quill run main.quill
+bring bank
+
+var account = Account owner = "Amina Okafor", balance = 0 USD
+say "Opened an account for {account.owner}."
+
+set account = deposit(account, 500 USD)
+say "Paid in 500 USD. Balance: {account.balance}"
+
+set account = withdraw(account, 120.50 USD)
+  on NotEnoughMoney -> account
+say "Took out 120.50 USD. Balance: {account.balance}"
+
+-- This one asks for more than the account holds. on NotEnoughMoney keeps the
+-- account as it was, and the program carries on.
+set account = withdraw(account, 1000 USD)
+  on NotEnoughMoney -> account
+say "Asked for 1000 USD and was refused. Balance: {account.balance}"
+
+check account.balance == 379.50 USD

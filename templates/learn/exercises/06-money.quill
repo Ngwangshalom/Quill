@@ -1,0 +1,10 @@
+-- Exercise 6: money that never loses a cent
+-- Three friends share a 100 USD dinner. 100 / 3 never ends, so Quill splits money instead.
+-- Change the list so it is: split bill into 3
+
+bill = 100 USD
+shares = list bill
+say shares
+
+check count of shares == 3
+check shares at 1 == 33.34 USD

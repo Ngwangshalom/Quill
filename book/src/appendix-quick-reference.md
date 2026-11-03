@@ -163,7 +163,8 @@ Blocks (`when`, `for`, `fn`, `record`) are indented by exactly 2 spaces.
 | `quill test` | run every test in this folder |
 | `quill test shop` | run the tests in the folder `shop` |
 | `quill explain FILE.quill:N` | show how Quill read line N |
-| `quill new NAME` | start a project |
+| `quill new NAME` | start a project; a menu offers the templates |
+| `quill new NAME TEMPLATE` | start one from a template: `learn`, `starter`, `backend`, `integration`, `webhook`, `ai`, `ai-backend`, `finance`, `banking`, `automation`, `library` |
 | `quill tokens FILE.quill` | show the pieces Quill read |
 | `quill update` | choose a version of Quill to install (also `quill upgrade`) |
 | `quill update VERSION` | install that version, or `latest` |

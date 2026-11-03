@@ -1,0 +1,46 @@
+-- An AI service: apps send a customer message, and a model answers in a shape
+-- the service checks before sending it back.
+-- Run it:  ANTHROPIC_API_KEY=your-key quill run server.quill
+-- Then:    curl -X POST localhost:8080/answer -d '{"message": "Can I change my booking to Friday?"}'
+bring web
+bring ai
+bring rules
+
+permit net "api.anthropic.com"
+permit env "ANTHROPIC_API_KEY"
+
+-- What a customer sends, as JSON:  {"message": "Can I change my booking to Friday?"}
+type Question
+  message: text
+
+-- What the model must answer with. The answer is checked against every field.
+type Answer
+  topic: text
+  urgent: true/false
+  reply: text
+
+fn answer(q: Question) -> Answer
+  fails ModelFailed, Invalid
+  return try ask "You answer customers of a small events company. Say the topic in one or two words, whether it is urgent, and a short, kind reply. Message: {q.message}" as Answer
+
+fn has_key() -> true/false
+  when env("ANTHROPIC_API_KEY")
+    found key -> return true
+    missing -> return false
+
+when
+  not has_key() -> say "ANTHROPIC_API_KEY isn't set, so /answer answers 503 until it is. README.md says how."
+
+route GET "/health"
+  respond 200, "ok"
+
+route POST "/answer"
+  question = request.body as Question
+    on Invalid -> respond 400, "Send JSON with a message."
+  when
+    not fits(question.message) -> respond 400, "Send a message from 1 to 2000 letters."
+    not has_key() -> respond 503, "The assistant isn't set up yet. Try again later."
+  reply = answer(question)
+    on ModelFailed -> respond 502, "The model couldn't answer. Try again soon."
+    on Invalid -> respond 502, "The model's answer didn't fit. Try again."
+  respond 200, reply

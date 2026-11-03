@@ -1,0 +1,18 @@
+-- A small library: functions other programs bring with bring money.
+-- Each function is tested by the --- example: lines above it.
+
+--- The price with a tip of the given percent, rounded to cents.
+--- example: with_tip(40 USD, 15) == 46 USD
+--- example: with_tip(19.99 USD, 10) == 21.99 USD
+fn with_tip(bill: USD, percent: number where 0..100) -> USD
+  return round bill + percent% of bill to cents
+
+--- A bill shared between people, so the parts add up to the bill.
+--- example: share(100 USD, 3) at 1 == 33.34 USD
+fn share(bill: USD, people: number where 1..100) -> list of USD
+  return split bill into people
+
+--- The amount written for a receipt.
+--- example: receipt_line("Dinner", 46 USD) == "Dinner ......... 46 USD"
+fn receipt_line(item: text, amount: USD) -> text
+  return "{item} ......... {amount}"

@@ -1,0 +1,8 @@
+-- Exercise 1: values and text
+-- A value has a name and holds something. {name} puts a value inside text.
+-- Change "Your name" to your own name, then run quill test.
+
+name = "Your name"
+say "Hello, {name}!"
+
+check name != "Your name"

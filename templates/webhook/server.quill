@@ -1,0 +1,16 @@
+-- Receives payment notices from a payment provider. A notice that doesn't fit
+-- type Payment is refused with 400, so a bad or forged one never reaches our rules.
+-- Run it:  quill run server.quill
+-- Then:    curl -X POST localhost:8080/payments \
+--            -d '{"id": "pay_1001", "customer": "Amina", "amount": "250.00", "status": "paid"}'
+bring web
+bring payments
+
+route GET "/health"
+  respond 200, "ok"
+
+route POST "/payments"
+  payment = request.body as Payment
+    on Invalid -> respond 400, "A payment needs an id, a customer, an amount, and a status."
+  say decision(payment)
+  respond 200, "received"

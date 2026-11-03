@@ -1,0 +1,7 @@
+-- Our own rules. No model here, so quill test can prove them.
+
+--- A message is too long to send to the model after 2000 letters.
+--- example: fits("Can I change my booking?") == true
+--- example: fits("") == false
+fn fits(message: text) -> true/false
+  return length of trim message > 0 and length of message <= 2000

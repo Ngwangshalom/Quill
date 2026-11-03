@@ -55,6 +55,8 @@ source (.quill) → lexer → parser → checker → compiler → VM
 | `tests/cli.rs` | End-to-end tests that run the real `quill` binary |
 | `tests/programs/` | Small `.quill` programs used by those tests |
 | `tests/book.rs` | Runs every example in the book |
+| `templates/` | The projects `quill new` starts from, one folder each, plus `QUILL.md`, the tour every project gets. They are built into `quill` by `src/templates.rs`. A new file in a template is listed there too. `tests/cli.rs` makes every template and checks and tests it, so a language change that breaks one shows up in `cargo test` |
+| `book/theme/quill-highlight.js` | Colors the book's Quill examples like the editors. It follows the grammar in `editors/vscode`, so change both together |
 | `docs/spec.md` | The language specification |
 | `book/src/` | The Quill book, one Markdown file per chapter |
 

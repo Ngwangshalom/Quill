@@ -1,0 +1,10 @@
+-- Exercise 2: exact numbers
+-- A ticket costs 12.50, and Amina buys 4.
+-- Change the 0 so total works the price out: price times tickets, written with *.
+
+price = 12.50
+tickets = 4
+total = 0
+say "Total: {total}"
+
+check total == 50

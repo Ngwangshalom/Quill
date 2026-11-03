@@ -3287,17 +3287,23 @@ impl<'a> Parser<'a> {
     }
 
     /// A text tool that starts a value: `trim name`, `length of name`, `join names with ", "`,
-    /// or `replace "-" with " " in code`. Followed by `(`, the word is a call to a function
-    /// of that name, and followed by anything else that is not a value, it is a name.
+    /// or `replace "-" with " " in code`. Right against `(`, as in `trim(x)`, the word calls a
+    /// function of that name; `trim (x)`, with a space, is the tool. Followed by anything
+    /// else that is not a value, the word is a name.
     fn text_tool_at(&self) -> Option<TextTool> {
-        let TokenKind::Identifier(word) = &self.peek().kind else {
+        let word_token = self.peek();
+        let TokenKind::Identifier(word) = &word_token.kind else {
             return None;
         };
-        let next = &self.peek_at(1).kind;
+        let next_token = self.peek_at(1);
+        let next = &next_token.kind;
         if word == "length" {
             return (*next == TokenKind::Of).then_some(TextTool::Length);
         }
-        if !starts_value(next) || matches!(next, TokenKind::LeftParen | TokenKind::Minus) {
+        let call = *next == TokenKind::LeftParen
+            && next_token.line == word_token.line
+            && next_token.column == word_token.column + word_token.length;
+        if !starts_value(next) || call || *next == TokenKind::Minus {
             return None;
         }
         match word.as_str() {

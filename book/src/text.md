@@ -117,6 +117,8 @@ amina@school.org
 
 A tool works inside braces too: `say "Hello, {trim typed}!"`.
 
+A tool takes no brackets. To tidy a longer value, put a space before the bracket: `trim (parts at 1)`. Written right against it, `trim(x)` is a call to a function named `trim`, and Quill says so when there isn't one.
+
 ## How long: length of
 
 `length of` says how many letters a text has. Spaces and punctuation count, and so does each letter with an accent:

@@ -1,0 +1,34 @@
+-- Invoices with exact money. Every rule has tests above it, and quill test runs them.
+
+type Line
+  item: text
+  quantity: number where 1..1000
+  price: USD where 0 USD..100000 USD
+
+type Invoice
+  customer: text
+  lines: list of Line
+
+--- example: line_total(Line item = "Pen", quantity = 3, price = 1.50 USD) == 4.50 USD
+fn line_total(l: Line) -> USD
+  return l.price * l.quantity
+
+--- Every line added together, before VAT.
+--- example: subtotal(Invoice customer = "A", lines = list Line item = "Pen", quantity = 2, price = 1 USD) == 2 USD
+fn subtotal(invoice: Invoice) -> USD
+  var total = 0 USD
+  for l in invoice.lines
+    set total = total + line_total(l)
+  return total
+
+--- VAT at 20%, rounded to cents the way banks round.
+--- example: vat(100 USD) == 20 USD
+--- example: vat(10.05 USD) == 2.01 USD
+fn vat(amount: USD) -> USD
+  require amount >= 0 USD
+  ensure result <= amount
+  return round 20% of amount to cents
+
+--- example: total_due(100 USD) == 120 USD
+fn total_due(amount: USD) -> USD
+  return amount + vat(amount)

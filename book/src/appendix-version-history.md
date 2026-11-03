@@ -6,6 +6,10 @@ What changed in each version of Quill. The newest version is at the top.
 
 Changes that are finished but not yet in a release.
 
+## v0.4.5 (3 November 2026)
+
+- **Templates for `quill new`.** `quill new shop` asks what kind of program it is, with the arrow keys, and `quill new shop backend` skips the menu. Eleven templates, in five groups: `learn` and `starter` for learning; `backend`, `integration` and `webhook` for backend work; `ai` and `ai-backend` for AI; `finance` and `banking` for business and finance; `automation` and `library` for automation and general programs. Each one runs and passes its tests straight away, and comes with a `README.md` and `QUILL.md`, a one-page tour of the language. With no terminal, `quill new shop` makes `starter`. A misspelled template names the one you meant.
+- `trim (parts at 1)`, with a space before the bracket, is the text tool. `trim(x)`, right against the bracket, calls a function called `trim`; when there is none, Quill explains that the tool takes no brackets.
 - **Working with text.** `trim name` takes away the spaces at the ends, and `uppercase` and `lowercase` change the letters. `length of name` counts the letters, with `é` as one. `email contains "@"`, `code starts with "INV"`, and `file ends with ".csv"` are true or false, and work in a `when` and a `where`; `hobbies contains "coding"` looks in a list. `replace "-" with " " in code` changes every `-`. `split line by ","` cuts text into a list, and `join names with ", "` puts a list back into one text. An empty separator is a mistake. None of these words is reserved, so `var length = 0` and `fn join(...)` still work. They are ink (`#949CF5` on a dark editor, `#3A44A0` on a light one).
 - The examples in this book have the editor's colors: the light ones on the Quill, Light and Rust themes, and the dark ones on Coal, Navy and Ayu. Before, the book's code was one color, and the code after the first Quill example on a page wasn't colored at all. In Cursor and VS Code, the second number of a range such as `0..100` is colored like the first.
 

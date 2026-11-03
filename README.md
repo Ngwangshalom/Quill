@@ -67,6 +67,18 @@ quill new hello
 quill run hello/hello.quill
 ```
 
+`quill new` asks what kind of program you want, and every template runs and passes its tests straight away. Name one to skip the menu, like `quill new orders backend`:
+
+| For | Templates |
+|---|---|
+| Learning | `learn` (exercises to fix), `starter` (one file) |
+| Backend work | `backend` (a service for web, desktop, and mobile apps), `integration` (call another service), `webhook` (receive notices) |
+| AI | `ai` (ask a model, check its answer), `ai-backend` (a model behind a service) |
+| Business and finance | `finance` (invoices with exact money), `banking` (accounts that can't go below zero) |
+| Automation and general programs | `automation` (read a file, write a report), `library` (functions other programs bring in) |
+
+Each project comes with a `README.md` and `QUILL.md`, a one-page tour of the language.
+
 To update later, run `quill update` and choose a version with the arrow keys. Quill also tells you when a new version is out (set `QUILL_NO_UPDATE_CHECK=1` to turn that off).
 
 Building from source needs [Rust](https://rustup.rs): `cargo install --git https://github.com/Ngwangshalom/Quill`
@@ -357,7 +369,7 @@ Quill stopped here before running anything.
 | `quill test file.quill` | Run one file and count its executed checks and doc examples |
 | `quill test folder` | Run the test files in one folder and its subfolders |
 | `quill explain file.quill:LINE` | Show how the compiler read a line |
-| `quill new NAME` | Start a new project |
+| `quill new NAME [TEMPLATE]` | Start a new project from a template |
 | `quill update` | Choose a version of Quill to install (also `quill upgrade`) |
 
 ## Language specification

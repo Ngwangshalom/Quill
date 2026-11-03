@@ -1,0 +1,21 @@
+-- The shape of the data and how one line of the report looks. No files here,
+-- so quill test can prove it.
+
+type Student
+  name: text
+  score: number where 0..100
+  paid: true/false
+
+--- example: grade(92) == "A"
+--- example: grade(64) == "Pass"
+--- example: grade(45) == "Fail"
+fn grade(score: number where 0..100) -> text
+  return when
+    score >= 70 -> "A"
+    score >= 50 -> "Pass"
+    else -> "Fail"
+
+--- Names arrive with stray spaces, so each line tidies the name first.
+--- example: line_for(Student name = " Amina ", score = 80, paid = true) == "Amina: 80 (A)"
+fn line_for(s: Student) -> text
+  return "{trim s.name}: {s.score} ({grade(s.score)})"

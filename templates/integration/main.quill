@@ -1,0 +1,20 @@
+-- Asks a free exchange rate service for today's rates, and changes a price into
+-- euros and pounds. Run it:  quill run main.quill
+bring http
+bring rates
+
+permit net "api.frankfurter.dev"
+
+price = 250 USD
+
+answer = fetch("https://api.frankfurter.dev/v1/latest?from=USD&to=EUR,GBP")
+  on NetworkDown -> say "The rate service can't be reached. Check your internet connection."
+when
+  answer.status != 200 -> say "The rate service answered {answer.status}."
+  else -> say "Rates for {price}:"
+
+today = answer.body as Rates
+  on Invalid -> say "The rate service answered in a shape this program doesn't know."
+say "  {in_euros(price, today)}"
+say "  {in_pounds(price, today)}"
+say "Rates from {today.date}."

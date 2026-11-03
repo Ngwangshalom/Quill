@@ -1,0 +1,28 @@
+-- The shapes of the data and the rules about it. Nothing here talks to the network,
+-- so quill test can prove every rule.
+
+-- What a customer sends, as JSON:
+-- {"item": "Notebook", "quantity": 3, "price": "4.50"}
+type Order
+  item: text
+  quantity: number where 1..100
+  price: USD
+
+-- What the service answers with, as JSON.
+type Receipt
+  item: text
+  quantity: number
+  total: USD
+
+--- The price of every item, with 10% off from 10 items.
+--- example: total(Order item = "Pen", quantity = 2, price = 1.50 USD) == 3 USD
+--- example: total(Order item = "Pen", quantity = 10, price = 1 USD) == 9 USD
+fn total(o: Order) -> USD
+  ensure result >= 0 USD
+  full = o.price * o.quantity
+  return when
+    o.quantity >= 10 -> round full - 10% of full to cents
+    else -> full
+
+fn receipt(o: Order) -> Receipt
+  return Receipt item = o.item, quantity = o.quantity, total = total(o)

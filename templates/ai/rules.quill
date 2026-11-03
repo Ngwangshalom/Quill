@@ -1,0 +1,16 @@
+-- The shape we want from the model, and our own rules about it. No model here,
+-- so quill test can prove every rule.
+
+-- The model must answer in exactly this shape. Its answer is checked against every
+-- field and range, so a mood of 9 never reaches our code.
+type Mood
+  score: number where 1..5
+  summary: text
+  angry: true/false
+
+--- A low or angry review gets a reply from a person.
+--- example: needs_reply(Mood score = 2, summary = "late", angry = false) == true
+--- example: needs_reply(Mood score = 5, summary = "great", angry = true) == true
+--- example: needs_reply(Mood score = 4, summary = "good", angry = false) == false
+fn needs_reply(m: Mood) -> true/false
+  return m.score <= 2 or m.angry

@@ -1,0 +1,17 @@
+-- Exercise 4: asking for data
+-- Three students, each a record with a name and a score.
+-- Change each 0 to a line that asks for the answer:
+--   passed: count of students where score >= 50
+--   class_average: average score of students
+
+amina = record name = "Amina", score = 80
+omar = record name = "Omar", score = 64
+john = record name = "John", score = 45
+students = list amina, omar, john
+
+passed = 0
+class_average = 0
+say "{passed} passed, and the class average is {class_average}."
+
+check passed == 2
+check class_average == 63

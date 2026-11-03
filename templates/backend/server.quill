@@ -1,0 +1,19 @@
+-- A backend service: web, desktop and mobile apps all call it the same way.
+-- Run it:  quill run server.quill
+-- Then, in another terminal:
+--   curl localhost:8080/health
+--   curl -X POST localhost:8080/orders -d '{"item": "Notebook", "quantity": 3, "price": "4.50"}'
+bring web
+bring orders
+
+-- Hosting services call this to see that the server is alive.
+route GET "/health"
+  respond 200, "ok"
+
+route GET "/hello/{name}"
+  respond 200, "Hello, {name}!"
+
+route POST "/orders"
+  order = request.body as Order
+    on Invalid -> respond 400, "Send an item, a quantity from 1 to 100, and a price."
+  respond 201, receipt(order)

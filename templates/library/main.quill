@@ -1,0 +1,7 @@
+-- Uses the functions in money.quill. Run it:  quill run main.quill
+bring money
+
+bill = with_tip(84.50 USD, 12)
+say receipt_line("Dinner with tip", bill)
+parts = join share(bill, 4) with ", "
+say "Shared by 4: {parts}"

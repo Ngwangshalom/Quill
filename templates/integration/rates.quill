@@ -1,0 +1,22 @@
+-- The shape of the answer, and what we do with it. Nothing here uses the network,
+-- so quill test can prove it.
+
+-- The rate service answers with JSON like:
+-- {"amount": 1.0, "base": "USD", "date": "2026-11-02", "rates": {"EUR": 0.89, "GBP": 0.75}}
+-- Fields the type doesn't name, like amount, are left out.
+type Prices
+  EUR: number
+  GBP: number
+
+type Rates
+  date: text
+  rates: Prices
+
+--- 100 USD in euros, rounded to cents.
+--- example: in_euros(100 USD, Rates date = "today", rates = Prices EUR = 0.5, GBP = 0.4) == 50 EUR
+fn in_euros(amount: USD, r: Rates) -> EUR
+  return round convert amount to EUR at r.rates.EUR to cents
+
+--- example: in_pounds(10 USD, Rates date = "today", rates = Prices EUR = 0.5, GBP = 0.755) == 7.55 GBP
+fn in_pounds(amount: USD, r: Rates) -> GBP
+  return round convert amount to GBP at r.rates.GBP to cents

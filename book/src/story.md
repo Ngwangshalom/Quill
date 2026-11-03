@@ -33,6 +33,7 @@ He chose a short name that would be easy to remember: Quill. The feather in the 
 | 14 October 2026 | **v0.3.1** adds lists, records, loops, functions, exact money, maybe, and failures. |
 | 20 October 2026 | **v0.4.0** adds contracts (`require`, `ensure`), `where` for ranges and for filtering records, `get` and `sum` for asking data without a loop, a `when` that gives a value, `on` that carries on, and examples that test a function. |
 | 3 November 2026 | **v0.4.2** adds `count`, `average`, and `sorted by`, types, exact rounding and splitting of money, files brought together with `bring`, permits, JSON, web requests, asking an AI model, and web services. Quill files end in `.quill`. |
+| 3 November 2026 | **v0.4.5** adds eleven templates for `quill new`, from learning exercises to backends, AI services, finance, and automation, and text tools: `trim`, `contains`, `split`, `join`, `replace`, and more. The book's examples now have the editor's colors. |
 
 ## Where Quill is going
 

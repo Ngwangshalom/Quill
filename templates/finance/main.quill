@@ -1,0 +1,25 @@
+-- Makes an invoice, adds VAT, and shares the total into three payments that never lose a cent.
+-- Run it:  quill run main.quill
+bring billing
+
+design = Line item = "Website design", quantity = 1, price = 1200 USD
+hosting = Line item = "Hosting, per month", quantity = 12, price = 15.99 USD
+invoice = Invoice customer = "Amina Okafor", lines = list design, hosting
+
+before_vat = subtotal(invoice)
+due = total_due(before_vat)
+
+say "Invoice for {invoice.customer}"
+for l in invoice.lines
+  say "  {l.item}: {l.quantity} x {l.price} = {line_total(l)}"
+say "Subtotal: {before_vat}"
+say "VAT 20%: {vat(before_vat)}"
+say "Total: {due}"
+
+payments = split due into 3
+shown = join payments with ", "
+say "Three payments: {shown}"
+say "In euros, at 0.89: {round convert due to EUR at 0.89 to cents}"
+
+-- The three payments always add up to the total.
+check (payments at 1) + (payments at 2) + (payments at 3) == due

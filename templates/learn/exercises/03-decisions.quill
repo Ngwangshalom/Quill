@@ -1,0 +1,12 @@
+-- Exercise 3: decisions with when
+-- grade should give "A" for 70 or more, "Pass" for 50 or more, and "Fail" below that.
+-- One case is missing. Add it between the two, so all three checks pass.
+
+fn grade(score: number) -> text
+  return when
+    score >= 70 -> "A"
+    else -> "Fail"
+
+check grade(85) == "A"
+check grade(64) == "Pass"
+check grade(30) == "Fail"

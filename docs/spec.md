@@ -1,6 +1,6 @@
 # Quill Language Specification
 
-**Version 0.1 draft**, describing Quill as implemented in release v0.4.2.
+**Version 0.1 draft**, describing Quill as implemented in release v0.4.5.
 
 This document says exactly what Quill programs mean. The [README](https://github.com/Ngwangshalom/Quill#readme) shows where the language is going; this spec covers what works today, and marks planned features clearly in [§12](#12-planned-not-yet-implemented). When the implementation and this document disagree, that is a bug in one of them. Please [open an issue](https://github.com/Ngwangshalom/Quill/issues).
 
@@ -214,7 +214,7 @@ true
 - `split TEXT by SEPARATOR` is a list of the texts between each `SEPARATOR`, in order, with the separators left out. Two separators side by side give an empty text between them. `SEPARATOR` can't be empty, and `split TEXT into ...` is a mistake; `into` shares out money (§8.7).
 - `join LIST with SEPARATOR` is one text: the items of `LIST`, each shown as `say` shows it (§4.3), with `SEPARATOR` between them. The items are text, numbers, money, or true/false.
 - Every value a tool reads must be text where the tool says text. A number becomes text inside braces: `length of "{year}"`.
-- `trim`, `uppercase`, `lowercase`, `join`, and `replace` are tools only when a value follows them on the same line; followed by `(`, they call a function of that name. `length` is a tool only before `of`, `contains` only between two values, and `starts` and `ends` only before `with`. Everywhere else they are ordinary names.
+- `trim`, `uppercase`, `lowercase`, `join`, and `replace` are tools only when a value follows them on the same line. Right against `(`, as in `trim(x)`, they call a function of that name; with a space, `trim (parts at 1)` is the tool. A call to `trim(x)` with no function `trim` is a mistake that says the tool takes no brackets. `length` is a tool only before `of`, `contains` only between two values, and `starts` and `ends` only before `with`. Everywhere else they are ordinary names.
 
 ### 5.3 Numbers
 
@@ -982,7 +982,7 @@ Quill never crashes on a mistake in a program. If it ever does, that is a bug in
 | `quill test` | Run every `.quill` file in this folder and its subfolders that contains a `check` or `--- example:`, and report how many passed. Folders starting with `.`, and `target`, are skipped. |
 | `quill test FOLDER` | The same as `quill test`, for the files in `FOLDER` and its subfolders. |
 | `quill explain FILE.quill:N` | Show how Quill read line N: what each part means, its kind, and where names were created |
-| `quill new NAME` | Create a folder `NAME` holding a starter `hello.quill` |
+| `quill new NAME [TEMPLATE]` | Create a folder `NAME` from a template: its program, a `README.md` about it, and `QUILL.md`, a short tour of the language. With no template, shows a menu of every template to choose from with the arrow keys (Esc creates nothing), or makes `starter` when there's no terminal. The templates are `learn` and `starter`; `backend`, `integration` and `webhook`; `ai` and `ai-backend`; `finance` and `banking`; `automation` and `library`. An unknown template is a mistake that names the closest one. `NAME` must not exist yet. |
 | `quill tokens FILE.quill` | Show the pieces Quill read the file as, with their line and column |
 | `quill update [VERSION]` | Install a release of Quill. With no version, shows a menu of every release to choose from with the arrow keys (or installs the latest when there's no terminal). `VERSION` is a version like `0.2.0`, or `latest`. Works for copies installed with the installer; a copy built from source explains how to update it with `cargo`. `quill upgrade` is another name for this command. |
 | `quill help` | Show help |

@@ -207,15 +207,113 @@ fn new_starts_a_project_that_runs_and_tests() {
     let root = scratch("new-project");
     let output = quill_in(&root, &["new", "shop"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(stdout(&output).contains("Created shop/hello.quill."));
+    assert!(stdout(&output).contains("Created shop, a starter project."));
+    assert!(root.join("shop/README.md").exists());
+    assert!(root.join("shop/QUILL.md").exists());
 
     let output = quill_in(&root, &["run", "shop/hello.quill"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert_eq!(stdout(&output), "Hello, World!\n");
+    assert!(stdout(&output).starts_with("Hello, Amina!\n"));
 
     let output = quill_in(&root, &["test"]);
     assert!(output.status.success(), "stderr: {}", stderr(&output));
-    assert!(stdout(&output).contains("shop/hello.quill: 1 check passed"));
+    assert!(stdout(&output).contains("shop/hello.quill: 2 checks passed"));
+}
+
+/// Every template checks, and its tests pass, the moment it is made. The learning
+/// exercises are meant to fail until they are solved, so they only have to check.
+#[test]
+fn every_template_starts_a_project_that_checks_and_tests() {
+    let root = scratch("new-templates");
+    let templates = [
+        "learn",
+        "starter",
+        "backend",
+        "integration",
+        "webhook",
+        "ai",
+        "ai-backend",
+        "finance",
+        "banking",
+        "automation",
+        "library",
+    ];
+    for template in templates {
+        let name = format!("p-{template}");
+        let output = quill_in(&root, &["new", &name, template]);
+        assert!(output.status.success(), "{template}: {}", stderr(&output));
+        assert!(stdout(&output).contains(&format!("Created {name}, a {template} project.")));
+        let readme = std::fs::read_to_string(root.join(&name).join("README.md")).unwrap();
+        assert!(readme.starts_with(&format!("# {name}\n")), "{template}");
+        assert!(!readme.contains("{{"), "{template}");
+
+        let mut files = Vec::new();
+        quill_files(&root.join(&name), &mut files);
+        assert!(!files.is_empty(), "{template}");
+        for file in files {
+            let output = quill_in(&root, &["check", file.to_str().unwrap()]);
+            assert!(
+                output.status.success(),
+                "{}: {}",
+                file.display(),
+                stderr(&output)
+            );
+        }
+
+        let output = quill_in(&root, &["test", &name]);
+        if template == "learn" {
+            assert!(
+                stderr(&output).contains("01-values.quill"),
+                "{}",
+                stderr(&output)
+            );
+        } else {
+            assert!(output.status.success(), "{template}: {}", stderr(&output));
+            assert!(stdout(&output).contains("passed"), "{template}");
+        }
+    }
+}
+
+#[test]
+fn the_guide_in_every_project_runs() {
+    let root = scratch("new-guide");
+    assert!(quill_in(&root, &["new", "tour", "starter"])
+        .status
+        .success());
+    let guide = std::fs::read_to_string(root.join("tour/QUILL.md")).unwrap();
+    let start = guide.find("```quill\n").unwrap() + "```quill\n".len();
+    let end = start + guide[start..].find("```").unwrap();
+    std::fs::write(root.join("guide.quill"), &guide[start..end]).unwrap();
+    let output = quill_in(&root, &["test", "guide.quill"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+}
+
+#[test]
+fn new_suggests_the_template_meant() {
+    let root = scratch("new-typo");
+    let output = quill_in(&root, &["new", "shop", "bakend"]);
+    assert_reported_problem(&output);
+    let err = stderr(&output);
+    assert!(
+        err.contains("Quill doesn't have a template called bakend."),
+        "{err}"
+    );
+    assert!(
+        err.contains("Did you mean:  quill new shop backend"),
+        "{err}"
+    );
+    assert!(!root.join("shop").exists());
+}
+
+fn quill_files(dir: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            quill_files(&path, files);
+        } else if path.extension().is_some_and(|ext| ext == "quill") {
+            files.push(path);
+        }
+    }
 }
 
 #[test]

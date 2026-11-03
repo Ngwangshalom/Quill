@@ -38,8 +38,9 @@ Quill shows every version you can install. Move with the ↑ and ↓ keys, press
 
 ```text
 Which version of Quill do you want? (↑ ↓ to move, Enter to install, Esc to cancel):
-> 0.4.2     3 Nov 2026   latest
-  0.4.0     20 Oct 2026  installed
+> 0.4.5     3 Nov 2026   latest
+  0.4.2     3 Nov 2026   installed
+  0.4.0     20 Oct 2026
   0.3.1     14 Oct 2026
   0.3.0     13 Oct 2026
   0.2.0     13 Oct 2026
@@ -60,7 +61,7 @@ Choosing an older version is how you go back if a new release causes a problem. 
 You don't have to remember to check. At most once a day, Quill quietly asks whether a new version is out, and if one is, it tells you after your command finishes:
 
 ```text
-Quill 0.4.2 is available (you have 0.4.0). Run quill update to get it.
+Quill 0.4.5 is available (you have 0.4.2). Run quill update to get it.
 ```
 
 Quill never updates itself without asking, so a program that works today won't change behaviour tomorrow unless you choose to update. The check runs in the background and never slows Quill down. If you'd rather Quill didn't check at all, set `QUILL_NO_UPDATE_CHECK=1` in your environment.
@@ -111,32 +112,93 @@ Welcome to Quill.
 
 ## Starting a project
 
-`quill new` creates a folder with a starter program in it:
+`quill new` creates a folder with a program in it that runs and passes its tests straight away. It asks what kind of program you want:
 
 ```bash
 quill new shop
 ```
 
 ```text
-Created shop/hello.quill.
-Run it with:  quill run shop/hello.quill
-Test it with:  quill test
+What kind of program is shop? (↑ ↓ to move, Enter to choose, Esc to cancel)
+  Learning    learn        six exercises with checks that fail until you fix the code
+> Learning    starter      one file with values, when, for, a function, and a test
+  Backend     backend      a service that web, desktop, and mobile apps call, with JSON and tests
+  Backend     integration  call another service, read its JSON safely, and handle NetworkDown
+  Backend     webhook      receive a payment notice, check every field, answer 200 or 400
+  AI          ai           ask a model, and check its answer against a type
+  AI          ai-backend   a service route that asks a model, ready to deploy
+  Business    finance      an invoice with exact money, VAT, split, and contracts
+  Business    banking      accounts that can never go below zero, with require and ensure
+  Automation  automation   read a file, tidy it, count and sort, and save a report
+  Automation  library      reusable functions with tests, used with bring
 ```
 
-Inside `shop/hello.quill` you'll find:
+Move with ↑ and ↓, and press Enter. To skip the menu, name the template after the folder:
+
+```bash
+quill new shop starter
+quill new orders backend
+```
+
+```text
+Created shop, a starter project.
+Run it with:   quill run shop/hello.quill
+Test it with:  quill test shop
+Read shop/README.md to see what's inside, and shop/QUILL.md for a tour of Quill.
+```
+
+Every project has a `README.md` that says how to run it and what to try next, and a `QUILL.md` with a one-page tour of the language. When there's no menu to show, such as in a script, `quill new shop` makes a `starter` project.
+
+| Template | Start here when you want to |
+|---|---|
+| `learn` | learn Quill by fixing small exercises until `quill test` passes |
+| `starter` | try the language in one file |
+| `backend` | build a service that web, desktop, and mobile apps call |
+| `integration` | call another service and read its JSON safely |
+| `webhook` | receive notices from a payment provider or another service |
+| `ai` | ask an AI model and check its answer |
+| `ai-backend` | put an AI model behind a service you can deploy |
+| `finance` | work with invoices, VAT, and money that never loses a cent |
+| `banking` | keep accounts whose rules can never be broken |
+| `automation` | read a file, work something out, and save a report |
+| `library` | write functions that other programs bring in |
+
+Inside `shop/hello.quill`, the starter, you'll find:
 
 ```quill
-greeting = "Hello, World!"
-say greeting
+-- Your first Quill program. Run it:  quill run hello.quill
+-- Change a value, run it again, and watch what changes.
 
-check greeting == "Hello, World!"
+name = "Amina"
+say "Hello, {name}!"
+
+scores = list 80, 64, 45
+say "{count of scores} scores"
+for score in scores
+  when
+    score >= 50 -> say "{score}: a pass"
+    else -> say "{score}: try again"
+
+--- Doubles a number. The example below is a test: quill test runs it.
+--- example: double(21) == 42
+fn double(n: number) -> number
+  return n * 2
+
+say "Double 21 is {double(21)}"
+
+check name == "Amina"
 ```
 
 ```output
-Hello, World!
+Hello, Amina!
+3 scores
+80: a pass
+64: a pass
+45: try again
+Double 21 is 42
 ```
 
-The first line gives the text a name, `greeting`. The last line is a test, which you'll learn about in [Testing Your Code](testing.md).
+Each part has a chapter of its own in this book. The `check` line and the `--- example:` are tests, which you'll learn about in [Testing Your Code](testing.md).
 
 ## Comments
 
@@ -204,7 +266,7 @@ Vim, Emacs, and Sublime also know `.quill` files. The files are in the `editors`
 | `quill lsp` | Underline those mistakes in an editor |
 | `quill test` | Run the tests in every file in this folder |
 | `quill explain FILE.quill:N` | Show how Quill understood line N |
-| `quill new NAME` | Start a new project |
+| `quill new NAME` | Start a new project from a template |
 | `quill update` | Choose a version of Quill to install |
 | `quill help` | Show all the commands |
 

@@ -1,0 +1,27 @@
+-- Accounts that can never go below zero. require says what a caller must pass,
+-- ensure says what each function promises, and fails names what can go wrong.
+
+type Account
+  owner: text
+  balance: USD
+
+--- example: deposit((Account owner = "Amina", balance = 10 USD), 5 USD).balance == 15 USD
+fn deposit(a: Account, amount: USD) -> Account
+  require amount > 0 USD
+  ensure result.balance == a.balance + amount
+  return Account owner = a.owner, balance = a.balance + amount
+
+--- Whether the account holds enough for this withdrawal.
+--- example: can_take((Account owner = "Amina", balance = 10 USD), 4 USD) == true
+--- example: can_take((Account owner = "Amina", balance = 10 USD), 10 USD) == true
+--- example: can_take((Account owner = "Amina", balance = 10 USD), 10.01 USD) == false
+fn can_take(a: Account, amount: USD) -> true/false
+  return amount <= a.balance
+
+fn withdraw(a: Account, amount: USD) -> Account
+  fails NotEnoughMoney
+  require amount > 0 USD
+  ensure result.balance >= 0 USD
+  when
+    not can_take(a, amount) -> fail NotEnoughMoney
+  return Account owner = a.owner, balance = a.balance - amount

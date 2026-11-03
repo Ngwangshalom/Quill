@@ -1,0 +1,23 @@
+-- Asks an AI model to read customer reviews, and checks every answer against type Mood.
+-- Run it:  ANTHROPIC_API_KEY=your-key quill run main.quill
+bring ai
+bring rules
+
+permit net "api.anthropic.com"
+permit env "ANTHROPIC_API_KEY"
+
+fn read_reviews(reviews: list of text)
+  var mood = Mood score = 3, summary = "not asked yet", angry = false
+  for review in reviews
+    set mood = ask "Rate this review from 1 to 5, sum it up in a few words, and say if the writer is angry: {review}" as Mood
+      on ModelFailed -> Mood score = 3, summary = "no answer from the model", angry = false
+      on Invalid -> Mood score = 3, summary = "the answer didn't fit", angry = false
+    when
+      needs_reply(mood) -> say "{mood.score}/5, {mood.summary}. A person should reply."
+      else -> say "{mood.score}/5, {mood.summary}."
+
+reviews = list "The band was wonderful, we danced all night!", "They arrived two hours late and nobody called us."
+
+when env("ANTHROPIC_API_KEY")
+  found key -> read_reviews(reviews)
+  missing -> say "Set ANTHROPIC_API_KEY first, then run this again. README.md says how."

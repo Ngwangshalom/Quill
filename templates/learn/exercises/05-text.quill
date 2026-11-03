@@ -1,0 +1,10 @@
+-- Exercise 5: text
+-- People type addresses with spaces and capital letters.
+-- Make email the tidy version of typed: lowercase trim typed
+
+typed = "  AMINA@SCHOOL.ORG "
+email = typed
+say "[{email}]"
+
+check email == "amina@school.org"
+check length of email == 16
