@@ -131,8 +131,24 @@
       "name": "keyword.other.at.quill"
     },
     "ask": {
-      "match": "\\b(get|sum|with)\\b",
-      "name": "keyword.other.ask.quill"
+      "patterns": [
+        {
+          "match": "\\b(get|sum|with)\\b",
+          "name": "keyword.other.ask.quill"
+        },
+        {
+          "match": "\\bcount\\b(?=\\s+of\\b)",
+          "name": "keyword.other.ask.quill"
+        },
+        {
+          "match": "\\baverage\\b(?=\\s+[A-Za-z_][A-Za-z0-9_]*\\s+of\\b)",
+          "name": "keyword.other.ask.quill"
+        },
+        {
+          "match": "\\bsorted\\b(?=\\s+by\\b)",
+          "name": "keyword.other.ask.quill"
+        }
+      ]
     },
     "fn": {
       "match": "\\b(fn|return)\\b",

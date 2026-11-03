@@ -516,6 +516,12 @@ impl Describer<'_> {
             ExprKind::Get { .. } => format!("those fields of each record, {kind}"),
             ExprKind::GetWith { .. } => format!("records and the data embedded in them, {kind}"),
             ExprKind::Where { .. } => format!("the records whose condition is true, {kind}"),
+            ExprKind::Count { .. } => format!("how many items the list has, {kind}"),
+            ExprKind::Average { .. } => format!("the average of one field, {kind}"),
+            ExprKind::Sorted { highest: true, .. } => {
+                format!("the records in order, highest first, {kind}")
+            }
+            ExprKind::Sorted { .. } => format!("the records in order, lowest first, {kind}"),
             ExprKind::Call { name, .. } => format!("a call of {name}, {kind}"),
             ExprKind::Money { .. } => kind,
             ExprKind::Found(_) => format!("a maybe that holds a value, {kind}"),

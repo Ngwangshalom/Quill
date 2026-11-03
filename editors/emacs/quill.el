@@ -52,7 +52,7 @@
 (defface quill-ask
   '((((background light)) :foreground "#15556A")
     (t :foreground "#6EC1D6"))
-  "get, sum, and with." :group 'quill)
+  "get, sum, with, count, average, and sorted: asking for data." :group 'quill)
 (defface quill-fn
   '((((background light)) :foreground "#8A3D78")
     (t :foreground "#E8A0D4"))
@@ -85,7 +85,7 @@
   '((((background light)) :foreground "#8C4E20")
     (t :foreground "#C47848"))
   "permit: what a program may touch." :group 'quill)
-(defface quill-ask
+(defface quill-ask-model
   '((((background light)) :foreground "#8E2C8A")
     (t :foreground "#E57BE0"))
   "ask: a question for an AI model." :group 'quill)
@@ -116,6 +116,9 @@
     ("\\b\\(of\\)\\b" . 'quill-of)
     ("\\b\\(at\\)\\b" . 'quill-at)
     ("\\b\\(get\\|sum\\|with\\)\\b" . 'quill-ask)
+    ("\\b\\(count\\)[ \t]+of\\b" 1 'quill-ask)
+    ("\\b\\(average\\)[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+of\\b" 1 'quill-ask)
+    ("\\b\\(sorted\\)[ \t]+by\\b" 1 'quill-ask)
     ("\\b\\(fn\\|return\\)\\b" . 'quill-fn)
     ("\\b\\(maybe\\|found\\|missing\\)\\b" . 'quill-maybe)
     ("\\b\\(fails\\|fail\\|on\\|try\\)\\b" . 'quill-fail)
@@ -124,7 +127,7 @@
     ("\\b\\(round\\|split\\|convert\\)\\b" . 'quill-money)
     ("\\b\\(bring\\|route\\|respond\\)\\b" . 'quill-module)
     ("\\b\\(permit\\)\\b" . 'quill-permit)
-    ("\\b\\(ask\\)\\b" . 'quill-ask)
+    ("\\b\\(ask\\)\\b" . 'quill-ask-model)
     ("\\bensure\\b" ("\\bresult\\b" nil nil (0 'quill-contract)))
     ("\\b\\(true\\|false\\)\\b" . 'quill-truth)
     ("\\b[0-9]+\\(\\.[0-9]+\\)?\\b" . 'quill-number)

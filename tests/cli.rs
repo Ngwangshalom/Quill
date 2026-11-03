@@ -749,6 +749,7 @@ fn the_sample_programs_in_the_repository_still_work() {
         "examples/events/main.quill",
         "examples/myapi/server.quill",
         "examples/reviews/server.quill",
+        "examples/school/report.quill",
     ] {
         let output = quill(&["check", path]);
         assert!(output.status.success(), "{path}: {}", stderr(&output));

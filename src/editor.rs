@@ -242,6 +242,39 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
     }
 
+    /// A name written twice in one of the color tables keeps only the last color, so the
+    /// other kind of word loses its color.
+    #[test]
+    fn each_kind_of_word_has_one_color() {
+        let extension = std::str::from_utf8(
+            FILES
+                .iter()
+                .find(|file| file.path == "extension.js")
+                .unwrap()
+                .bytes,
+        )
+        .unwrap();
+        for table in ["const DARK = {", "const LIGHT = {", "const SCOPE = {"] {
+            let start = extension.find(table).unwrap() + table.len();
+            let end = start + extension[start..].find("};").unwrap();
+            let mut names = Vec::new();
+            for line in extension[start..end].lines() {
+                let Some((name, _)) = line.trim().split_once(':') else {
+                    continue;
+                };
+                if name.chars().all(|c| c.is_ascii_alphanumeric()) && !name.is_empty() {
+                    assert!(!names.contains(&name), "{table} names {name} twice");
+                    names.push(name);
+                }
+            }
+            assert!(
+                names.contains(&"ask") && names.contains(&"askModel"),
+                "{table}"
+            );
+        }
+        assert!(extension.contains("ask: \"keyword.other.ask.quill\""));
+    }
+
     #[test]
     fn versions_compare_as_numbers() {
         assert!(version_parts("0.1.0") < version_parts("0.2.0"));

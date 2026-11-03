@@ -38,8 +38,9 @@ Quill shows every version you can install. Move with the ↑ and ↓ keys, press
 
 ```text
 Which version of Quill do you want? (↑ ↓ to move, Enter to install, Esc to cancel):
-> 0.4.0     20 Oct 2026  latest
-  0.3.1     14 Oct 2026  installed
+> 0.4.2     3 Nov 2026   latest
+  0.4.0     20 Oct 2026  installed
+  0.3.1     14 Oct 2026
   0.3.0     13 Oct 2026
   0.2.0     13 Oct 2026
   0.1.0     13 Oct 2026
@@ -59,7 +60,7 @@ Choosing an older version is how you go back if a new release causes a problem. 
 You don't have to remember to check. At most once a day, Quill quietly asks whether a new version is out, and if one is, it tells you after your command finishes:
 
 ```text
-Quill 0.4.0 is available (you have 0.3.1). Run quill update to get it.
+Quill 0.4.2 is available (you have 0.4.0). Run quill update to get it.
 ```
 
 Quill never updates itself without asking, so a program that works today won't change behaviour tomorrow unless you choose to update. The check runs in the background and never slows Quill down. If you'd rather Quill didn't check at all, set `QUILL_NO_UPDATE_CHECK=1` in your environment.
@@ -167,7 +168,7 @@ On a dark editor:
 | `check` | `#F0A0B4` rose | a test |
 | `and`, `or`, `not` | `#5EC4C0` teal | words that join a question |
 | `for` and `in` | `#C6D86A` yellow-green | a loop |
-| `get`, `sum`, and `with` | `#6EC1D6` sea | asking for data |
+| `get`, `sum`, `with`, `count`, `average`, and `sorted` | `#6EC1D6` sea | asking for data |
 | `list` | `#D4896A` clay | values in order |
 | `record` | `#A8C5A0` sage | named fields |
 | `of` | `#E8C547` gold | the kind of an empty list |

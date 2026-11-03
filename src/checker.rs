@@ -2571,6 +2571,20 @@ impl<'a> Checker<'a> {
                 nested_span,
                 source,
             } => self.gather_kind(field, *field_span, nested, *nested_span, source, context),
+            ExprKind::Count { list, .. } => self.count_kind(list, context),
+            ExprKind::Average {
+                field,
+                field_span,
+                list,
+                ..
+            } => self.average_kind(field, *field_span, list, context),
+            ExprKind::Sorted {
+                list,
+                field,
+                field_span,
+                sorted_span,
+                ..
+            } => self.sorted_kind(list, field, *field_span, *sorted_span, context),
             ExprKind::Field {
                 record,
                 name,
@@ -2945,6 +2959,133 @@ impl<'a> Checker<'a> {
                     format!(
                         "sum adds amounts, but {field} is {}.\n\
                          Name a number or an amount of money: sum fee of roster.",
+                        other.name()
+                    ),
+                ));
+                Kind::Unknown
+            }
+        }
+    }
+
+    /// `count of roster`: a number.
+    fn count_kind(&mut self, list: &Expr, context: &Context) -> Kind {
+        let kind = self.infer(list, context);
+        match kind {
+            Kind::List(_) => Kind::Number,
+            Kind::Unknown => Kind::Unknown,
+            Kind::Record(_) => {
+                self.problems.push(Diagnostic::new(
+                    list.span,
+                    format!(
+                        "{list} is one record, and count of counts the items in a list.\n\
+                         count of roster is how many records roster has."
+                    ),
+                ));
+                Kind::Unknown
+            }
+            other => {
+                self.problems.push(Diagnostic::new(
+                    list.span,
+                    format!(
+                        "{list} is {}, and count of counts the items in a list.\n\
+                         count of roster is how many records roster has.",
+                        other.name()
+                    ),
+                ));
+                Kind::Unknown
+            }
+        }
+    }
+
+    /// `average fee of roster`: a number, or money in one currency.
+    fn average_kind(
+        &mut self,
+        field: &str,
+        field_span: Span,
+        list: &Expr,
+        context: &Context,
+    ) -> Kind {
+        let Some(fields) = self.records_of(list, "average", context) else {
+            return Kind::Unknown;
+        };
+        let amount = match self.field_kind(&fields, field, field_span) {
+            Kind::Maybe(inner) => *inner,
+            other => other,
+        };
+        match amount {
+            Kind::Number | Kind::Money(_) | Kind::Unknown => amount,
+            other => {
+                self.problems.push(Diagnostic::new(
+                    field_span,
+                    format!(
+                        "average works out a typical amount, but {field} is {}.\n\
+                         Name a number or an amount of money: average fee of roster.",
+                        other.name()
+                    ),
+                ));
+                Kind::Unknown
+            }
+        }
+    }
+
+    /// `roster sorted by fee`: the same list, in order of one field.
+    fn sorted_kind(
+        &mut self,
+        list: &Expr,
+        field: &str,
+        field_span: Span,
+        sorted_span: Span,
+        context: &Context,
+    ) -> Kind {
+        let list_kind = self.infer(list, context);
+        let fields = match &list_kind {
+            Kind::List(item) => match item.as_ref() {
+                Kind::Record(fields) => fields.clone(),
+                Kind::Unknown => return Kind::Unknown,
+                other => {
+                    self.problems.push(Diagnostic::new(
+                        sorted_span,
+                        format!(
+                            "sorted by puts records in order of one field, but {list} holds {}.\n\
+                             Sort a list of records, like roster sorted by fee.",
+                            other.name()
+                        ),
+                    ));
+                    return Kind::Unknown;
+                }
+            },
+            Kind::Unknown => return Kind::Unknown,
+            other => {
+                self.problems.push(Diagnostic::new(
+                    sorted_span,
+                    format!(
+                        "sorted by puts the records of a list in order, but {list} is {}.\n\
+                         Sort a list of records, like roster sorted by fee.",
+                        other.name()
+                    ),
+                ));
+                return Kind::Unknown;
+            }
+        };
+        match self.field_kind(&fields, field, field_span) {
+            Kind::Number | Kind::Money(_) | Kind::Text => list_kind,
+            Kind::Unknown => Kind::Unknown,
+            Kind::Maybe(_) => {
+                self.problems.push(Diagnostic::new(
+                    field_span,
+                    format!(
+                        "{field} might be missing, so sorted by can't put every record in order.\n\
+                         Sort by a field every record has, such as name."
+                    ),
+                ));
+                Kind::Unknown
+            }
+            other => {
+                self.problems.push(Diagnostic::new(
+                    field_span,
+                    format!(
+                        "sorted by puts numbers, money, or text in order, but {field} is {}.\n\
+                         Sort by a field like fee or name: roster sorted by fee.",
                         other.name()
                     ),
                 ));
@@ -3740,6 +3881,34 @@ fn replace(expr: &Expr, span: Span, with: &Expr) -> Expr {
             condition: swap(condition),
             where_span: *where_span,
         },
+        ExprKind::Count { of_span, list } => ExprKind::Count {
+            of_span: *of_span,
+            list: swap(list),
+        },
+        ExprKind::Average {
+            field,
+            field_span,
+            of_span,
+            list,
+        } => ExprKind::Average {
+            field: field.clone(),
+            field_span: *field_span,
+            of_span: *of_span,
+            list: swap(list),
+        },
+        ExprKind::Sorted {
+            list,
+            field,
+            field_span,
+            highest,
+            sorted_span,
+        } => ExprKind::Sorted {
+            list: swap(list),
+            field: field.clone(),
+            field_span: *field_span,
+            highest: *highest,
+            sorted_span: *sorted_span,
+        },
         other => other.clone(),
     };
     Expr {
@@ -4151,6 +4320,52 @@ say get bookings with guest in roster
 ",
         );
         assert!(found.message.contains("no field called guest"));
+    }
+
+    #[test]
+    fn count_average_and_sorted_by_are_checked_before_running() {
+        let roster = "\
+roster = list record name = \"Nchang Sisters\", fee = 80000 USD, open = true
+";
+        for line in [
+            "say count of roster",
+            "say count of roster where open",
+            "say average fee of roster",
+            "say get name of roster sorted by fee",
+            "say get name of roster sorted by highest name",
+            "say get name of roster where open sorted by lowest fee",
+        ] {
+            assert_eq!(problems(&format!("{roster}{line}")), vec![], "{line}");
+        }
+        let found = problem(&format!("{roster}say count of roster at 1"));
+        assert!(found
+            .message
+            .contains("count of counts the items in a list"));
+        let found = problem(&format!("{roster}say average name of roster"));
+        assert!(found.message.contains("average works out a typical amount"));
+        let found = problem(&format!("{roster}say roster sorted by open"));
+        assert!(found.message.contains("is true/false"));
+        let found = problem(&format!("{roster}say roster sorted by feee"));
+        assert!(found.message.contains("no field called feee"));
+        let found = problem("say list 3, 1, 2 sorted by price");
+        assert!(found.message.contains("holds Number"));
+    }
+
+    #[test]
+    fn count_and_average_stay_free_as_names() {
+        assert_eq!(
+            problems(
+                "\
+var count = 0
+set count = count + 1
+fn average(total: number, many: number) -> number
+  return total / many
+say average(240, 3)
+say count
+"
+            ),
+            vec![]
+        );
     }
 
     #[test]

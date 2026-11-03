@@ -83,6 +83,13 @@ where keeps the records that match. Inside it, a field is read by its name:
   say get name of roster where fee > 100000 USD
   say sum fee of roster where paid == false
 
+count of says how many, average gives the typical amount, and sorted by puts
+the records in order. sorted by highest fee puts the highest first:
+
+  say count of roster where paid == false
+  say average fee of roster
+  say get name of roster sorted by highest fee
+
 get place of desk.bookings reads a field of a list on a record.
 get gpa of school.acceptances reads a field of a nested record.
 Name the record before the dot: first = desk.bookings at 1, then first.place.

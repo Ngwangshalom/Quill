@@ -32,7 +32,7 @@ What works now:
 
 - **Code reads like what it means.** Indentation-based, no semicolons, no braces.
 - **Money is exact.** `100 USD + 50 USD` is `150 USD`. `0.1 + 0.2` is `0.3`. Dollars and euros cannot be added; `convert 100 USD to EUR at 0.92` changes one at the rate you write. `split 100 USD into 3` gives `33.34, 33.33, 33.33`, so no cent is lost, and `round total to cents` rounds the way banks do.
-- **Ask for the data.** `sum fee of roster` adds each fee. `get fee of roster` takes that field. `get place of desk.bookings` reads a field of a list on a record. `students where score >= 50` keeps only the records that match, and `sum fee of roster where paid == false` adds what is still owed. A missing amount is left out. `for` remains when each record needs its own step.
+- **Ask for the data.** `sum fee of roster` adds each fee. `get fee of roster` takes that field. `get place of desk.bookings` reads a field of a list on a record. `students where score >= 50` keeps only the records that match, and `sum fee of roster where paid == false` adds what is still owed. `count of students where paid == false` says how many still owe, `average score of students` gives the class average, and `students sorted by highest score` ranks them. A missing amount is left out. `for` remains when each record needs its own step.
 - **Nothing is missing by surprise.** There is no `null`. A `maybe` says the value might be missing, and both cases have to be handled.
 - **Ask a model, and trust the answer.** `ask "Rate this review: {text}" as Review` asks Claude, or any OpenAI-compatible model, and checks the answer against every rule of `Review`. A model that fails or breaks the rules is a failure the program handles.
 - **Call other services.** `bring http`, then `fetch(url)` or `post(url, json(order))`. The host needs a `permit net`, and `NetworkDown` has to be handled.
@@ -186,7 +186,7 @@ That is `150 USD`. `100 USD + 20 EUR` is a mistake: Quill will not mix currencie
 
 ### Asking for data
 
-`sum` adds one field. `get` takes that field, including a field further in. `where` keeps only the records that match. A missing amount is left out. `for` stays when each record needs its own step.
+`sum` adds one field. `get` takes that field, including a field further in. `where` keeps only the records that match. `count of` says how many, `average` gives the typical amount, and `sorted by` puts the records in order. A missing amount is left out. `for` stays when each record needs its own step.
 
 ```quill
 sisters = record name = "Nchang Sisters", fee = 80000 USD
@@ -196,6 +196,9 @@ roster = list sisters, brass
 say sum fee of roster
 say get fee of roster
 say get name of roster where fee > 100000 USD
+say count of roster
+say average fee of roster
+say get name of roster sorted by highest fee
 
 up = record place = "Up Station", acts = list "Bamenda Brass", "Hilltop Duo"
 old = record place = "Old Town", acts = list "Market Drums"
@@ -209,7 +212,7 @@ person = people at 1
 say person.name
 ```
 
-`sum fee of roster` is `230000 USD`. `sum fees of school` is that one amount. `get fee of roster` is `80000 USD, 150000 USD`. `get name of roster where fee > 100000 USD` is `Bamenda Brass`, the records whose condition is true. `get place of desk.bookings` is `Up Station, Old Town`. `first.acts` is `Bamenda Brass, Hilltop Duo`. `get name, fee of roster` keeps those two fields together, so `person.name` is `Nchang Sisters`.
+`sum fee of roster` is `230000 USD`. `sum fees of school` is that one amount. `get fee of roster` is `80000 USD, 150000 USD`. `get name of roster where fee > 100000 USD` is `Bamenda Brass`, the records whose condition is true. `count of roster` is `2`, `average fee of roster` is `115000 USD`, and `get name of roster sorted by highest fee` is `Bamenda Brass, Nchang Sisters`. `get place of desk.bookings` is `Up Station, Old Town`. `first.acts` is `Bamenda Brass, Hilltop Duo`. `get name, fee of roster` keeps those two fields together, so `person.name` is `Nchang Sisters`.
 
 ### Contracts
 
@@ -365,7 +368,7 @@ Quill is for backend engineering, financial software, automation, reliable busin
 - [x] `say`, values, `var` / `set`, expressions
 - [x] `when` with conditions, and `when` that gives a value
 - [x] Loops (`for i in 1..3`, and `for hobby in hobbies`)
-- [x] Asking for data (`sum fee of roster`, `get fee of roster`, `get place of desk.bookings`)
+- [x] Asking for data (`sum fee of roster`, `get fee of roster`, `get place of desk.bookings`, `count of roster`, `average fee of roster`, `roster sorted by fee`)
 - [x] Lists and records
 - [x] Functions (`fn double(n: number) -> number`, `return`, and calls)
 

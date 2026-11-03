@@ -1,6 +1,6 @@
 # Asking for data
 
-A large program, such as a bank, often wants one field from many records, or the total of those amounts, or the records that sit inside other records. `get` and `sum` ask for that data in one line. `for` is still there when each record needs its own step. One record stays a record. A list wraps several records, and a record wraps a list when one thing owns many items. [When a value wraps another](groups.md#when-a-value-wraps-another) shows each case.
+A large program, such as a bank, often wants one field from many records, the total of those amounts, how many records there are, their average, or the records in order. `get`, `sum`, `count`, `average`, and `sorted by` ask for that data in one line. `for` is still there when each record needs its own step. One record stays a record. A list wraps several records, and a record wraps a list when one thing owns many items. [When a value wraps another](groups.md#when-a-value-wraps-another) shows each case.
 
 `get` and `sum` are the usual choice for reading and totaling. You name the field. Quill walks the list. A missing amount is left out. `for` is the choice when this row is confirmed and the next row is declined, because each row does different work.
 
@@ -331,6 +331,176 @@ an empty list
 
 `for` can walk the records that match: `for s in students where paid == false`.
 
+## How many: count
+
+`count of` says how many items a list has:
+
+```quill
+amina = record name = "Amina", score = 80, fee = 500 USD, paid = true
+omar = record name = "Omar", score = 64, fee = 300 USD, paid = false
+john = record name = "John", score = 45, fee = 200 USD, paid = false
+students = list amina, omar, john
+
+say count of students
+say count of students where score >= 50
+say count of students where paid == false
+```
+
+```output
+3
+2
+2
+```
+
+Read it as: "the count of the students where the score is 50 or more." With `where`, only the records that match are counted. You don't keep a counter and add 1 to it in a loop.
+
+A count is a number, so it fits wherever a number does: inside text, in a `when`, or in a calculation:
+
+```quill
+amina = record name = "Amina", score = 80
+omar = record name = "Omar", score = 64
+students = list amina, omar
+
+say "{count of students} students"
+when
+  count of students >= 30 -> say "The class is full."
+  else -> say "There is room for {30 - count of students} more."
+```
+
+```output
+2 students
+There is room for 28 more.
+```
+
+`count` is a Quill word only right before `of`. A value of your own can still be called `count`:
+
+```quill
+var count = 0
+set count = count + 1
+say count
+```
+
+```output
+1
+```
+
+## The average
+
+`average` adds one field of every record and divides by how many there are:
+
+```quill
+amina = record name = "Amina", score = 80, fee = 500 USD, paid = true
+omar = record name = "Omar", score = 64, fee = 300 USD, paid = false
+john = record name = "John", score = 45, fee = 200 USD, paid = false
+students = list amina, omar, john
+
+say average score of students
+say average fee of students
+say average score of students where score >= 50
+```
+
+```output
+63
+333.33 USD
+72
+```
+
+The fees add up to 1000 USD, and a third of that is 333.333... USD. Money is rounded to whole cents, half to even, the way `round total to cents` rounds it. A number keeps every digit. To show fewer, round it: `round average score of students to 1 place`.
+
+A missing amount is left out, the same way `sum` leaves it out. The average is of the amounts that are there.
+
+An average of nothing has no answer, so Quill stops and says so:
+
+```quill,error
+amina = record name = "Amina", score = 80
+students = list amina
+
+say average score of students where score > 90
+```
+
+```output
+Problem on line 4 of example.quill:
+
+    say average score of students where score > 90
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+There is nothing to average: students where score > 90 has no score.
+An average needs at least one. Check count of students where score > 90 first, in a when.
+```
+
+When the list might be empty, check its count first:
+
+```quill
+amina = record name = "Amina", score = 80
+students = list amina
+
+top = students where score > 90
+when
+  count of top > 0 -> say average score of top
+  else -> say "No one scored above 90."
+```
+
+```output
+No one scored above 90.
+```
+
+Like `count`, `average` is a Quill word only when a field and `of` come after it. `fn average(total: number, many: number)` is still a function you can write.
+
+## In order: sorted by
+
+`sorted by` puts the records of a list in order of one field. The lowest comes first:
+
+```quill
+amina = record name = "Amina", score = 80, fee = 500 USD, paid = true
+omar = record name = "Omar", score = 64, fee = 300 USD, paid = false
+john = record name = "John", score = 45, fee = 200 USD, paid = false
+students = list amina, omar, john
+
+say get name of students sorted by score
+say get name of students sorted by highest score
+say get name of students sorted by name
+```
+
+```output
+John, Omar, Amina
+Amina, Omar, John
+Amina, John, Omar
+```
+
+`sorted by highest score` puts the highest first. `sorted by lowest score` is the same as `sorted by score`, for when you want the line to say it. Numbers and money go from smallest to largest. Text goes in alphabetical order, with capital and small letters together. Two records with the same value keep the order they had.
+
+`sorted by` goes after `where`, so one line can pick the records and put them in order:
+
+```quill
+amina = record name = "Amina", score = 80, fee = 500 USD, paid = true
+omar = record name = "Omar", score = 64, fee = 300 USD, paid = false
+john = record name = "John", score = 45, fee = 200 USD, paid = false
+students = list amina, omar, john
+
+for student in students where paid == false sorted by highest fee
+  say "{student.name} owes {student.fee}"
+```
+
+```output
+Omar owes 300 USD
+John owes 200 USD
+```
+
+The first record of a sorted list is the top one. Name it, then read its fields:
+
+```quill
+amina = record name = "Amina", score = 80
+omar = record name = "Omar", score = 64
+students = list amina, omar
+
+ranked = students sorted by highest score
+top = ranked at 1
+say "Top of the class: {top.name}"
+```
+
+```output
+Top of the class: Amina
+```
+
 ## When each row needs its own step
 
 `for` still walks every item. Use it when the work is different for each one: say the name, or decide that this booking is declined.
@@ -349,7 +519,7 @@ Nchang Sisters
 Bamenda Brass
 ```
 
-Ask with `get` or `sum` when you want the data or the total, and add `where` to keep only some records. Repeat with `for` when each record needs a step of its own. A program can use both.
+Ask with `get`, `sum`, `count`, or `average` when you want the data, the total, how many, or the typical amount. Add `where` to keep only some records, and `sorted by` to put them in order. Repeat with `for` when each record needs a step of its own. A program can use both.
 
 ## Common mistakes
 
@@ -421,6 +591,42 @@ where keeps the records whose fields match, but scores holds Number.
 Use where on a list of records, like students where score >= 50. To pick from other lists, use for and when.
 ```
 
+`sorted by` names a field, so it puts records in order. A list of numbers has no fields to name:
+
+```quill,error
+scores = list 80, 64, 45
+
+say scores sorted by score
+```
+
+```output
+Problem on line 3 of example.quill:
+
+    say scores sorted by score
+               ^^^^^^
+sorted by puts records in order of one field, but scores holds Number.
+Sort a list of records, like roster sorted by fee.
+```
+
+Keep each number on a record, like `record name = "Amina", score = 80`, and sort the records.
+
+`count of` counts a list. One record is not a list, so there is nothing to count:
+
+```quill,error
+amina = record name = "Amina", score = 80
+
+say count of amina
+```
+
+```output
+Problem on line 3 of example.quill:
+
+    say count of amina
+                 ^^^^^
+amina is one record, and count of counts the items in a list.
+count of roster is how many records roster has.
+```
+
 ## Try it
 
 1. Make two records with a `fee` in USD, put them in a list, and `say` the `sum`.
@@ -428,3 +634,5 @@ Use where on a list of records, like students where score >= 50. To pick from ot
 3. Add a record whose fee is `missing`, and check that the sum left it out.
 4. Put two bookings on a desk and `say get place of desk.bookings`.
 5. Give each record a `paid` field. `say sum fee of roster where paid == false` to see what is still owed.
+6. `say count of roster where paid == false` to see how many still owe, and `say average fee of roster` for the typical fee.
+7. `say get name of roster sorted by highest fee`. Then sort by `name` and read the order.

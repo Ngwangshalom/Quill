@@ -428,6 +428,17 @@ fn execute(
                 let source = pop(&mut stack, span)?;
                 stack.push(gather(source, &field, &nested, span)?);
             }
+            Op::AverageField { name, list } => {
+                let field = field_name(chunk, name, span)?;
+                let written = field_name(chunk, list, span)?;
+                let source = pop(&mut stack, span)?;
+                stack.push(average_field(source, &field, &written, span)?);
+            }
+            Op::SortBy { name, highest } => {
+                let field = field_name(chunk, name, span)?;
+                let list = pop(&mut stack, span)?;
+                stack.push(sort_by(list, &field, highest, span)?);
+            }
             Op::Dup => {
                 let value = stack
                     .last()
@@ -1072,6 +1083,116 @@ fn sum_field(
     Ok(Value::Number(Decimal::ZERO))
 }
 
+/// The sum of the field, divided by how many records have it. A missing amount is left out.
+/// Money is rounded to its smallest unit, half to even, as banks do.
+fn average_field(
+    source: Value,
+    field: &str,
+    written: &str,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let items = match source {
+        Value::List(items) => items,
+        Value::Record(_) => vec![source],
+        _ => {
+            return Err(internal(
+                span,
+                "an average of something that isn't a record",
+            ))
+        }
+    };
+    let mut total = Decimal::ZERO;
+    let mut count: i128 = 0;
+    let mut currency: Option<String> = None;
+    for item in &items {
+        let Some(value) = present(record_field(item, field, span)?) else {
+            continue;
+        };
+        let amount = match value {
+            Value::Number(amount) => amount,
+            Value::Money {
+                amount,
+                currency: code,
+            } => {
+                currency = Some(code);
+                amount
+            }
+            _ => {
+                return Err(internal(
+                    span,
+                    "an average of something that isn't an amount",
+                ))
+            }
+        };
+        total = add_amounts(total, amount, span)?;
+        count += 1;
+    }
+    if count == 0 {
+        return Err(Diagnostic::new(
+            span,
+            format!(
+                "There is nothing to average: {written} has no {field}.\n\
+                 An average needs at least one. Check count of {written} first, in a when."
+            ),
+        ));
+    }
+    let average = total
+        .checked_div(Decimal::from_int(count))
+        .map_err(|err| math_error(err, Op::Divide, span))?;
+    match currency {
+        Some(code) => {
+            let amount = average
+                .round_to(
+                    crate::decimal::minor_digits(&code),
+                    crate::decimal::Rounding::Nearest,
+                )
+                .map_err(|err| math_error(err, Op::Divide, span))?;
+            Ok(Value::Money {
+                amount,
+                currency: code,
+            })
+        }
+        None => Ok(Value::Number(average)),
+    }
+}
+
+/// The records in order of one field. Records with the same value keep their order.
+fn sort_by(list: Value, field: &str, highest: bool, span: Span) -> Result<Value, Diagnostic> {
+    let Value::List(items) = list else {
+        return Err(internal(span, "a sort of something that isn't a list"));
+    };
+    let mut keyed = Vec::with_capacity(items.len());
+    for item in items {
+        let key = record_field(&item, field, span)?;
+        keyed.push((key, item));
+    }
+    keyed.sort_by(|(left, _), (right, _)| {
+        let order = order_of(left, right);
+        if highest {
+            order.reverse()
+        } else {
+            order
+        }
+    });
+    Ok(Value::List(
+        keyed.into_iter().map(|(_, item)| item).collect(),
+    ))
+}
+
+/// How two values of one kind compare when sorting. Text is in alphabetical order,
+/// with capital and small letters together.
+fn order_of(left: &Value, right: &Value) -> std::cmp::Ordering {
+    match (left, right) {
+        (Value::Number(left), Value::Number(right)) => left.cmp(right),
+        (Value::Money { amount: left, .. }, Value::Money { amount: right, .. }) => left.cmp(right),
+        (Value::Text(left), Value::Text(right)) => left
+            .to_lowercase()
+            .cmp(&right.to_lowercase())
+            .then_with(|| left.cmp(right)),
+        _ => std::cmp::Ordering::Equal,
+    }
+}
+
 fn add_amounts(left: Decimal, right: Decimal, span: Span) -> Result<Decimal, Diagnostic> {
     left.checked_add(right).map_err(|_| {
         Diagnostic::new(
@@ -1665,6 +1786,56 @@ roster = list quiet
 say sum fee of roster
 ";
         assert_eq!(run_source(source).unwrap(), "0 USD\n");
+    }
+
+    const CLASS: &str = "\
+amina = record name = \"Amina\", score = 80, fee = 500 USD
+omar = record name = \"omar\", score = 64, fee = 450 USD
+john = record name = \"John\", score = 45, fee = 401 USD
+students = list amina, omar, john
+";
+
+    #[test]
+    fn count_and_average_read_a_list_without_a_loop() {
+        let source = format!(
+            "{CLASS}say count of students\nsay count of students where score >= 50\n\
+             say average score of students\nsay average fee of students\n\
+             say count of list of number"
+        );
+        assert_eq!(run_source(&source).unwrap(), "3\n2\n63\n450.33 USD\n0\n");
+    }
+
+    #[test]
+    fn an_average_leaves_out_a_missing_amount_and_needs_one() {
+        let source = "\
+fn fee_for(name: text) -> maybe USD
+  when
+    name == \"Quiet Hour\" -> return missing
+    else -> return found 40000 USD
+quiet = record name = \"Quiet Hour\", fee = fee_for(\"Quiet Hour\")
+drums = record name = \"Market Drums\", fee = fee_for(\"Market Drums\")
+roster = list quiet, drums
+say average fee of roster
+say average fee of list quiet
+";
+        let problem = run_source(source).unwrap_err();
+        assert!(problem.message.contains("nothing to average"));
+        assert!(problem.message.contains("list quiet has no fee"));
+    }
+
+    #[test]
+    fn sorted_by_puts_records_in_order_and_keeps_ties() {
+        let source = format!(
+            "{CLASS}say get name of students sorted by score\n\
+             say get name of students sorted by highest fee\n\
+             say get name of students sorted by name\n\
+             tie = record name = \"Tie\", score = 64, fee = 1 USD\n\
+             say get name of list amina, omar, tie sorted by score"
+        );
+        assert_eq!(
+            run_source(&source).unwrap(),
+            "John, omar, Amina\nAmina, omar, John\nAmina, John, omar\nomar, Tie, Amina\n"
+        );
     }
 
     const WITHDRAW: &str = "\

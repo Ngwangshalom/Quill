@@ -1,6 +1,6 @@
 # Quill Language Specification
 
-**Version 0.1 draft**, describing Quill as implemented in release v0.4.0.
+**Version 0.1 draft**, describing Quill as implemented in release v0.4.2.
 
 This document says exactly what Quill programs mean. The [README](https://github.com/Ngwangshalom/Quill#readme) shows where the language is going; this spec covers what works today, and marks planned features clearly in [§12](#12-planned-not-yet-implemented). When the implementation and this document disagree, that is a bug in one of them. Please [open an issue](https://github.com/Ngwangshalom/Quill/issues).
 
@@ -237,7 +237,7 @@ The new value must match the item's or the field's kind. `for NAME in LIST` walk
 
 ### 5.6 Asking for a field
 
-`get` and `sum` read a list of records without a loop. `for` still walks the list when each record needs its own step (§8.5). A program can use either.
+`get`, `sum`, `count`, `average`, and `sorted by` read a list of records without a loop. `for` still walks the list when each record needs its own step (§8.5). A program can use either.
 
 ```quill
 sisters = record name = "Nchang Sisters", fee = 80000 USD
@@ -330,6 +330,28 @@ Up Station
 Old Town
 ```
 
+`count of` says how many items a list has. `average` divides the sum of one field by how many records have it. `sorted by` puts records in order of one field:
+
+```quill
+amina = record name = "Amina", score = 80, fee = 500 USD
+omar = record name = "Omar", score = 64, fee = 300 USD
+john = record name = "John", score = 45, fee = 200 USD
+students = list amina, omar, john
+say count of students where score >= 50
+say average score of students
+say average fee of students
+say get name of students sorted by score
+say get name of students sorted by highest fee
+```
+
+```output
+2
+63
+333.33 USD
+John, Omar, Amina
+Amina, Omar, John
+```
+
 - `sum NAME of LIST` adds `NAME` from each record. `NAME` is a number or money in one currency. The result is that number, or money in that currency. When the value after `of` is one record, the sum is that one amount: `sum fees of school`.
 - `get NAME of LIST` gives a list of `NAME` from each record.
 - `get NAME { "," NAME } of LIST` gives a list of records. Each record keeps only the named fields, in the order they were written. The same field twice is a mistake. When the value after `of` is one record, one field comes back as that value, and several fields come back as one record. A dot after `of` reaches a field further in: `get gpa of school.acceptances`, `get place of desk.bookings`. `record = list at 1` then `record.name` reads a field of that item. `(list at 1).name` is the same value.
@@ -337,6 +359,10 @@ Old Town
 - `get NAME with NESTED in SOURCE` gives the list `NAME`. Each record in that list has the field `NESTED`. `SOURCE` is one record, or a list of records that each hold `NAME`. A list of records is gathered into one list.
 - `LIST where CONDITION` gives the records of `LIST` whose `CONDITION` is true, in their order. Inside `CONDITION`, each field of the records is a name, and it hides a value of the same name; other values are read as usual. `CONDITION` must be true/false. When nothing matches, the result is an empty list. `where` may follow again: `students where score >= 50 where paid` keeps records for which both are true.
 - `where` binds after a whole value, so its condition takes in `and` and `or`: `students where score >= 50 and paid`. After `of`, a `where` applies to the list before `get` or `sum` reads it: `sum fee of roster where paid == false` adds the unpaid fees.
+- `count of LIST` is how many items `LIST` has, as a number. `LIST` is any list; one record, text, or a number is a mistake. `count of roster where paid == false` counts the records that match.
+- `average NAME of LIST` is the sum of `NAME` divided by how many records have it. `NAME` is a number or money in one currency, and a `missing` amount is left out of both. Money is rounded to its currency's smallest unit, half to even (§8.7); a number keeps up to 20 digits after the point, as division does (§4.1). One record gives that one amount. When no record has an amount, the program stops (§10.2).
+- `LIST sorted by NAME` gives the records of `LIST` in order of `NAME`, lowest first. `sorted by highest NAME` puts the highest first, and `sorted by lowest NAME` is the same as `sorted by NAME`. `NAME` is a number, money, or text. Numbers and money go from smallest to largest; text goes in alphabetical order, with capital and small letters compared together. Records with the same value keep their order. `NAME` that might be `missing`, a true/false field, or a list that is not records is a mistake. `sorted by` binds like `where`, and either may follow the other: `students where paid == false sorted by highest fee`.
+- `count`, `average`, `sorted`, `by`, `highest`, and `lowest` are ordinary names everywhere else. `count` is a word only right before `of`, `average` only before a field and `of`, and `sorted` only before `by`: `var count = 0` and `fn average(total: number, many: number)` still work.
 - The field names are checked before anything runs. A missing field, a list that is not records, or a `sum` of text is a mistake, and nothing runs. In a `where`, a name that is neither a field nor a value, a list that is not records, or a condition that is not true/false is a mistake.
 
 ## 6. Calculations and conditions
@@ -888,6 +914,7 @@ A few mistakes can only be found while running. When one happens, the program st
 - a `check` or `--- example:` that is false
 - a `require` or `ensure` that is false, or a value outside a parameter's `where` range (§8.10)
 - a list position past the end, or a position in an empty list
+- an `average` of a list with no amount in that field (§5.6)
 - a file, host or setting that no permit covers (§8.13)
 
 ### 10.3 How mistakes are reported
@@ -977,7 +1004,8 @@ fn_body     = say | create | change | check | when | for | return ;
 return      = "return" [ value ] ;
 call        = NAME "(" [ value { "," value } ] ")" ;
 
-value       = or { "where" or } ;
+value       = or { shaping } ;
+shaping     = "where" or | "sorted" "by" [ "highest" | "lowest" ] NAME ;
 or          = and { "or" and } ;
 and         = not { "and" not } ;
 not         = "not" not | comparison ;
@@ -985,13 +1013,15 @@ comparison  = sum [ COMPARE sum ] ;
 sum         = product { ( "+" | "-" ) product } ;
 product     = negative { ( "*" | "/" | "%" ) negative | "%" "of" negative } ;
 negative    = "-" negative | atom { "." NAME | "at" sum } ;
-atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | typed | ask | total | when_value | money ;
+atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | typed | ask | total | count | average | when_value | money ;
 money       = "round" [ "up" | "down" ] sum [ "to" ( "cents" | negative "places" ) ]
             | "split" sum ( "into" | "by" ) sum
             | "convert" sum "to" CURRENCY "at" negative ;
 typed       = TYPE ( field { "," field } | NEWLINE INDENT field { field } DEDENT ) ;
-ask         = "get" NAME { "," NAME } "of" negative { "where" or } | "get" NAME "with" NAME "in" negative ;
-total       = "sum" NAME "of" negative { "where" or } ;
+ask         = "get" NAME { "," NAME } "of" negative { shaping } | "get" NAME "with" NAME "in" negative ;
+total       = "sum" NAME "of" negative { shaping } ;
+count       = "count" "of" negative { shaping } ;
+average     = "average" NAME "of" negative { shaping } ;
 list        = "list" ( "of" ( "text" | "number" | "true/false" ) | sum { "," sum } ) ;
 record      = "record" ( NEWLINE INDENT field { field } DEDENT | field { "," field } ) ;
 field       = NAME "=" value ;

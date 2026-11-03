@@ -95,6 +95,19 @@ pub enum Op {
         outer: usize,
         inner: usize,
     },
+    /// Pop a record or a list of records and push the average of one field. A missing amount
+    /// is left out, and money is rounded to its smallest unit. `name` is the field. `list`
+    /// is the list as it was written, for the problem when there is nothing to average.
+    AverageField {
+        name: usize,
+        list: usize,
+    },
+    /// Pop a list of records and push it in order of the field `constants[name]`.
+    /// `highest` puts the highest first. Records with the same value keep their order.
+    SortBy {
+        name: usize,
+        highest: bool,
+    },
     /// Pop a new value and a record, and push the record with that field replaced.
     /// The constant is the field's name as text.
     SetField(usize),
@@ -605,6 +618,38 @@ impl Compiler {
             ExprKind::Where {
                 list, condition, ..
             } => self.filter(list, condition, span)?,
+            ExprKind::Count { list, .. } => {
+                self.expression(list)?;
+                self.emit(Op::Length, span);
+            }
+            ExprKind::Average { field, list, .. } => {
+                self.expression(list)?;
+                let name = self.field_name(field);
+                let written = self.field_name(&list.to_string());
+                self.emit(
+                    Op::AverageField {
+                        name,
+                        list: written,
+                    },
+                    span,
+                );
+            }
+            ExprKind::Sorted {
+                list,
+                field,
+                highest,
+                ..
+            } => {
+                self.expression(list)?;
+                let name = self.field_name(field);
+                self.emit(
+                    Op::SortBy {
+                        name,
+                        highest: *highest,
+                    },
+                    span,
+                );
+            }
             ExprKind::Typed { name, record, .. } => self.typed(name, record, span)?,
             ExprKind::Round { value, rule, to } => {
                 self.expression(value)?;

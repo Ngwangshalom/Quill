@@ -61,6 +61,9 @@ roster = list act
 say sum fee of roster
 say get fee of roster
 say get name of roster where fee > 100000 USD   -- only some records
+say count of roster                             -- how many
+say average fee of roster                       -- the typical amount
+say get name of roster sorted by highest fee    -- in order, highest first
 say split 100 USD into 3                        -- no cent lost
 say round 10.125 USD to cents                   -- half to even
 say 20% of 500 USD
@@ -86,6 +89,9 @@ Anytown
 10.5
 120 guests
 150000 USD
+150000 USD
+Brass
+1
 150000 USD
 Brass
 33.34 USD, 33.33 USD, 33.33 USD
@@ -134,7 +140,7 @@ Blocks (`when`, `for`, `fn`, `record`) are indented by exactly 2 spaces.
 
 `at` picks one list item: `hobbies at 1` reads the first, and `set hobbies at 2 = "writing"` changes that one item. `of` is required only for an empty list: `list of text`, `list of number`, or `list of true/false`. A list that already has items leaves `of` out.
 
-`sum fee of roster` adds the fee of each record. `get fee of roster` takes that field as a list. `get place of desk.bookings` reads a field of a list on a record, and `get gpa of school.acceptances` reads a field of a nested record. Give that record a name before the dot: `first = desk.bookings at 1`, then `first.place`. `get bookings with acts in desk` is the longer form: it names the list and the field embedded in it. `roster where fee > 100000 USD` keeps the records whose condition is true; inside it, a field is read by its name, and it works after `get ... of` and `sum ... of`. A missing amount is left out. `for` stays when each record needs its own step.
+`sum fee of roster` adds the fee of each record. `get fee of roster` takes that field as a list. `get place of desk.bookings` reads a field of a list on a record, and `get gpa of school.acceptances` reads a field of a nested record. Give that record a name before the dot: `first = desk.bookings at 1`, then `first.place`. `get bookings with acts in desk` is the longer form: it names the list and the field embedded in it. `roster where fee > 100000 USD` keeps the records whose condition is true; inside it, a field is read by its name, and it works after `get ... of` and `sum ... of`. `count of roster` is how many records there are. `average fee of roster` is the sum divided by how many, with money rounded to cents. `roster sorted by fee` puts the lowest first, and `sorted by highest fee` the highest. `count`, `average`, and `sorted` are words only in those places, so they stay free as names. A missing amount is left out. `for` stays when each record needs its own step.
 
 ## Commands
 

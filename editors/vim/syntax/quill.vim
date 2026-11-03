@@ -14,6 +14,9 @@ syn keyword quillRecord record
 syn keyword quillOf of
 syn keyword quillAt at
 syn keyword quillAsk get sum with
+syn match quillAsk "\<count\ze\s\+of\>"
+syn match quillAsk "\<average\ze\s\+\h\w*\s\+of\>"
+syn match quillAsk "\<sorted\ze\s\+by\>"
 syn keyword quillFn fn return
 syn keyword quillMaybe maybe found missing
 syn keyword quillFail fails fail on try

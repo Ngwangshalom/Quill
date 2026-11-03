@@ -1,0 +1,66 @@
+-- Run this file: quill run examples/school/report.quill
+-- A class report: how many passed, the averages, the ranking, and who still owes fees.
+-- count, average and sorted by do the work, so the report needs no counters.
+
+type Student
+  name: text
+  score: number where 0..100
+  fee: USD
+  paid: true/false
+
+--- The grade for a score from 0 to 100.
+--- example: grade(92) == "A"
+--- example: grade(64) == "Pass"
+--- example: grade(45) == "Fail"
+fn grade(score: number where 0..100) -> text
+  return when
+    score >= 70 -> "A"
+    score >= 50 -> "Pass"
+    else -> "Fail"
+
+amina = Student name = "Amina", score = 80, fee = 500 USD, paid = true
+omar = Student name = "Omar", score = 64, fee = 450 USD, paid = false
+john = Student name = "John", score = 45, fee = 400 USD, paid = false
+nkechi = Student name = "Nkechi", score = 92, fee = 500 USD, paid = true
+students = list amina, omar, john, nkechi
+
+say "Class report"
+say "------------"
+say "Students: {count of students}"
+say "Passed: {count of students where score >= 50} of {count of students}"
+say "Class average: {average score of students}"
+say "Average of those who passed: {round average score of students where score >= 50 to 1 places}"
+
+say ""
+say "Ranking"
+for student in students sorted by highest score
+  say "  {student.name}: {student.score} ({grade(student.score)})"
+
+ranked = students sorted by highest score
+top = ranked at 1
+say "Top of the class: {top.name}"
+
+say ""
+say "Fees"
+say "Average fee: {average fee of students}"
+say "Still owed: {sum fee of students where paid == false}"
+for student in students where paid == false sorted by highest fee
+  say "  {student.name} owes {student.fee}"
+
+say ""
+say "In alphabetical order: {get name of students sorted by name}"
+
+-- An average needs at least one score, so check the count first.
+honours = students where score >= 90
+when
+  count of honours > 0 -> say "Honours average: {average score of honours}"
+  else -> say "No honours this term."
+
+-- A where runs to the end of the line, so name each answer before checking it.
+passed = count of students where score >= 50
+owing = count of students where paid == false
+class_average = average score of students
+check passed == 3
+check owing == 2
+check class_average == 70.25
+check top.name == "Nkechi"

@@ -37,6 +37,12 @@ contexts:
       scope: keyword.other.at.quill
     - match: '\b(get|sum|with)\b'
       scope: keyword.other.ask.quill
+    - match: '\bcount\b(?=\s+of\b)'
+      scope: keyword.other.ask.quill
+    - match: '\baverage\b(?=\s+[A-Za-z_][A-Za-z0-9_]*\s+of\b)'
+      scope: keyword.other.ask.quill
+    - match: '\bsorted\b(?=\s+by\b)'
+      scope: keyword.other.ask.quill
     - match: '\b(fn|return)\b'
       scope: keyword.other.function.quill
     - match: '\b(maybe|found|missing)\b'

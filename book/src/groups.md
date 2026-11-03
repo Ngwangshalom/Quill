@@ -250,7 +250,7 @@ A record that isn't marked `var` stays as it was written. Change it by writing `
 
 ## Asking for one field
 
-When the list holds records, `sum` and `get` read one field from all of them. One record gives that one amount: `sum fees of school`. `get name, fee of roster` keeps several fields together. A dot reaches a field further in: `get place of desk.bookings`, or `get gpa of school.acceptances`. [Asking for data](asking.md) shows each form. `for` stays when each record needs its own step.
+When the list holds records, `sum` and `get` read one field from all of them. One record gives that one amount: `sum fees of school`. `get name, fee of roster` keeps several fields together. A dot reaches a field further in: `get place of desk.bookings`, or `get gpa of school.acceptances`. `count of roster` says how many records the list has, `average fee of roster` gives the typical fee, and `roster sorted by fee` puts them in order. [Asking for data](asking.md) shows each form. `for` stays when each record needs its own step.
 
 ```quill
 sisters = record name = "Nchang Sisters", fee = 80000 USD

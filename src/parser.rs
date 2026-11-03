@@ -702,6 +702,29 @@ pub enum ExprKind {
         nested_span: Span,
         source: Box<Expr>,
     },
+    /// `count of roster`: how many items the list has. `count` is a word only before `of`,
+    /// so it stays free as a name.
+    Count {
+        of_span: Span,
+        list: Box<Expr>,
+    },
+    /// `average fee of roster`. A missing amount is left out. `average` is a word only
+    /// before a field and `of`, so it stays free as a name.
+    Average {
+        field: String,
+        field_span: Span,
+        of_span: Span,
+        list: Box<Expr>,
+    },
+    /// `roster sorted by fee` puts the lowest first. `sorted by highest fee` puts the
+    /// highest first. Records with the same value keep their order.
+    Sorted {
+        list: Box<Expr>,
+        field: String,
+        field_span: Span,
+        highest: bool,
+        sorted_span: Span,
+    },
 }
 
 /// What a `permit` allows.
@@ -855,7 +878,11 @@ impl Expr {
                 amount.collect_names(names);
                 rate.collect_names(names);
             }
-            ExprKind::Sum { list, .. } | ExprKind::Get { list, .. } => list.collect_names(names),
+            ExprKind::Sum { list, .. }
+            | ExprKind::Get { list, .. }
+            | ExprKind::Count { list, .. }
+            | ExprKind::Average { list, .. }
+            | ExprKind::Sorted { list, .. } => list.collect_names(names),
             ExprKind::GetWith { source, .. } => source.collect_names(names),
             ExprKind::Where {
                 list, condition, ..
@@ -1038,6 +1065,17 @@ impl fmt::Display for Expr {
             ExprKind::Where {
                 list, condition, ..
             } => write!(f, "{list} where {condition}"),
+            ExprKind::Count { list, .. } => write!(f, "count of {list}"),
+            ExprKind::Average { field, list, .. } => write!(f, "average {field} of {list}"),
+            ExprKind::Sorted {
+                list,
+                field,
+                highest,
+                ..
+            } => {
+                let order = if *highest { "highest " } else { "" };
+                write!(f, "{list} sorted by {order}{field}")
+            }
         }
     }
 }
@@ -3029,9 +3067,16 @@ impl<'a> Parser<'a> {
         self.filters(value)
     }
 
-    /// `students where score >= 50`, and any further `where` after it.
+    /// `students where score >= 50`, and any further `where` or `sorted by` after it.
     fn filters(&mut self, mut list: Expr) -> Result<Expr, Diagnostic> {
-        while self.peek().kind == TokenKind::Where {
+        loop {
+            if is_word(self.peek(), "sorted") {
+                list = self.sorted(list)?;
+                continue;
+            }
+            if self.peek().kind != TokenKind::Where {
+                return Ok(list);
+            }
             let keyword = self.advance().clone();
             if !starts_value(&self.peek().kind) {
                 return Err(Diagnostic::new(
@@ -3053,7 +3098,129 @@ impl<'a> Parser<'a> {
                 },
             };
         }
-        Ok(list)
+    }
+
+    /// `roster sorted by fee`, `roster sorted by highest fee`, or `sorted by lowest fee`.
+    fn sorted(&mut self, list: Expr) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        if !is_word(self.peek(), "by") {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                format!(
+                    "sorted needs by and the field to put in order.\n\
+                     {list} sorted by fee puts the lowest fee first."
+                ),
+            )
+            .suggest(format!("{list} sorted by fee")));
+        }
+        self.advance();
+        let order_word = matches!(self.peek_at(1).kind, TokenKind::Identifier(_));
+        let highest = if order_word && is_word(self.peek(), "highest") {
+            self.advance();
+            true
+        } else {
+            if order_word && is_word(self.peek(), "lowest") {
+                self.advance();
+            }
+            false
+        };
+        let field_token = self.peek().clone();
+        let TokenKind::Identifier(field) = field_token.kind.clone() else {
+            return Err(Diagnostic::new(
+                field_token.span(),
+                format!(
+                    "sorted by needs the name of a field, but found {}.\n\
+                     {list} sorted by fee puts the lowest fee first. \
+                     sorted by highest fee puts the highest first.",
+                    describe(&field_token.kind)
+                ),
+            )
+            .suggest(format!("{list} sorted by fee")));
+        };
+        self.advance();
+        Ok(Expr {
+            span: cover(list.span, field_token.span()),
+            kind: ExprKind::Sorted {
+                list: Box::new(list),
+                field,
+                field_span: field_token.span(),
+                highest,
+                sorted_span: keyword.span(),
+            },
+        })
+    }
+
+    /// `count of roster`: how many items the list has.
+    fn count_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        let of_token = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                of_token.span(),
+                format!(
+                    "count of needs the list after it, but found {}.\n\
+                     count of roster is how many records roster has.",
+                    describe(&self.peek().kind)
+                ),
+            )
+            .suggest("count of roster"));
+        }
+        let list = self.unary()?;
+        let list = self.filters(list)?;
+        Ok(Expr {
+            span: cover(keyword.span(), list.span),
+            kind: ExprKind::Count {
+                of_span: of_token.span(),
+                list: Box::new(list),
+            },
+        })
+    }
+
+    /// `average fee of roster`: the sum of that field, divided by how many there are.
+    fn average_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        let field_token = self.advance().clone();
+        let TokenKind::Identifier(field) = field_token.kind.clone() else {
+            return Err(Diagnostic::new(
+                field_token.span(),
+                "average needs the name of the amount.\n\
+                 average fee of roster is the fee of a typical record.",
+            )
+            .suggest("average fee of roster"));
+        };
+        if self.peek().kind != TokenKind::Of {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "average {field} needs of, and then the list.\n\
+                     average {field} of roster adds that field of each record and divides by how many there are."
+                ),
+            )
+            .suggest(format!("average {field} of roster")));
+        }
+        let of_token = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                of_token.span(),
+                format!(
+                    "of needs the list after it, but found {}.\n\
+                     average {field} of roster reads that field of each record.",
+                    describe(&self.peek().kind)
+                ),
+            )
+            .suggest(format!("average {field} of roster")));
+        }
+        let list = self.unary()?;
+        let list = self.filters(list)?;
+        Ok(Expr {
+            span: cover(keyword.span(), list.span),
+            kind: ExprKind::Average {
+                field,
+                field_span: field_token.span(),
+                of_span: of_token.span(),
+                list: Box::new(list),
+            },
+        })
     }
 
     fn or(&mut self) -> Result<Expr, Diagnostic> {
@@ -3327,6 +3494,17 @@ impl<'a> Parser<'a> {
             TokenKind::False => ExprKind::Bool(false),
             TokenKind::Identifier(name) if is_type_name(name) && self.starts_typed_record() => {
                 return self.typed_record(name.clone());
+            }
+            TokenKind::Identifier(name)
+                if name == "count" && self.peek_at(1).kind == TokenKind::Of =>
+            {
+                return self.count_expr();
+            }
+            TokenKind::Identifier(name)
+                if name == "average"
+                    && matches!(&self.peek_at(1).kind, TokenKind::Identifier(next) if next != "sorted") =>
+            {
+                return self.average_expr();
             }
             TokenKind::Identifier(name) => ExprKind::Name(name.clone()),
             TokenKind::List => return self.list_expr(),
@@ -4693,7 +4871,11 @@ fn contains_record_expr(expr: &Expr) -> bool {
             contains_record_expr(list) || contains_record_expr(index)
         }
         ExprKind::Field { record, .. } => contains_record_expr(record),
-        ExprKind::Sum { list, .. } | ExprKind::Get { list, .. } => contains_record_expr(list),
+        ExprKind::Sum { list, .. }
+        | ExprKind::Get { list, .. }
+        | ExprKind::Count { list, .. }
+        | ExprKind::Average { list, .. }
+        | ExprKind::Sorted { list, .. } => contains_record_expr(list),
         ExprKind::GetWith { source, .. } => contains_record_expr(source),
         ExprKind::Round { value, to, .. } => {
             contains_record_expr(value)
