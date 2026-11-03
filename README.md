@@ -71,6 +71,7 @@ quill run hello/hello.quill
 
 | For | Templates |
 |---|---|
+| Everything | `app` (a whole app: a backend, an AI assistant, exact money, data from a file, and tests) |
 | Learning | `learn` (exercises to fix), `starter` (one file) |
 | Backend work | `backend` (a service for web, desktop, and mobile apps), `integration` (call another service), `webhook` (receive notices) |
 | AI | `ai` (ask a model, check its answer), `ai-backend` (a model behind a service) |

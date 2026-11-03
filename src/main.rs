@@ -226,30 +226,32 @@ A quote inside text needs no backslash when the text uses three quotes:
 quill new starts a project from a template. Each one runs and passes its tests
 straight away, with a README.md and QUILL.md, a short tour of the language:
 
+  For everything
+    app          a whole app: backend, AI, money, data, and tests
   For learning
-    learn        six exercises with checks that fail until you fix the code
-    starter      one file with values, when, for, a function, and a test
+    learn        exercises with checks that fail until you fix them
+    starter      one file: values, when, for, a function, a test
   For backend work
-    backend      a service that web, desktop, and mobile apps call, with JSON and tests
-    integration  call another service, read its JSON safely, and handle NetworkDown
-    webhook      receive a payment notice, check every field, answer 200 or 400
+    backend      an API for web, desktop, and mobile apps
+    integration  call another service and read its JSON safely
+    webhook      receive payment notices and check every field
   For AI
-    ai           ask a model, and check its answer against a type
-    ai-backend   a service route that asks a model, ready to deploy
+    ai           ask a model and check its answer against a type
+    ai-backend   a service route that asks a model
   For business and finance
-    finance      an invoice with exact money, VAT, split, and contracts
-    banking      accounts that can never go below zero, with require and ensure
+    finance      invoices with exact money, VAT, and contracts
+    banking      accounts that can never go below zero
   For automation and general programs
-    automation   read a file, tidy it, count and sort, and save a report
+    automation   read a file, count and sort, save a report
     library      reusable functions with tests, used with bring
 
 Quill checks for a new version at most once a day and tells you when one is
 out. It never updates by itself. Set QUILL_NO_UPDATE_CHECK=1 to turn this off.
 
-The first time Quill runs, it adds Quill's own colors and the feather icon
-for .quill files to Cursor and VS Code, and underlines mistakes as you type.
+The first time Quill runs, it quietly adds Quill's own colors and the feather
+icon for .quill files to Cursor and VS Code, and underlines mistakes as you type.
 The feather is pale on a dark editor and deep blue on a light one.
-Reload the editor window to see them.
+Reload the editor window to see them, and again after an update.
 Set QUILL_NO_EDITOR_SETUP=1 to leave your editor alone.
 
 Examples:
@@ -845,6 +847,16 @@ mod tests {
     #[test]
     fn help_lists_every_template_as_quill_new_names_it() {
         assert!(USAGE.contains(templates::listing().trim_end()));
+    }
+
+    /// The menu marks the chosen line with two characters, and a terminal is often
+    /// 80 wide, so a longer line would wrap or be cut off.
+    #[test]
+    fn every_menu_line_fits_an_80_column_terminal() {
+        for template in templates::TEMPLATES {
+            let line = templates::choice_line(template);
+            assert!(line.chars().count() + 2 <= 80, "{line}");
+        }
     }
 
     #[test]

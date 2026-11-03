@@ -1,0 +1,5 @@
+[
+  {"client": "Amina Okafor", "venue": "Town Hall", "guests": 120, "nights": 2, "paid": true},
+  {"client": "Omar Diallo", "venue": "Rose Garden", "guests": 80, "nights": 1, "paid": false},
+  {"client": "Nkechi Eze", "venue": "Harbour Loft", "guests": 240, "nights": 3, "paid": false}
+]

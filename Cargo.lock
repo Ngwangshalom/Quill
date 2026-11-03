@@ -301,7 +301,7 @@ dependencies = [
 
 [[package]]
 name = "quill"
-version = "0.4.5"
+version = "0.4.8"
 dependencies = [
  "dialoguer",
  "serde_json",

@@ -4,7 +4,7 @@
   "description": "Quill colors, the feather icon, and mistake underlines for .quill files.",
   "main": "./extension.js",
   "activationEvents": ["onLanguage:quill"],
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "quill",
   "license": "Apache-2.0",
   "engines": {
@@ -13,6 +13,12 @@
   "categories": [
     "Programming Languages"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In Restricted Mode, Quill colors .quill files and shows the feather. Underlining mistakes runs quill lsp, so it starts once you trust the folder."
+    }
+  },
   "contributes": {
     "configurationDefaults": {
       "[quill]": {
@@ -38,6 +44,14 @@
         "language": "quill",
         "scopeName": "source.quill",
         "path": "./syntaxes/quill.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.quill.codeblock",
+        "path": "./syntaxes/quill.markdown.tmLanguage.json",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": {
+          "meta.embedded.block.quill": "quill"
+        }
       }
     ]
   }

@@ -277,7 +277,13 @@ function activate(context) {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveColorTheme((theme) => applyColors(theme.kind)),
   );
-  startChecker(context);
+  // The checker runs the quill program, so a folder in Restricted Mode gets colors
+  // and the feather now, and underlines once the folder is trusted.
+  if (vscode.workspace.isTrusted) {
+    startChecker(context);
+  } else {
+    context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(() => startChecker(context)));
+  }
 }
 
 function deactivate() {}

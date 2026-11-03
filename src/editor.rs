@@ -3,11 +3,11 @@
 //! The first time `quill` runs, it installs the extension in `editors/vscode`
 //! into Cursor and VS Code on this computer. That extension colors Quill and
 //! shows the feather on every `.quill` file. It does nothing if the same files
-//! are already installed, and `QUILL_NO_EDITOR_SETUP=1` skips it.
+//! are already installed, and `QUILL_NO_EDITOR_SETUP=1` skips it. It prints
+//! nothing, so a command's output is only what the command says.
 
 use std::env;
 use std::fs;
-use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 const MANIFEST: &str = include_str!("../editors/vscode/package.json");
@@ -31,6 +31,10 @@ const FILES: &[EditorFile] = &[
         bytes: include_bytes!("../editors/vscode/syntaxes/quill.tmLanguage.json"),
     },
     EditorFile {
+        path: "syntaxes/quill.markdown.tmLanguage.json",
+        bytes: include_bytes!("../editors/vscode/syntaxes/quill.markdown.tmLanguage.json"),
+    },
+    EditorFile {
         path: "icons/quill-light.png",
         bytes: include_bytes!("../editors/vscode/icons/quill-light.png"),
     },
@@ -52,13 +56,7 @@ pub fn install() {
     let Some(home) = home_dir() else {
         return;
     };
-    let fresh = install_editor_support_under(&home, &[".cursor", ".vscode"]);
-    if fresh && std::io::stderr().is_terminal() {
-        eprintln!(
-            "\nQuill added colors and the feather icon for .quill files to Cursor and VS Code.\n\
-             Reload the editor window to see them."
-        );
-    }
+    install_editor_support_under(&home, &[".cursor", ".vscode"]);
 }
 
 /// Install under `root/<editor>/extensions` for each editor. True when a file changed.
@@ -203,6 +201,10 @@ mod tests {
             }
             let grammar = fs::read_to_string(ext.join("syntaxes/quill.tmLanguage.json")).unwrap();
             assert!(grammar.contains("source.quill"));
+            let markdown =
+                fs::read_to_string(ext.join("syntaxes/quill.markdown.tmLanguage.json")).unwrap();
+            assert!(markdown.contains("text.html.markdown"));
+            assert!(manifest.contains("untrustedWorkspaces"));
             let extension = fs::read_to_string(ext.join("extension.js")).unwrap();
             assert!(extension.contains("publishDiagnostics"));
             assert!(extension.contains("#F0A35E"));

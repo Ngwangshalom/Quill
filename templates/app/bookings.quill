@@ -1,0 +1,28 @@
+-- The bookings: their shape and the rules about them. No network or files here,
+-- so quill test can prove every rule.
+
+-- A booking, as the app sends it in JSON:
+-- {"client": "Amina", "venue": "Town Hall", "guests": 120, "nights": 2, "paid": false}
+type Booking
+  client: text
+  venue: text
+  guests: number where 1..500
+  nights: number where 1..14
+  paid: true/false
+
+-- What GET /bookings answers with.
+type Summary
+  bookings: number
+  unpaid: number
+  guests: number
+  biggest_first: list of text
+
+--- example: summary(list Booking client = "A", venue = "Hall", guests = 10, nights = 1, paid = false).unpaid == 1
+fn summary(all: list of Booking) -> Summary
+  return Summary bookings = count of all, unpaid = count of all where paid == false, guests = sum guests of all, biggest_first = get client of all sorted by highest guests
+
+--- A venue holds 300 people at most, whatever the booking type allows.
+--- example: fits_venue(Booking client = "A", venue = "Hall", guests = 300, nights = 1, paid = true) == true
+--- example: fits_venue(Booking client = "A", venue = "Hall", guests = 301, nights = 1, paid = true) == false
+fn fits_venue(b: Booking) -> true/false
+  return b.guests <= 300

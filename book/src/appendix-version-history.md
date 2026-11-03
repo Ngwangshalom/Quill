@@ -6,6 +6,13 @@ What changed in each version of Quill. The newest version is at the top.
 
 Changes that are finished but not yet in a release.
 
+## v0.4.8 (3 November 2026)
+
+- In VS Code and Cursor, Quill's colors and the feather work in *Restricted Mode*, in a folder the editor doesn't trust yet; before, the editor turned Quill off there. Underlining mistakes starts once the folder is trusted, because it runs the `quill` program. Quill code in a ` ```quill ` block inside a Markdown file, such as a README, has Quill's colors too.
+- **`quill new shop app`** makes a whole app for a small events company: a backend with bookings read from a file and checked against a type, prices with VAT and payments that add up to the cent, an AI assistant whose answer is checked too, and tests. Without an AI key, everything works except the assistant, which answers 503. It sits at the top of the menu, under "Everything". Every line of the menu now fits an 80-column terminal.
+- Quill no longer prints "Quill added colors and the feather icon..." after a command. It still sets up Cursor and VS Code the same way, quietly; reload the editor window after installing or updating Quill to see the colors.
+- On Windows, the files `quill new` makes have the same line endings as on macOS and Linux.
+
 ## v0.4.5 (3 November 2026)
 
 - **Templates for `quill new`.** `quill new shop` asks what kind of program it is, with the arrow keys, and `quill new shop backend` skips the menu. Eleven templates, in five groups: `learn` and `starter` for learning; `backend`, `integration` and `webhook` for backend work; `ai` and `ai-backend` for AI; `finance` and `banking` for business and finance; `automation` and `library` for automation and general programs. Each one runs and passes its tests straight away, and comes with a `README.md` and `QUILL.md`, a one-page tour of the language. With no terminal, `quill new shop` makes `starter`. A misspelled template names the one you meant.

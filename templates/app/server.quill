@@ -1,0 +1,69 @@
+-- A whole app for a small events company: bookings, prices with VAT, and an AI
+-- assistant for customers, behind one service that web, desktop, and mobile apps call.
+-- Run it:  quill run server.quill    (add ANTHROPIC_API_KEY=your-key for /ask)
+-- README.md has a curl line for each route.
+bring web
+bring ai
+bring bookings
+bring billing
+
+permit read "data"
+permit net "api.anthropic.com"
+permit env "ANTHROPIC_API_KEY"
+
+-- What a customer asks, and the shape the model must answer in.
+type Question
+  message: text
+
+type Reply
+  topic: text
+  urgent: true/false
+  reply: text
+
+fn reply_to(q: Question) -> Reply
+  fails ModelFailed, Invalid
+  return try ask "You answer customers of a small events company. Say the topic in one or two words, whether it is urgent, and a short, kind reply. Message: {q.message}" as Reply
+
+fn has_key() -> true/false
+  when env("ANTHROPIC_API_KEY")
+    found key -> return true
+    missing -> return false
+
+when
+  not has_key() -> say "ANTHROPIC_API_KEY isn't set, so /ask answers 503 until it is. Everything else works."
+
+route GET "/health"
+  respond 200, "ok"
+
+-- Today's bookings, read from data/bookings.json and checked against type Booking.
+route GET "/bookings"
+  file = read_file("data/bookings.json")
+    on FileMissing -> respond 500, "data/bookings.json is missing."
+  all = file as list of Booking
+    on Invalid -> respond 500, "data/bookings.json has a booking that breaks the rules."
+  respond 200, summary(all)
+
+-- A new booking. Anything that doesn't fit type Booking, or the venue, is refused.
+route POST "/bookings"
+  booking = request.body as Booking
+    on Invalid -> respond 400, "Send a client, a venue, 1 to 500 guests, 1 to 14 nights, and paid."
+  when
+    not fits_venue(booking) -> respond 400, "Our venues hold 300 people at most."
+  respond 201, quote(booking)
+
+-- A price, without booking anything.
+route POST "/quote"
+  booking = request.body as Booking
+    on Invalid -> respond 400, "Send a client, a venue, 1 to 500 guests, 1 to 14 nights, and paid."
+  respond 200, quote(booking)
+
+-- The AI assistant. Its answer is checked against type Reply before it's sent.
+route POST "/ask"
+  question = request.body as Question
+    on Invalid -> respond 400, "Send JSON with a message."
+  when
+    not has_key() -> respond 503, "The assistant isn't set up yet. Try again later."
+  answer = reply_to(question)
+    on ModelFailed -> respond 502, "The model couldn't answer. Try again soon."
+    on Invalid -> respond 502, "The model's answer didn't fit. Try again."
+  respond 200, answer

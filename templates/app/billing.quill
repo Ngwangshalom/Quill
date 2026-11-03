@@ -1,0 +1,33 @@
+-- The money: exact prices, VAT rounded the way banks round, and payments that
+-- always add up to the cent. Every rule is tested by the examples above it.
+bring bookings
+
+-- What POST /quote answers with.
+type Quote
+  client: text
+  before_vat: USD
+  vat: USD
+  total: USD
+  payments: list of USD
+
+--- 40 USD a guest each night, and 10% off from 5 nights.
+--- example: price(Booking client = "A", venue = "Hall", guests = 10, nights = 1, paid = false) == 400 USD
+--- example: price(Booking client = "A", venue = "Hall", guests = 10, nights = 5, paid = false) == 1800 USD
+fn price(b: Booking) -> USD
+  ensure result >= 0 USD
+  full = 40 USD * b.guests * b.nights
+  return when
+    b.nights >= 5 -> round full - 10% of full to cents
+    else -> full
+
+--- example: vat(100 USD) == 20 USD
+fn vat(amount: USD) -> USD
+  require amount >= 0 USD
+  return round 20% of amount to cents
+
+--- The total with VAT, shared into three payments.
+--- example: quote(Booking client = "A", venue = "Hall", guests = 10, nights = 1, paid = false).total == 480 USD
+fn quote(b: Booking) -> Quote
+  before_vat = price(b)
+  total = before_vat + vat(before_vat)
+  return Quote client = b.client, before_vat = before_vat, vat = vat(before_vat), total = total, payments = split total into 3

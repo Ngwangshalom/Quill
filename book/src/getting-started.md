@@ -38,8 +38,9 @@ Quill shows every version you can install. Move with the ↑ and ↓ keys, press
 
 ```text
 Which version of Quill do you want? (↑ ↓ to move, Enter to install, Esc to cancel):
-> 0.4.5     3 Nov 2026   latest
-  0.4.2     3 Nov 2026   installed
+> 0.4.8     3 Nov 2026   latest
+  0.4.5     3 Nov 2026   installed
+  0.4.2     3 Nov 2026
   0.4.0     20 Oct 2026
   0.3.1     14 Oct 2026
   0.3.0     13 Oct 2026
@@ -61,7 +62,7 @@ Choosing an older version is how you go back if a new release causes a problem. 
 You don't have to remember to check. At most once a day, Quill quietly asks whether a new version is out, and if one is, it tells you after your command finishes:
 
 ```text
-Quill 0.4.5 is available (you have 0.4.2). Run quill update to get it.
+Quill 0.4.8 is available (you have 0.4.5). Run quill update to get it.
 ```
 
 Quill never updates itself without asking, so a program that works today won't change behaviour tomorrow unless you choose to update. The check runs in the background and never slows Quill down. If you'd rather Quill didn't check at all, set `QUILL_NO_UPDATE_CHECK=1` in your environment.
@@ -120,16 +121,17 @@ quill new shop
 
 ```text
 What kind of program is shop? (↑ ↓ to move, Enter to choose, Esc to cancel)
-  Learning    learn        six exercises with checks that fail until you fix the code
-> Learning    starter      one file with values, when, for, a function, and a test
-  Backend     backend      a service that web, desktop, and mobile apps call, with JSON and tests
-  Backend     integration  call another service, read its JSON safely, and handle NetworkDown
-  Backend     webhook      receive a payment notice, check every field, answer 200 or 400
-  AI          ai           ask a model, and check its answer against a type
-  AI          ai-backend   a service route that asks a model, ready to deploy
-  Business    finance      an invoice with exact money, VAT, split, and contracts
-  Business    banking      accounts that can never go below zero, with require and ensure
-  Automation  automation   read a file, tidy it, count and sort, and save a report
+  Everything  app          a whole app: backend, AI, money, data, and tests
+  Learning    learn        exercises with checks that fail until you fix them
+> Learning    starter      one file: values, when, for, a function, a test
+  Backend     backend      an API for web, desktop, and mobile apps
+  Backend     integration  call another service and read its JSON safely
+  Backend     webhook      receive payment notices and check every field
+  AI          ai           ask a model and check its answer against a type
+  AI          ai-backend   a service route that asks a model
+  Business    finance      invoices with exact money, VAT, and contracts
+  Business    banking      accounts that can never go below zero
+  Automation  automation   read a file, count and sort, save a report
   Automation  library      reusable functions with tests, used with bring
 ```
 
@@ -151,6 +153,7 @@ Every project has a `README.md` that says how to run it and what to try next, an
 
 | Template | Start here when you want to |
 |---|---|
+| `app` | see a whole app: a backend with bookings, prices with VAT, data from a file, an AI assistant, and tests, working together |
 | `learn` | learn Quill by fixing small exercises until `quill test` passes |
 | `starter` | try the language in one file |
 | `backend` | build a service that web, desktop, and mobile apps call |
@@ -215,7 +218,7 @@ Welcome!
 
 ## Colors in your editor
 
-Quill has its own colors, taken from the feather, the nib, and ink. `say`, `when`, and `true` each have their own color. The first time you run Quill, it gives those colors to Cursor and VS Code, puts the feather on every `.quill` file, and underlines mistakes while you type. Reload the editor window once to see it. Other languages keep the colors they already had.
+Quill has its own colors, taken from the feather, the nib, and ink. `say`, `when`, and `true` each have their own color. The first time you run Quill, it quietly gives those colors to Cursor and VS Code, puts the feather on every `.quill` file, and underlines mistakes while you type. Reload the editor window once to see it, and again after you update Quill. Other languages keep the colors they already had.
 
 The feather follows the editor. On a dark window it is pale, so it shows against the dark file list. On a light window it is the deep blue feather from the logo.
 
@@ -254,6 +257,10 @@ On a light editor the same ideas use deeper shades, so they stay readable on pap
 Every word Quill has today has its color. A word is painted only once the language has it, so a name you invent is never colored by mistake.
 
 This is installed on each computer where Quill runs. Set `QUILL_NO_EDITOR_SETUP=1` to leave the editor alone.
+
+Quill code inside a Markdown file, in a ` ```quill ` block like the ones in a project's `README.md` and `QUILL.md`, gets the same colors.
+
+In a folder VS Code or Cursor doesn't trust yet, the editor shows *Restricted Mode*. Quill's colors and the feather still work there. Underlining mistakes runs the `quill` program, so it starts once you trust the folder: choose **Manage** on the Restricted Mode bar, then **Trust**.
 
 Vim, Emacs, and Sublime also know `.quill` files. The files are in the `editors` folder. Any editor that can talk to a language server, including Neovim, Helix, and Zed, gets the underlines from `quill lsp`. That is the same check as `quill check`, and it does not run the program.
 

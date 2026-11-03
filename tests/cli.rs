@@ -226,6 +226,7 @@ fn new_starts_a_project_that_runs_and_tests() {
 fn every_template_starts_a_project_that_checks_and_tests() {
     let root = scratch("new-templates");
     let templates = [
+        "app",
         "learn",
         "starter",
         "backend",
