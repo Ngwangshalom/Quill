@@ -7,6 +7,9 @@ src = "src"
 
 [output.html]
 default-theme = "quill"
+# The book is published at https://ngwangshalom.github.io/Quill/, so its pages
+# live under /Quill/. The page for a missing address needs to know that.
+site-url = "/Quill/"
 git-repository-url = "https://github.com/Ngwangshalom/Quill"
 edit-url-template = "https://github.com/Ngwangshalom/Quill/edit/main/book/{path}"
 additional-css = ["theme/quill.css"]

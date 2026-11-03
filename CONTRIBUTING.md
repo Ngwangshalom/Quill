@@ -147,6 +147,8 @@ A ```` ```quill,part,file=billing.quill ```` block isn't run. It is written next
 
 An `output` block right after an example must match exactly what Quill prints. Add `file=shop.quill` (as in ```` ```quill,error,file=shop.quill ````) to choose the file name an error mentions. After a change that intentionally changes output, refresh the output blocks with `QUILL_BLESS=1 cargo test --test book`, and read the diff to make sure the book still says what you mean.
 
+The published book is at <https://ngwangshalom.github.io/Quill/>. `.github/workflows/book.yml` tests and publishes it again after every push to `main` that changes the book or the spec.
+
 To read the book as a website while you write, install [mdBook](https://rust-lang.github.io/mdBook/) and run:
 
 ```bash

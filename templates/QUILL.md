@@ -52,8 +52,8 @@ check double(21) == 42          -- a test, right next to the code
 
 ## Learn more
 
-- The Quill book teaches the language from the very beginning: <https://github.com/Ngwangshalom/Quill/blob/main/book/src/SUMMARY.md>
-- The language specification says exactly what each line means: <https://github.com/Ngwangshalom/Quill/blob/main/docs/spec.md>
+- The Quill book teaches the language from the very beginning: <https://ngwangshalom.github.io/Quill/>
+- The language specification says exactly what each line means: <https://ngwangshalom.github.io/Quill/appendix-specification.html>
 - Questions, ideas, and bugs: <https://github.com/Ngwangshalom/Quill/issues>
 
 Your editor colors Quill and underlines mistakes as you type, in Cursor and VS Code, and in Vim, Emacs, and Sublime with the files in Quill's `editors` folder.

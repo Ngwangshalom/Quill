@@ -6,6 +6,8 @@ What changed in each version of Quill. The newest version is at the top.
 
 Changes that are finished but not yet in a release.
 
+- This book is published at <https://ngwangshalom.github.io/Quill/>, tested and updated after every change to it. The `QUILL.md` in each new project links there.
+
 ## v0.4.8 (3 November 2026)
 
 - In VS Code and Cursor, Quill's colors and the feather work in *Restricted Mode*, in a folder the editor doesn't trust yet; before, the editor turned Quill off there. Underlining mistakes starts once the folder is trusted, because it runs the `quill` program. Quill code in a ` ```quill ` block inside a Markdown file, such as a README, has Quill's colors too.

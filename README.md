@@ -86,7 +86,7 @@ Building from source needs [Rust](https://rustup.rs): `cargo install --git https
 
 ## Learn Quill
 
-**[The Quill Programming Language](book/src/SUMMARY.md)** is a book that teaches Quill from the very beginning, for new and experienced programmers. It grows with the language, and every example in it is tested.
+**[The Quill Programming Language](https://ngwangshalom.github.io/Quill/)** is a book that teaches Quill from the very beginning, for new and experienced programmers. It grows with the language, and every example in it is tested. Its source is in [book/src](book/src/SUMMARY.md).
 
 The first time you run Quill, Cursor and VS Code get Quill's own colors, the feather on every `.quill` file, and underlines for mistakes. The feather is pale on a dark editor and deep blue on a light one. Each kind of word has its own color: `say` is nib orange `#F0A35E`, `when` is feather blue `#7EAEF5`, and `true` is green `#5ECA8C`. Vim, Emacs, and Sublime detect `.quill` files from [`editors`](editors). `quill lsp` sends the same mistakes to any editor. Set `QUILL_NO_EDITOR_SETUP=1` to leave Cursor and VS Code alone.
 

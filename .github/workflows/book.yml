@@ -1,0 +1,51 @@
+name: Book
+
+# Publishes the Quill book to GitHub Pages: https://ngwangshalom.github.io/Quill/
+# The repository's Settings, Pages, Source has to be GitHub Actions.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "book/**"
+      - "docs/**"
+      - ".github/workflows/book.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One publish at a time, and a newer push replaces one that is waiting.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      # A book with a broken example is never published.
+      - name: Check every example in the book
+        run: cargo test --test book
+        env:
+          QUILL_NO_EDITOR_SETUP: "1"
+      # The book's theme is written for mdBook 0.5.4.
+      - name: Install mdBook
+        run: |
+          curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.5.4/mdbook-v0.5.4-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Build the book
+        run: mdbook build book
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: book/book
+      - id: deploy
+        uses: actions/deploy-pages@v4
