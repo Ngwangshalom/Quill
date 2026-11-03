@@ -3,3 +3,6 @@
 # that reads a file with read_file sees "USD 1\r\n" instead of "USD 1\n".
 *.quill text eol=lf
 tests/programs/** text eol=lf
+# The templates are built into quill, so every project quill new makes is the same
+# on every system.
+templates/** text eol=lf
