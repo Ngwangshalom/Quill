@@ -1,4 +1,4 @@
-{{! Quill is listed in the theme menu below. When mdBook updates, refresh this file from its index.hbs and keep that one line. }}
+{{! Quill is listed in the theme menu below, and the custom scripts load before book.js. When mdBook updates, refresh this file from its index.hbs and keep those two changes. }}
 <!DOCTYPE HTML>
 <html lang="{{ language }}" class="{{ default_theme }} sidebar-visible" dir="{{ text_direction }}">
     <head>
@@ -322,12 +322,13 @@
 
         <script src="{{ resource "clipboard.min.js" }}"></script>
         <script src="{{ resource "highlight.js" }}"></script>
-        <script src="{{ resource "book.js" }}"></script>
 
-        <!-- Custom JS scripts -->
+        <!-- Custom JS scripts. They load before book.js, so Quill is a known language when book.js colors the code. -->
         {{#each additional_js}}
         <script src="{{ resource this}}"></script>
         {{/each}}
+
+        <script src="{{ resource "book.js" }}"></script>
 
         {{#if is_print}}
         {{#if mathjax_support}}

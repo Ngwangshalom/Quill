@@ -12,7 +12,7 @@ use crate::native;
 use crate::parser;
 use crate::parser::{
     Access, Arithmetic, Catch, Comparison, Contract, Expr, ExprKind, Handler, Param, Part,
-    Permission, Program, Recovery, RoundTo, Rule, SigKind, Statement, ValueArm,
+    Permission, Program, Recovery, RoundTo, Rule, SigKind, Statement, TextTool, ValueArm,
 };
 
 /// The kind of a value.
@@ -1066,12 +1066,16 @@ impl<'a> Checker<'a> {
     ) -> Kind {
         let kind = self.infer(amount, context);
         let parts_kind = self.infer(parts, context);
+        if kind == Kind::Text {
+            return self.split_text_kind(amount, parts, &parts_kind, by_shares);
+        }
         let Kind::Money(code) = &kind else {
             if kind.known() {
                 self.problems.push(Diagnostic::new(
                     amount.span,
                     format!(
-                        "split shares out money in whole cents, but {amount} is {}.\n\
+                        "split shares out money in whole cents, or cuts text into pieces, \
+                         but {amount} is {}.\n\
                          To divide a number, use /.",
                         kind.with_article()
                     ),
@@ -1116,6 +1120,52 @@ impl<'a> Checker<'a> {
             }
         }
         Kind::List(Box::new(Kind::Money(code.clone())))
+    }
+
+    /// `split line by ","`: a list of text.
+    fn split_text_kind(
+        &mut self,
+        text: &Expr,
+        separator: &Expr,
+        separator_kind: &Kind,
+        by: bool,
+    ) -> Kind {
+        if !by {
+            self.problems.push(
+                Diagnostic::new(
+                    separator.span,
+                    format!(
+                        "{text} is text, and text is split by what sits between the pieces.\n\
+                         split {text} by \",\" cuts it at each comma."
+                    ),
+                )
+                .suggest(format!("split {text} by \",\"")),
+            );
+            return Kind::Unknown;
+        }
+        if separator_kind.known() && *separator_kind != Kind::Text {
+            self.problems.push(
+                Diagnostic::new(
+                    separator.span,
+                    format!(
+                        "split {text} by needs the text between the pieces, but {separator} is {}.\n\
+                         split {text} by \",\" cuts it at each comma.",
+                        separator_kind.with_article()
+                    ),
+                )
+                .suggest(format!("split {text} by \",\"")),
+            );
+            return Kind::Unknown;
+        }
+        if matches!(&separator.kind, ExprKind::Text(written) if written.is_empty()) {
+            self.problems.push(Diagnostic::new(
+                separator.span,
+                "split needs the text between the pieces, and \"\" is empty.\n\
+                 split line by \",\" cuts it at each comma. split line by \" \" cuts it at each space.",
+            ));
+            return Kind::Unknown;
+        }
+        Kind::List(Box::new(Kind::Text))
     }
 
     /// `20% of fee`: the kind of `fee`.
@@ -2585,6 +2635,12 @@ impl<'a> Checker<'a> {
                 sorted_span,
                 ..
             } => self.sorted_kind(list, field, *field_span, *sorted_span, context),
+            ExprKind::Tool {
+                tool,
+                value,
+                args,
+                word_span,
+            } => self.text_kind(*tool, value, args, *word_span, context),
             ExprKind::Field {
                 record,
                 name,
@@ -2965,6 +3021,148 @@ impl<'a> Checker<'a> {
                 Kind::Unknown
             }
         }
+    }
+
+    /// `trim name` and the other text tools.
+    fn text_kind(
+        &mut self,
+        tool: TextTool,
+        value: &Expr,
+        args: &[Expr],
+        word_span: Span,
+        context: &Context,
+    ) -> Kind {
+        let kind = self.infer(value, context);
+        let arg_kinds: Vec<Kind> = args.iter().map(|arg| self.infer(arg, context)).collect();
+        if !kind.known() || arg_kinds.iter().any(|kind| !kind.known()) {
+            return Kind::Unknown;
+        }
+        let word = tool.word();
+        match tool {
+            TextTool::Length => match kind {
+                Kind::Text => Kind::Number,
+                Kind::List(_) => {
+                    self.problems.push(
+                        Diagnostic::new(
+                            value.span,
+                            format!(
+                                "{value} is a list, and length of counts the letters in text.\n\
+                                 count of {value} is how many items the list has."
+                            ),
+                        )
+                        .suggest(format!("count of {value}")),
+                    );
+                    Kind::Unknown
+                }
+                other => self.needs_text(value, &other, word, word_span),
+            },
+            TextTool::Trim | TextTool::Uppercase | TextTool::Lowercase => match kind {
+                Kind::Text => Kind::Text,
+                other => self.needs_text(value, &other, word, word_span),
+            },
+            TextTool::StartsWith | TextTool::EndsWith => {
+                if kind != Kind::Text {
+                    return self.needs_text(value, &kind, word, word_span);
+                }
+                if arg_kinds[0] != Kind::Text {
+                    return self.needs_text(&args[0], &arg_kinds[0], word, word_span);
+                }
+                Kind::Bool
+            }
+            TextTool::Contains => match &kind {
+                Kind::Text if arg_kinds[0] == Kind::Text => Kind::Bool,
+                Kind::Text => self.needs_text(&args[0], &arg_kinds[0], word, word_span),
+                Kind::List(item) if **item == arg_kinds[0] => Kind::Bool,
+                Kind::List(item) => {
+                    self.problems.push(Diagnostic::new(
+                        args[0].span,
+                        format!(
+                            "{value} holds {}, but {} is {}.\n\
+                             contains looks for an item of the same kind as the list's items.",
+                            item.name(),
+                            args[0],
+                            arg_kinds[0].with_article()
+                        ),
+                    ));
+                    Kind::Unknown
+                }
+                other => {
+                    self.problems.push(Diagnostic::new(
+                        value.span,
+                        format!(
+                            "contains looks inside text or a list, but {value} is {}.\n\
+                             name contains \"Dr\" looks in text. hobbies contains \"coding\" looks in a list.",
+                            other.with_article()
+                        ),
+                    ));
+                    Kind::Unknown
+                }
+            },
+            TextTool::Join => {
+                let joinable = matches!(
+                    &kind,
+                    Kind::List(item) if matches!(
+                        item.as_ref(),
+                        Kind::Text | Kind::Number | Kind::Money(_) | Kind::Bool
+                    )
+                );
+                if !joinable {
+                    self.problems.push(Diagnostic::new(
+                        value.span,
+                        format!(
+                            "join puts the items of a list into one text, but {value} is {}.\n\
+                             join names with \", \" works on a list of text, numbers, or money.",
+                            kind.with_article()
+                        ),
+                    ));
+                    return Kind::Unknown;
+                }
+                if arg_kinds[0] != Kind::Text {
+                    return self.needs_text(&args[0], &arg_kinds[0], word, word_span);
+                }
+                Kind::Text
+            }
+            TextTool::Replace => {
+                for (expr, kind) in args.iter().zip(&arg_kinds).chain([(value, &kind)]) {
+                    if *kind != Kind::Text {
+                        return self.needs_text(expr, kind, word, word_span);
+                    }
+                }
+                if matches!(&args[0].kind, ExprKind::Text(text) if text.is_empty()) {
+                    self.problems.push(Diagnostic::new(
+                        args[0].span,
+                        "replace needs the text to look for, and \"\" is empty.\n\
+                         replace \"-\" with \" \" in code changes every - to a space.",
+                    ));
+                    return Kind::Unknown;
+                }
+                Kind::Text
+            }
+        }
+    }
+
+    /// A text tool was given something that isn't text.
+    fn needs_text(&mut self, expr: &Expr, kind: &Kind, word: &str, word_span: Span) -> Kind {
+        let hint = match kind {
+            Kind::Number | Kind::Money(_) | Kind::Bool => {
+                format!("Put it inside text first, like \"{{{expr}}}\".")
+            }
+            Kind::List(_) => format!("A list holds many texts. Pick one first, like {expr} at 1."),
+            _ => "Use text in quotes, or a value that holds text.".to_string(),
+        };
+        let span = if expr.span.file == word_span.file {
+            expr.span
+        } else {
+            word_span
+        };
+        self.problems.push(Diagnostic::new(
+            span,
+            format!(
+                "{word} works on text, but {expr} is {}.\n{hint}",
+                kind.with_article()
+            ),
+        ));
+        Kind::Unknown
     }
 
     /// `count of roster`: a number.
@@ -3881,6 +4079,17 @@ fn replace(expr: &Expr, span: Span, with: &Expr) -> Expr {
             condition: swap(condition),
             where_span: *where_span,
         },
+        ExprKind::Tool {
+            tool,
+            value,
+            args,
+            word_span,
+        } => ExprKind::Tool {
+            tool: *tool,
+            value: swap(value),
+            args: args.iter().map(|arg| replace(arg, span, with)).collect(),
+            word_span: *word_span,
+        },
         ExprKind::Count { of_span, list } => ExprKind::Count {
             of_span: *of_span,
             list: swap(list),
@@ -4349,6 +4558,59 @@ roster = list record name = \"Nchang Sisters\", fee = 80000 USD, open = true
         assert!(found.message.contains("no field called feee"));
         let found = problem("say list 3, 1, 2 sorted by price");
         assert!(found.message.contains("holds Number"));
+    }
+
+    #[test]
+    fn text_tools_are_checked_before_running() {
+        for line in [
+            "say trim \" a \"",
+            "say length of \"abc\"",
+            "say uppercase \"a\" contains \"A\"",
+            "say split \"a,b\" by \",\"",
+            "say join list \"a\", \"b\" with \", \"",
+            "say join list 1, 2 with \"+\"",
+            "say list \"a\" contains \"a\"",
+            "say replace \"a\" with \"b\" in \"abc\"",
+            "say \"abc\" starts with \"a\" and \"abc\" ends with \"c\"",
+        ] {
+            assert_eq!(problems(line), vec![], "{line}");
+        }
+        let found = problem("hobbies = list \"a\"\nsay length of hobbies");
+        assert_eq!(found.suggestion.as_deref(), Some("count of hobbies"));
+        let found = problem("say uppercase 5");
+        assert!(found
+            .message
+            .contains("uppercase works on text, but 5 is a Number"));
+        let found = problem("say split \"a,b\" into 2");
+        assert!(found.message.contains("text is split by what sits between"));
+        let found = problem("say split \"a,b\" by \"\"");
+        assert!(found.message.contains("\"\" is empty"));
+        let found = problem("say list \"a\" contains 5");
+        assert!(found.message.contains("same kind as the list's items"));
+        let found = problem("say replace \"\" with \"b\" in \"abc\"");
+        assert!(found.message.contains("\"\" is empty"));
+        let found = problem("a = record x = 1\nsay join list a with \", \"");
+        assert!(found
+            .message
+            .contains("join puts the items of a list into one text"));
+    }
+
+    #[test]
+    fn text_tool_words_stay_free_as_names() {
+        assert_eq!(
+            problems(
+                "\
+var trim = 1
+var length = 2
+contains = 3
+fn join(a: text, b: text) -> text
+  return \"{a}{b}\"
+say join(\"a\", \"b\")
+say trim + length + contains
+"
+            ),
+            vec![]
+        );
     }
 
     #[test]

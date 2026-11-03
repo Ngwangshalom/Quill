@@ -90,6 +90,17 @@ the records in order. sorted by highest fee puts the highest first:
   say average fee of roster
   say get name of roster sorted by highest fee
 
+Text tools tidy, measure, and look inside text:
+
+  say trim name
+  say uppercase name
+  say length of name
+  say email contains \"@\"
+  say code starts with \"INV\"
+  say replace \"-\" with \" \" in code
+  parts = split line by \",\"
+  say join parts with \", \"
+
 get place of desk.bookings reads a field of a list on a record.
 get gpa of school.acceptances reads a field of a nested record.
 Name the record before the dot: first = desk.bookings at 1, then first.place.

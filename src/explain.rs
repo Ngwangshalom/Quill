@@ -2,7 +2,7 @@
 
 use crate::checker::{self, KnownValue};
 use crate::lexer;
-use crate::parser::{self, Arm, Contract, Expr, ExprKind, Program, Statement, ValueArm};
+use crate::parser::{self, Arm, Contract, Expr, ExprKind, Program, Statement, TextTool, ValueArm};
 
 /// Describes line `line` (1-based) of `source`, a program with no file of its own.
 pub fn explain(source: &str, line: usize) -> String {
@@ -522,6 +522,20 @@ impl Describer<'_> {
                 format!("the records in order, highest first, {kind}")
             }
             ExprKind::Sorted { .. } => format!("the records in order, lowest first, {kind}"),
+            ExprKind::Tool { tool, .. } => {
+                let what = match tool {
+                    TextTool::Length => "how many letters the text has",
+                    TextTool::Trim => "the text without spaces at either end",
+                    TextTool::Uppercase => "the text in capital letters",
+                    TextTool::Lowercase => "the text in small letters",
+                    TextTool::Contains => "whether the second value is inside the first",
+                    TextTool::StartsWith => "whether the text starts with the second",
+                    TextTool::EndsWith => "whether the text ends with the second",
+                    TextTool::Join => "the items as one text, with the second text between them",
+                    TextTool::Replace => "the text with every old part changed to the new one",
+                };
+                format!("{what}, {kind}")
+            }
             ExprKind::Call { name, .. } => format!("a call of {name}, {kind}"),
             ExprKind::Money { .. } => kind,
             ExprKind::Found(_) => format!("a maybe that holds a value, {kind}"),

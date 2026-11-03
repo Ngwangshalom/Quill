@@ -301,6 +301,22 @@ Omar
 Omar
 ```
 
+The text tools work in a condition too, so `where` can look inside text:
+
+```quill
+amina = record name = "Amina Okafor", email = "amina@school.org"
+omar = record name = "Omar Diallo", email = "omar@mail.com"
+students = list amina, omar
+
+say get name of students where email ends with "school.org"
+say get name of students where name contains "Omar"
+```
+
+```output
+Amina Okafor
+Omar Diallo
+```
+
 The condition can read values from outside, too. A field comes first: if the records have a `score`, then `score` in the condition is the record's score.
 
 ```quill

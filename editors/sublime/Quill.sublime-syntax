@@ -35,6 +35,14 @@ contexts:
       scope: keyword.other.of.quill
     - match: '\b(at)\b'
       scope: keyword.other.at.quill
+    - match: '\b(trim|uppercase|lowercase|join|replace)\b(?=[ \t]+[A-Za-z_"0-9])'
+      scope: keyword.other.text.quill
+    - match: '\blength\b(?=\s+of\b)'
+      scope: keyword.other.text.quill
+    - match: '(?<=[\w")][ \t])contains\b(?=[ \t]+[^\s=])'
+      scope: keyword.other.text.quill
+    - match: '\b(?:starts|ends)[ \t]+with\b'
+      scope: keyword.other.text.quill
     - match: '\b(get|sum|with)\b'
       scope: keyword.other.ask.quill
     - match: '\bcount\b(?=\s+of\b)'

@@ -33,6 +33,7 @@ What works now:
 - **Code reads like what it means.** Indentation-based, no semicolons, no braces.
 - **Money is exact.** `100 USD + 50 USD` is `150 USD`. `0.1 + 0.2` is `0.3`. Dollars and euros cannot be added; `convert 100 USD to EUR at 0.92` changes one at the rate you write. `split 100 USD into 3` gives `33.34, 33.33, 33.33`, so no cent is lost, and `round total to cents` rounds the way banks do.
 - **Ask for the data.** `sum fee of roster` adds each fee. `get fee of roster` takes that field. `get place of desk.bookings` reads a field of a list on a record. `students where score >= 50` keeps only the records that match, and `sum fee of roster where paid == false` adds what is still owed. `count of students where paid == false` says how many still owe, `average score of students` gives the class average, and `students sorted by highest score` ranks them. A missing amount is left out. `for` remains when each record needs its own step.
+- **Text tools read like English.** `trim name`, `uppercase code`, `length of name`, `email contains "@"`, `code starts with "INV"`, `replace "-" with " " in code`, `split line by ","`, and `join names with ", "`.
 - **Nothing is missing by surprise.** There is no `null`. A `maybe` says the value might be missing, and both cases have to be handled.
 - **Ask a model, and trust the answer.** `ask "Rate this review: {text}" as Review` asks Claude, or any OpenAI-compatible model, and checks the answer against every rule of `Review`. A model that fails or breaks the rules is a failure the program handles.
 - **Call other services.** `bring http`, then `fetch(url)` or `post(url, json(order))`. The host needs a `permit net`, and `NetworkDown` has to be handled.
@@ -102,6 +103,23 @@ Text that contains a quote is wrapped in three quotes, so the quote inside needs
 ```quill
 quoted = """She said "hi"."""
 ```
+
+### Working with text
+
+```quill
+typed = "  amina@school.org "
+email = lowercase trim typed
+
+when
+  email contains "@" and email ends with ".org" -> say "A school address"
+  else -> say "Check the address"
+
+parts = split "Amina,80,paid" by ","
+say join parts with " / "
+say replace "-" with " " in "INV-2026-001"
+```
+
+That says `A school address`, `Amina / 80 / paid`, and `INV 2026 001`. `length of email` is `16`.
 
 ### Functions, `when` and tests
 
@@ -370,6 +388,7 @@ Quill is for backend engineering, financial software, automation, reliable busin
 - [x] Loops (`for i in 1..3`, and `for hobby in hobbies`)
 - [x] Asking for data (`sum fee of roster`, `get fee of roster`, `get place of desk.bookings`, `count of roster`, `average fee of roster`, `roster sorted by fee`)
 - [x] Lists and records
+- [x] Text tools (`trim`, `uppercase`, `length of`, `contains`, `starts with`, `replace`, `split ... by`, `join ... with`)
 - [x] Functions (`fn double(n: number) -> number`, `return`, and calls)
 
 **Safety**

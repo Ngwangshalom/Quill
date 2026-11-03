@@ -6,7 +6,7 @@ use crate::decimal::{Decimal, Rounding};
 use crate::diagnostic::{Diagnostic, Span};
 use crate::parser::{
     Arithmetic, Comparison, Contract, Expr, ExprKind, Logic, Param, Part, Permission, Program,
-    Recovery, RoundTo, SigKind, Statement,
+    Recovery, RoundTo, SigKind, Statement, TextTool,
 };
 use crate::value::Value;
 
@@ -102,6 +102,9 @@ pub enum Op {
         name: usize,
         list: usize,
     },
+    /// Pop the tool's values, then the text or list, and push the answer. The values were
+    /// pushed in the order `ExprKind::Tool` holds them: the text first, then its `args`.
+    Text(TextTool),
     /// Pop a list of records and push it in order of the field `constants[name]`.
     /// `highest` puts the highest first. Records with the same value keep their order.
     SortBy {
@@ -621,6 +624,15 @@ impl Compiler {
             ExprKind::Count { list, .. } => {
                 self.expression(list)?;
                 self.emit(Op::Length, span);
+            }
+            ExprKind::Tool {
+                tool, value, args, ..
+            } => {
+                self.expression(value)?;
+                for arg in args {
+                    self.expression(arg)?;
+                }
+                self.emit(Op::Text(*tool), span);
             }
             ExprKind::Average { field, list, .. } => {
                 self.expression(list)?;

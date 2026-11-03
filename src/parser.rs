@@ -725,6 +725,62 @@ pub enum ExprKind {
         highest: bool,
         sorted_span: Span,
     },
+    /// `trim name`, `name contains "Dr"`, `join names with ", "`, and the other text tools.
+    /// `value` is the text, or the list for `join` and `contains`. `args` follow it in the
+    /// order they are written. The tool's words are names everywhere else.
+    Tool {
+        tool: TextTool,
+        value: Box<Expr>,
+        args: Vec<Expr>,
+        word_span: Span,
+    },
+}
+
+/// What a text tool does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextTool {
+    /// `length of name`: how many letters.
+    Length,
+    /// `trim name`: without spaces at either end.
+    Trim,
+    Uppercase,
+    Lowercase,
+    /// `name contains "Dr"`, or `hobbies contains "coding"` for a list.
+    Contains,
+    /// `code starts with "INV"`.
+    StartsWith,
+    /// `file ends with ".csv"`.
+    EndsWith,
+    /// `join names with ", "`.
+    Join,
+    /// `replace "-" with " " in code`. `args` are the old text, then the new.
+    Replace,
+}
+
+impl TextTool {
+    /// The tool as it starts a sentence, for errors.
+    pub fn word(self) -> &'static str {
+        match self {
+            TextTool::Length => "length of",
+            TextTool::Trim => "trim",
+            TextTool::Uppercase => "uppercase",
+            TextTool::Lowercase => "lowercase",
+            TextTool::Contains => "contains",
+            TextTool::StartsWith => "starts with",
+            TextTool::EndsWith => "ends with",
+            TextTool::Join => "join",
+            TextTool::Replace => "replace",
+        }
+    }
+
+    /// How many values follow the first one.
+    pub fn arg_count(self) -> usize {
+        match self {
+            TextTool::Length | TextTool::Trim | TextTool::Uppercase | TextTool::Lowercase => 0,
+            TextTool::Contains | TextTool::StartsWith | TextTool::EndsWith | TextTool::Join => 1,
+            TextTool::Replace => 2,
+        }
+    }
 }
 
 /// What a `permit` allows.
@@ -883,6 +939,23 @@ impl Expr {
             | ExprKind::Count { list, .. }
             | ExprKind::Average { list, .. }
             | ExprKind::Sorted { list, .. } => list.collect_names(names),
+            ExprKind::Tool { value, args, .. } => {
+                if let ExprKind::Tool {
+                    tool: TextTool::Replace,
+                    ..
+                } = &self.kind
+                {
+                    for arg in args {
+                        arg.collect_names(names);
+                    }
+                    value.collect_names(names);
+                } else {
+                    value.collect_names(names);
+                    for arg in args {
+                        arg.collect_names(names);
+                    }
+                }
+            }
             ExprKind::GetWith { source, .. } => source.collect_names(names),
             ExprKind::Where {
                 list, condition, ..
@@ -1076,6 +1149,18 @@ impl fmt::Display for Expr {
                 let order = if *highest { "highest " } else { "" };
                 write!(f, "{list} sorted by {order}{field}")
             }
+            ExprKind::Tool {
+                tool, value, args, ..
+            } => match (tool, args.as_slice()) {
+                (TextTool::Join, [with]) => write!(f, "join {value} with {with}"),
+                (TextTool::Replace, [old, new]) => {
+                    write!(f, "replace {old} with {new} in {value}")
+                }
+                (TextTool::Contains | TextTool::StartsWith | TextTool::EndsWith, [right]) => {
+                    write!(f, "{value} {} {right}", tool.word())
+                }
+                _ => write!(f, "{} {value}", tool.word()),
+            },
         }
     }
 }
@@ -3150,6 +3235,160 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `contains`, `starts with`, or `ends with` after a value.
+    fn text_test(&self) -> Option<TextTool> {
+        if is_word(self.peek(), "contains") && starts_value(&self.peek_at(1).kind) {
+            return Some(TextTool::Contains);
+        }
+        if self.peek_at(1).kind == TokenKind::With {
+            if is_word(self.peek(), "starts") {
+                return Some(TextTool::StartsWith);
+            }
+            if is_word(self.peek(), "ends") {
+                return Some(TextTool::EndsWith);
+            }
+        }
+        None
+    }
+
+    /// `name contains "Dr"`, `code starts with "INV"`, `file ends with ".csv"`.
+    fn text_test_expr(&mut self, left: Expr, tool: TextTool) -> Result<Expr, Diagnostic> {
+        let word = self.advance().clone();
+        if tool != TextTool::Contains {
+            self.advance();
+        }
+        if !starts_value(&self.peek().kind) {
+            let meaning = match tool {
+                TextTool::StartsWith => format!("{left} begins with that text"),
+                TextTool::EndsWith => format!("{left} finishes with that text"),
+                _ => format!("that text is somewhere in {left}"),
+            };
+            return Err(Diagnostic::new(
+                word.span(),
+                format!(
+                    "{} needs the text to look for after it.\n\
+                     {left} {} \"Dr\" is true when {meaning}.",
+                    tool.word(),
+                    tool.word()
+                ),
+            )
+            .suggest(format!("{left} {} \"Dr\"", tool.word())));
+        }
+        let right = self.sum()?;
+        Ok(Expr {
+            span: cover(left.span, right.span),
+            kind: ExprKind::Tool {
+                tool,
+                value: Box::new(left),
+                args: vec![right],
+                word_span: word.span(),
+            },
+        })
+    }
+
+    /// A text tool that starts a value: `trim name`, `length of name`, `join names with ", "`,
+    /// or `replace "-" with " " in code`. Followed by `(`, the word is a call to a function
+    /// of that name, and followed by anything else that is not a value, it is a name.
+    fn text_tool_at(&self) -> Option<TextTool> {
+        let TokenKind::Identifier(word) = &self.peek().kind else {
+            return None;
+        };
+        let next = &self.peek_at(1).kind;
+        if word == "length" {
+            return (*next == TokenKind::Of).then_some(TextTool::Length);
+        }
+        if !starts_value(next) || matches!(next, TokenKind::LeftParen | TokenKind::Minus) {
+            return None;
+        }
+        match word.as_str() {
+            "trim" => Some(TextTool::Trim),
+            "uppercase" => Some(TextTool::Uppercase),
+            "lowercase" => Some(TextTool::Lowercase),
+            "join" => Some(TextTool::Join),
+            "replace" => Some(TextTool::Replace),
+            _ => None,
+        }
+    }
+
+    fn text_tool_expr(&mut self, tool: TextTool) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        if tool == TextTool::Length {
+            self.advance();
+        }
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                format!(
+                    "{} needs the text after it.\n\
+                     {} name works on the text in name.",
+                    tool.word(),
+                    tool.word()
+                ),
+            )
+            .suggest(format!("{} name", tool.word())));
+        }
+        let first = self.unary()?;
+        let (value, args) = match tool {
+            TextTool::Join => {
+                let with = self.expect_text_word(
+                    TokenKind::With,
+                    "with",
+                    format!("join {first} needs with and the text to put between the items.\njoin names with \", \" puts a comma and a space between them."),
+                    format!("join {first} with \", \""),
+                )?;
+                (first, vec![with])
+            }
+            TextTool::Replace => {
+                let new = self.expect_text_word(
+                    TokenKind::With,
+                    "with",
+                    format!("replace {first} needs with and the new text, then in and the text to change.\nreplace \"-\" with \" \" in code changes every - in code to a space."),
+                    format!("replace {first} with \" \" in code"),
+                )?;
+                let text = self.expect_text_word(
+                    TokenKind::In,
+                    "in",
+                    format!("replace {first} with {new} needs in and the text to change.\nreplace \"-\" with \" \" in code changes every - in code to a space."),
+                    format!("replace {first} with {new} in code"),
+                )?;
+                (text, vec![first, new])
+            }
+            _ => (first, Vec::new()),
+        };
+        let end = self.tokens[self.pos.saturating_sub(1)].span();
+        Ok(Expr {
+            span: cover(keyword.span(), end),
+            kind: ExprKind::Tool {
+                tool,
+                value: Box::new(value),
+                args,
+                word_span: keyword.span(),
+            },
+        })
+    }
+
+    /// `with` or `in` inside a text tool, then the value after it.
+    fn expect_text_word(
+        &mut self,
+        kind: TokenKind,
+        word: &str,
+        message: String,
+        suggestion: String,
+    ) -> Result<Expr, Diagnostic> {
+        if self.peek().kind != kind {
+            return Err(Diagnostic::new(self.peek().span(), message).suggest(suggestion));
+        }
+        let token = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                token.span(),
+                format!("{word} needs a value after it.\n{message}"),
+            )
+            .suggest(suggestion));
+        }
+        self.unary()
+    }
+
     /// `count of roster`: how many items the list has.
     fn count_expr(&mut self) -> Result<Expr, Diagnostic> {
         let keyword = self.advance().clone();
@@ -3260,6 +3499,9 @@ impl<'a> Parser<'a> {
 
     fn comparison(&mut self) -> Result<Expr, Diagnostic> {
         let left = self.sum()?;
+        if let Some(tool) = self.text_test() {
+            return self.text_test_expr(left, tool);
+        }
         let Some(op) = Comparison::from_token(&self.peek().kind) else {
             return Ok(left);
         };
@@ -3475,6 +3717,9 @@ impl<'a> Parser<'a> {
     }
 
     fn primary(&mut self) -> Result<Expr, Diagnostic> {
+        if let Some(tool) = self.text_tool_at() {
+            return self.text_tool_expr(tool);
+        }
         let token = self.peek();
         let kind = match &token.kind {
             TokenKind::Text(text) => ExprKind::Text(text.clone()),
@@ -4876,6 +5121,9 @@ fn contains_record_expr(expr: &Expr) -> bool {
         | ExprKind::Count { list, .. }
         | ExprKind::Average { list, .. }
         | ExprKind::Sorted { list, .. } => contains_record_expr(list),
+        ExprKind::Tool { value, args, .. } => {
+            contains_record_expr(value) || args.iter().any(contains_record_expr)
+        }
         ExprKind::GetWith { source, .. } => contains_record_expr(source),
         ExprKind::Round { value, to, .. } => {
             contains_record_expr(value)

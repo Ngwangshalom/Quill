@@ -145,6 +145,61 @@ traveling
 
 The list itself is not changed. To keep a total, create a `var` before the loop, the same way a counting loop does.
 
+## Text and lists: split, join, contains
+
+`split TEXT by SEPARATOR` cuts text into a list of texts, at each separator. It is how a line from a file or a form becomes pieces you can use:
+
+```quill
+line = "Amina,80,paid"
+parts = split line by ","
+
+say parts at 1
+say parts at 2
+say count of parts
+```
+
+```output
+Amina
+80
+3
+```
+
+The separator is left out of the pieces. Two separators side by side give an empty piece between them, so `split "a,,b" by ","` has three pieces: `"a"`, `""`, and `"b"`.
+
+`join LIST with SEPARATOR` goes the other way. It puts the items of a list into one text, with the separator between them:
+
+```quill
+hobbies = list "coding", "reading", "traveling"
+prices = list 3, 12.50, 7
+
+say join hobbies with " and "
+say join prices with " | "
+```
+
+```output
+coding and reading and traveling
+3 | 12.50 | 7
+```
+
+A list of numbers or money joins too. Each item is shown the way `say` shows it.
+
+`contains` works on a list as well as on text. It is `true` when the item is in the list:
+
+```quill
+hobbies = list "coding", "reading"
+say hobbies contains "coding"
+say hobbies contains "chess"
+```
+
+```output
+true
+false
+```
+
+The item has to be the same kind as the list's items, so `hobbies contains 5` is a mistake.
+
+`split` works on money too, where it shares an amount out without losing a cent. That is in [Money](money.md). For text, `split` always takes `by` and the text between the pieces.
+
 ## A record
 
 A record is a group of named fields. Put `record` on its own line, then each field underneath, indented by exactly 2 spaces. A field is a name, then `=`, then a value:
@@ -270,3 +325,4 @@ say get fee of roster
 1. Make a list of three prices and say the second one.
 2. Walk that list with `for` and add the prices into a `var total`.
 3. Make a record for a person, with a name and an age, and say the name.
+4. `split "red,green,blue" by ","`, then `join` the pieces back `with " / "`.

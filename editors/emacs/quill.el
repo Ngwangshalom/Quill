@@ -53,6 +53,10 @@
   '((((background light)) :foreground "#15556A")
     (t :foreground "#6EC1D6"))
   "get, sum, with, count, average, and sorted: asking for data." :group 'quill)
+(defface quill-text
+  '((((background light)) :foreground "#3A44A0")
+    (t :foreground "#949CF5"))
+  "trim, uppercase, lowercase, length, contains, starts with, ends with, join, and replace: text tools." :group 'quill)
 (defface quill-fn
   '((((background light)) :foreground "#8A3D78")
     (t :foreground "#E8A0D4"))
@@ -115,6 +119,10 @@
     ("\\b\\(record\\)\\b" . 'quill-record)
     ("\\b\\(of\\)\\b" . 'quill-of)
     ("\\b\\(at\\)\\b" . 'quill-at)
+    ("\\b\\(trim\\|uppercase\\|lowercase\\|join\\|replace\\)[ \t]+[A-Za-z_\"0-9]" 1 'quill-text)
+    ("\\b\\(length\\)[ \t]+of\\b" 1 'quill-text)
+    ("[A-Za-z0-9_\")][ \t]+\\(contains\\)[ \t]+[^ \t\n=]" 1 'quill-text)
+    ("\\b\\(\\(?:starts\\|ends\\)[ \t]+with\\)\\b" 1 'quill-text)
     ("\\b\\(get\\|sum\\|with\\)\\b" . 'quill-ask)
     ("\\b\\(count\\)[ \t]+of\\b" 1 'quill-ask)
     ("\\b\\(average\\)[ \t]+[A-Za-z_][A-Za-z0-9_]*[ \t]+of\\b" 1 'quill-ask)

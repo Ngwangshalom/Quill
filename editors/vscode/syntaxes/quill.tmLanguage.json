@@ -17,6 +17,7 @@
     { "include": "#record" },
     { "include": "#of" },
     { "include": "#at" },
+    { "include": "#text-tool" },
     { "include": "#ask" },
     { "include": "#fn" },
     { "include": "#maybe" },
@@ -87,7 +88,7 @@
       ]
     },
     "number": {
-      "match": "(?<![\\w.])\\d+(?:\\.\\d+)?",
+      "match": "(?:(?<![\\w.])|(?<=\\.\\.))\\d+(?:\\.\\d+)?",
       "name": "constant.numeric.quill"
     },
     "say": {
@@ -147,6 +148,26 @@
         {
           "match": "\\bsorted\\b(?=\\s+by\\b)",
           "name": "keyword.other.ask.quill"
+        }
+      ]
+    },
+    "text-tool": {
+      "patterns": [
+        {
+          "match": "\\b(trim|uppercase|lowercase|join|replace)\\b(?=[ \\t]+[A-Za-z_\"0-9])",
+          "name": "keyword.other.text.quill"
+        },
+        {
+          "match": "\\blength\\b(?=\\s+of\\b)",
+          "name": "keyword.other.text.quill"
+        },
+        {
+          "match": "(?<=[\\w\")][ \\t])contains\\b(?=[ \\t]+[^\\s=])",
+          "name": "keyword.other.text.quill"
+        },
+        {
+          "match": "\\b(?:starts|ends)[ \\t]+with\\b",
+          "name": "keyword.other.text.quill"
         }
       ]
     },

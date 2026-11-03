@@ -83,3 +83,64 @@
     background: #fbf8f2;
     color: #1c1916;
 }
+
+/* Quill examples use the editor's colors: the light ones on paper, the dark ones on
+   Coal, Navy and Ayu. They match editors/vscode/extension.js. */
+
+.hljs-quill-say { color: #C45C12; }
+.hljs-quill-when { color: #1D408A; }
+.hljs-quill-truth { color: #157A42; }
+.hljs-quill-bind { color: #6E4A96; }
+.hljs-quill-check { color: #9A3D6A; }
+.hljs-quill-logic { color: #0F6E68; }
+.hljs-quill-loop { color: #5A6A14; }
+.hljs-quill-list { color: #8C4E32; }
+.hljs-quill-record { color: #3E5C32; }
+.hljs-quill-of { color: #8A5A00; }
+.hljs-quill-at { color: #5C2E9A; }
+.hljs-quill-ask { color: #15556A; }
+.hljs-quill-text { color: #3A44A0; }
+.hljs-quill-fn { color: #8A3D78; }
+.hljs-quill-maybe { color: #A85A38; }
+.hljs-quill-failure { color: #A33B3B; }
+.hljs-quill-contract { color: #7A5A20; }
+.hljs-quill-rule { color: #1A5270; }
+.hljs-quill-money { color: #2E7A5C; }
+.hljs-quill-module { color: #3D5270; }
+.hljs-quill-permit { color: #8C4E20; }
+.hljs-quill-ask-model { color: #8E2C8A; }
+.hljs-quill-number { color: #9A4A12; }
+.hljs-quill-string { color: #6B3A22; }
+.hljs-quill-name { color: #1C1916; }
+.hljs-quill-comment { color: #8A8175; font-style: italic; }
+.hljs-quill-operator { color: #5C4632; }
+.hljs-quill-escape { color: #C45C12; }
+
+.coal .hljs-quill-say, .navy .hljs-quill-say, .ayu .hljs-quill-say { color: #F0A35E; }
+.coal .hljs-quill-when, .navy .hljs-quill-when, .ayu .hljs-quill-when { color: #7EAEF5; }
+.coal .hljs-quill-truth, .navy .hljs-quill-truth, .ayu .hljs-quill-truth { color: #5ECA8C; }
+.coal .hljs-quill-bind, .navy .hljs-quill-bind, .ayu .hljs-quill-bind { color: #C9A6F2; }
+.coal .hljs-quill-check, .navy .hljs-quill-check, .ayu .hljs-quill-check { color: #F0A0B4; }
+.coal .hljs-quill-logic, .navy .hljs-quill-logic, .ayu .hljs-quill-logic { color: #5EC4C0; }
+.coal .hljs-quill-loop, .navy .hljs-quill-loop, .ayu .hljs-quill-loop { color: #C6D86A; }
+.coal .hljs-quill-list, .navy .hljs-quill-list, .ayu .hljs-quill-list { color: #D4896A; }
+.coal .hljs-quill-record, .navy .hljs-quill-record, .ayu .hljs-quill-record { color: #A8C5A0; }
+.coal .hljs-quill-of, .navy .hljs-quill-of, .ayu .hljs-quill-of { color: #E8C547; }
+.coal .hljs-quill-at, .navy .hljs-quill-at, .ayu .hljs-quill-at { color: #B07CFF; }
+.coal .hljs-quill-ask, .navy .hljs-quill-ask, .ayu .hljs-quill-ask { color: #6EC1D6; }
+.coal .hljs-quill-text, .navy .hljs-quill-text, .ayu .hljs-quill-text { color: #949CF5; }
+.coal .hljs-quill-fn, .navy .hljs-quill-fn, .ayu .hljs-quill-fn { color: #E8A0D4; }
+.coal .hljs-quill-maybe, .navy .hljs-quill-maybe, .ayu .hljs-quill-maybe { color: #F0B090; }
+.coal .hljs-quill-failure, .navy .hljs-quill-failure, .ayu .hljs-quill-failure { color: #E08A8A; }
+.coal .hljs-quill-contract, .navy .hljs-quill-contract, .ayu .hljs-quill-contract { color: #C8A06A; }
+.coal .hljs-quill-rule, .navy .hljs-quill-rule, .ayu .hljs-quill-rule { color: #6AA8C8; }
+.coal .hljs-quill-money, .navy .hljs-quill-money, .ayu .hljs-quill-money { color: #8FD3B5; }
+.coal .hljs-quill-module, .navy .hljs-quill-module, .ayu .hljs-quill-module { color: #A8C0D8; }
+.coal .hljs-quill-permit, .navy .hljs-quill-permit, .ayu .hljs-quill-permit { color: #C47848; }
+.coal .hljs-quill-ask-model, .navy .hljs-quill-ask-model, .ayu .hljs-quill-ask-model { color: #E57BE0; }
+.coal .hljs-quill-number, .navy .hljs-quill-number, .ayu .hljs-quill-number { color: #E7C98A; }
+.coal .hljs-quill-string, .navy .hljs-quill-string, .ayu .hljs-quill-string { color: #F3E6D0; }
+.coal .hljs-quill-name, .navy .hljs-quill-name, .ayu .hljs-quill-name { color: #F7F1E8; }
+.coal .hljs-quill-comment, .navy .hljs-quill-comment, .ayu .hljs-quill-comment { color: #9A9186; }
+.coal .hljs-quill-operator, .navy .hljs-quill-operator, .ayu .hljs-quill-operator { color: #B7A898; }
+.coal .hljs-quill-escape, .navy .hljs-quill-escape, .ayu .hljs-quill-escape { color: #FFBE7A; }

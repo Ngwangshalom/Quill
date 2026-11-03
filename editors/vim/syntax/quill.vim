@@ -17,6 +17,10 @@ syn keyword quillAsk get sum with
 syn match quillAsk "\<count\ze\s\+of\>"
 syn match quillAsk "\<average\ze\s\+\h\w*\s\+of\>"
 syn match quillAsk "\<sorted\ze\s\+by\>"
+syn match quillText "\<\(trim\|uppercase\|lowercase\|join\|replace\)\ze[ \t]\+[A-Za-z_\"0-9]"
+syn match quillText "\<length\ze\s\+of\>"
+syn match quillText "[A-Za-z0-9_\")][ \t]\+\zscontains\ze[ \t]\+[^ \t=]"
+syn match quillText "\<\(starts\|ends\)\s\+with\>"
 syn keyword quillFn fn return
 syn keyword quillMaybe maybe found missing
 syn keyword quillFail fails fail on try
@@ -33,7 +37,7 @@ syn match quillExample "---\s\+example:"
 syn region quillString start='"' skip='\\.' end='"' contains=quillEscape,quillInterpolation
 syn region quillString start='"""' end='"""' contains=quillEscape,quillInterpolation
 syn match quillEscape "\\." contained
-syn region quillInterpolation start="{" end="}" contained contains=quillSay,quillWhen,quillBind,quillCheck,quillLogic,quillLoop,quillList,quillRecord,quillOf,quillAt,quillAsk,quillFn,quillMaybe,quillFail,quillContract,quillRule,quillMoney,quillModule,quillPermit,quillAskModel,quillTruth,quillNumber,quillOperator
+syn region quillInterpolation start="{" end="}" contained contains=quillSay,quillWhen,quillBind,quillCheck,quillLogic,quillLoop,quillList,quillRecord,quillOf,quillAt,quillAsk,quillText,quillFn,quillMaybe,quillFail,quillContract,quillRule,quillMoney,quillModule,quillPermit,quillAskModel,quillTruth,quillNumber,quillOperator
 syn match quillNumber "\<\d\+\(\.\d\+\)\?"
 syn match quillOperator "->\|==\|!=\|<=\|>=\|[=+\-*/%<>]"
 
@@ -50,6 +54,7 @@ if &background == "light"
   hi def QuillOf guifg=#8A5A00 ctermfg=136
   hi def QuillAt guifg=#5C2E9A ctermfg=55
   hi def QuillAsk guifg=#15556A ctermfg=23
+  hi def QuillText guifg=#3A44A0 ctermfg=61
   hi def QuillFn guifg=#8A3D78 ctermfg=90
   hi def QuillMaybe guifg=#A85A38 ctermfg=130
   hi def QuillFail guifg=#A33B3B ctermfg=131
@@ -78,6 +83,7 @@ else
   hi def QuillOf guifg=#E8C547 ctermfg=221
   hi def QuillAt guifg=#B07CFF ctermfg=141
   hi def QuillAsk guifg=#6EC1D6 ctermfg=80
+  hi def QuillText guifg=#949CF5 ctermfg=111
   hi def QuillFn guifg=#E8A0D4 ctermfg=182
   hi def QuillMaybe guifg=#F0B090 ctermfg=180
   hi def QuillFail guifg=#E08A8A ctermfg=174
@@ -108,6 +114,7 @@ hi def link quillRecord QuillRecord
 hi def link quillOf QuillOf
 hi def link quillAt QuillAt
 hi def link quillAsk QuillAsk
+hi def link quillText QuillText
 hi def link quillFn QuillFn
 hi def link quillMaybe QuillMaybe
 hi def link quillFail QuillFail

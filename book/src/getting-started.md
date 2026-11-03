@@ -169,6 +169,7 @@ On a dark editor:
 | `and`, `or`, `not` | `#5EC4C0` teal | words that join a question |
 | `for` and `in` | `#C6D86A` yellow-green | a loop |
 | `get`, `sum`, `with`, `count`, `average`, and `sorted` | `#6EC1D6` sea | asking for data |
+| `trim`, `uppercase`, `lowercase`, `length`, `contains`, `starts with`, `ends with`, `join`, `replace` | `#949CF5` ink | working with text |
 | `list` | `#D4896A` clay | values in order |
 | `record` | `#A8C5A0` sage | named fields |
 | `of` | `#E8C547` gold | the kind of an empty list |
@@ -186,7 +187,7 @@ On a dark editor:
 | Text in quotes | `#F3E6D0` warm paper | the page |
 | Comments | `#9A9186` faded ink | ink, faded |
 
-On a light editor the same ideas use deeper shades, so they stay readable on paper: `say` `#C45C12`, `when` `#1D408A`, `true` `#157A42`, `list` `#8C4E32`, `record` `#3E5C32`, `of` `#8A5A00`, `at` `#5C2E9A`, `get` `#15556A`, `fn` `#8A3D78`, `maybe` `#A85A38`, `fails` `#A33B3B`, `require` `#7A5A20`, `where` and `type` `#1A5270`, `round` `#2E7A5C`, `bring` `#3D5270`, `permit` `#8C4E20`, `ask` `#8E2C8A`, numbers `#9A4A12`, text `#6B3A22`. Where to write `of` and `at` is in [Lists and records](groups.md#where-of-and-at-are-used). Asking for a field is in [Asking for data](asking.md).
+On a light editor the same ideas use deeper shades, so they stay readable on paper: `say` `#C45C12`, `when` `#1D408A`, `true` `#157A42`, `list` `#8C4E32`, `record` `#3E5C32`, `of` `#8A5A00`, `at` `#5C2E9A`, `get` `#15556A`, `trim` `#3A44A0`, `fn` `#8A3D78`, `maybe` `#A85A38`, `fails` `#A33B3B`, `require` `#7A5A20`, `where` and `type` `#1A5270`, `round` `#2E7A5C`, `bring` `#3D5270`, `permit` `#8C4E20`, `ask` `#8E2C8A`, numbers `#9A4A12`, text `#6B3A22`. Where to write `of` and `at` is in [Lists and records](groups.md#where-of-and-at-are-used). Asking for a field is in [Asking for data](asking.md).
 
 Every word Quill has today has its color. A word is painted only once the language has it, so a name you invent is never colored by mistake.
 

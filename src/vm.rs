@@ -5,7 +5,7 @@ use std::io::Write;
 use crate::compiler::{Chunk, ContractInfo, Op, RoundStop};
 use crate::decimal::{minor_digits, Decimal, MathError, Rounding};
 use crate::diagnostic::{Diagnostic, Span};
-use crate::parser::Comparison;
+use crate::parser::{Comparison, TextTool};
 use crate::value::Value;
 
 /// One running function, or the main program when `function` is absent.
@@ -274,7 +274,10 @@ fn execute(
             Op::Split { by_shares } => {
                 let parts = pop(&mut stack, span)?;
                 let amount = pop(&mut stack, span)?;
-                stack.push(split_money(amount, parts, by_shares, span)?);
+                match &amount {
+                    Value::Text(text) => stack.push(split_text(text, parts, span)?),
+                    _ => stack.push(split_money(amount, parts, by_shares, span)?),
+                }
             }
             Op::Convert(index) => {
                 let currency = field_name(chunk, index, span)?;
@@ -433,6 +436,15 @@ fn execute(
                 let written = field_name(chunk, list, span)?;
                 let source = pop(&mut stack, span)?;
                 stack.push(average_field(source, &field, &written, span)?);
+            }
+            Op::Text(tool) => {
+                let mut args = Vec::with_capacity(tool.arg_count());
+                for _ in 0..tool.arg_count() {
+                    args.push(pop(&mut stack, span)?);
+                }
+                args.reverse();
+                let value = pop(&mut stack, span)?;
+                stack.push(text_tool(tool, value, args, span)?);
             }
             Op::SortBy { name, highest } => {
                 let field = field_name(chunk, name, span)?;
@@ -1156,6 +1168,70 @@ fn average_field(
     }
 }
 
+fn text_tool(
+    tool: TextTool,
+    value: Value,
+    args: Vec<Value>,
+    span: Span,
+) -> Result<Value, Diagnostic> {
+    let text_of = |value: &Value| match value {
+        Value::Text(text) => Ok(text.clone()),
+        _ => Err(internal(span, "a text tool got something that isn't text")),
+    };
+    let answer = match tool {
+        TextTool::Length => {
+            Value::Number(Decimal::from_int(text_of(&value)?.chars().count() as i128))
+        }
+        TextTool::Trim => Value::Text(text_of(&value)?.trim().to_string()),
+        TextTool::Uppercase => Value::Text(text_of(&value)?.to_uppercase()),
+        TextTool::Lowercase => Value::Text(text_of(&value)?.to_lowercase()),
+        TextTool::Contains => match &value {
+            Value::List(items) => Value::Bool(items.contains(&args[0])),
+            _ => Value::Bool(text_of(&value)?.contains(&text_of(&args[0])?)),
+        },
+        TextTool::StartsWith => Value::Bool(text_of(&value)?.starts_with(&text_of(&args[0])?)),
+        TextTool::EndsWith => Value::Bool(text_of(&value)?.ends_with(&text_of(&args[0])?)),
+        TextTool::Join => {
+            let Value::List(items) = &value else {
+                return Err(internal(span, "join got something that isn't a list"));
+            };
+            let shown: Vec<String> = items.iter().map(Value::to_string).collect();
+            Value::Text(shown.join(&text_of(&args[0])?))
+        }
+        TextTool::Replace => {
+            let old = text_of(&args[0])?;
+            if old.is_empty() {
+                return Err(Diagnostic::new(
+                    span,
+                    "replace needs the text to look for, but it was empty when this line ran.\n\
+                     Check that it isn't \"\" before replacing.",
+                ));
+            }
+            Value::Text(text_of(&value)?.replace(&old, &text_of(&args[1])?))
+        }
+    };
+    Ok(answer)
+}
+
+/// `split line by ","`: the pieces between each separator, in order.
+fn split_text(text: &str, separator: Value, span: Span) -> Result<Value, Diagnostic> {
+    let Value::Text(separator) = separator else {
+        return Err(internal(span, "split got a separator that isn't text"));
+    };
+    if separator.is_empty() {
+        return Err(Diagnostic::new(
+            span,
+            "split needs the text between the pieces, but it was empty when this line ran.\n\
+             Check that it isn't \"\" before splitting.",
+        ));
+    }
+    Ok(Value::List(
+        text.split(separator.as_str())
+            .map(|piece| Value::Text(piece.to_string()))
+            .collect(),
+    ))
+}
+
 /// The records in order of one field. Records with the same value keep their order.
 fn sort_by(list: Value, field: &str, highest: bool, span: Span) -> Result<Value, Diagnostic> {
     let Value::List(items) = list else {
@@ -1836,6 +1912,55 @@ say average fee of list quiet
             run_source(&source).unwrap(),
             "John, omar, Amina\nAmina, omar, John\nAmina, John, omar\nomar, Tie, Amina\n"
         );
+    }
+
+    #[test]
+    fn text_tools_shape_and_test_text() {
+        let source = "\
+clean = trim \"  Amina Okafor \"
+say \"[{clean}]\"
+say length of clean
+say length of \"café\"
+say uppercase clean
+say lowercase clean
+say clean contains \"Oka\"
+say clean starts with \"Am\"
+say clean ends with \"far\"
+say replace \"-\" with \" \" in \"INV-2026-001\"
+";
+        assert_eq!(
+            run_source(source).unwrap(),
+            "[Amina Okafor]\n12\n4\nAMINA OKAFOR\namina okafor\ntrue\ntrue\nfalse\nINV 2026 001\n"
+        );
+    }
+
+    #[test]
+    fn split_cuts_text_and_join_puts_it_back() {
+        let source = "\
+parts = split \"Amina,80,,paid\" by \",\"
+say count of parts
+say parts at 3
+say join parts with \" / \"
+say join list 3, 12.50, 7 with \" | \"
+hobbies = list \"coding\", \"reading\"
+say hobbies contains \"coding\"
+say hobbies contains \"chess\"
+";
+        assert_eq!(
+            run_source(source).unwrap(),
+            "4\n\nAmina / 80 /  / paid\n3 | 12.50 | 7\ntrue\nfalse\n"
+        );
+    }
+
+    #[test]
+    fn an_empty_separator_stops_while_running() {
+        let source = "\
+var comma = \",\"
+set comma = \"\"
+say split \"a,b\" by comma
+";
+        let problem = run_source(source).unwrap_err();
+        assert!(problem.message.contains("it was empty when this line ran"));
     }
 
     const WITHDRAW: &str = "\

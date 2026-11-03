@@ -184,6 +184,38 @@ say "Hi {name}, that's {qty * 2} items"     -- Hi Amina, that's 6 items
 - Braces can't be empty, can't hold another `{`, and can't hold text in quotes. To use text, give it a name first.
 - A `}` that doesn't close a `{` is a mistake. Write `\{` and `\}` to show braces themselves.
 
+#### 5.2.1 Working with text
+
+```quill
+typed = "  Amina Okafor  "
+name = trim typed
+say length of name
+say uppercase name
+say name contains "Oka" and name starts with "Am"
+say replace " " with "_" in name
+parts = split "Amina,80,paid" by ","
+say join parts with " / "
+say list "coding", "reading" contains "coding"
+```
+
+```output
+12
+AMINA OKAFOR
+true
+Amina_Okafor
+Amina / 80 / paid
+true
+```
+
+- `trim TEXT` is `TEXT` without spaces, tabs, or new lines at the start and the end. `uppercase TEXT` and `lowercase TEXT` change the case of every letter. Each gives back new text; the value it read doesn't change.
+- `length of TEXT` is how many characters `TEXT` has, as a number. An accented letter such as `é` is one. `length of` a list is a mistake that suggests `count of` (§5.6).
+- `TEXT contains PART`, `TEXT starts with PART`, and `TEXT ends with PART` are true/false. Capital and small letters are different. `LIST contains ITEM` is true when an item of the list equals `ITEM`, and `ITEM` must be the kind of the list's items. These bind like a comparison (§6.1): `email contains "@" and paid` is `(email contains "@") and paid`.
+- `replace OLD with NEW in TEXT` is `TEXT` with every `OLD` changed to `NEW`. `OLD` can't be empty.
+- `split TEXT by SEPARATOR` is a list of the texts between each `SEPARATOR`, in order, with the separators left out. Two separators side by side give an empty text between them. `SEPARATOR` can't be empty, and `split TEXT into ...` is a mistake; `into` shares out money (§8.7).
+- `join LIST with SEPARATOR` is one text: the items of `LIST`, each shown as `say` shows it (§4.3), with `SEPARATOR` between them. The items are text, numbers, money, or true/false.
+- Every value a tool reads must be text where the tool says text. A number becomes text inside braces: `length of "{year}"`.
+- `trim`, `uppercase`, `lowercase`, `join`, and `replace` are tools only when a value follows them on the same line; followed by `(`, they call a function of that name. `length` is a tool only before `of`, `contains` only between two values, and `starts` and `ends` only before `with`. Everywhere else they are ordinary names.
+
 ### 5.3 Numbers
 
 A number is written as digits, with an optional decimal point followed by more digits: `42`, `0.10`, `3.14159`.
@@ -645,6 +677,7 @@ convert VALUE "to" CURRENCY "at" VALUE
 - `split AMOUNT into COUNT` gives a list of `COUNT` amounts in whole cents that add up to `AMOUNT`. `COUNT` is a whole number, at least 1. Each part is `AMOUNT / COUNT` rounded down to cents, and the cents left over go one each to the first parts: `split 100 USD into 3` is `33.34 USD, 33.33 USD, 33.33 USD`.
 - `split AMOUNT by SHARES` gives one amount for each number in the list `SHARES`, in proportion to it. Shares are zero or more, and at least one is above zero. Each part is rounded down to cents, and the cents left over go one each to the first parts.
 - `split` needs an amount with no part smaller than a cent; otherwise the program stops. Round it first.
+- When the value after `split` is text, `split TEXT by SEPARATOR` cuts it into a list of text instead (§5.2.1).
 - `P% of VALUE` is `VALUE * P / 100`, for a number or money. `P` is a number.
 - `convert AMOUNT to CURRENCY at RATE` is money in `CURRENCY`: `AMOUNT * RATE`. `RATE` is a number above zero. Converting to the same currency is a mistake.
 - These are mistakes found before running: `round` of something that isn't a number or money; `to cents` on a number; places that aren't a whole number from 0 to 20; `split` of something that isn't money, `into` a count that isn't a whole number of at least 1, or `by` something that isn't a list of numbers; `% of` a value that isn't a number or money; `convert` of something that isn't money, to the same currency, at a rate that isn't a number or is a written value of zero or less. When those values are only known while running, the same mistakes stop the program (§10.2).
@@ -915,6 +948,7 @@ A few mistakes can only be found while running. When one happens, the program st
 - a `require` or `ensure` that is false, or a value outside a parameter's `where` range (§8.10)
 - a list position past the end, or a position in an empty list
 - an `average` of a list with no amount in that field (§5.6)
+- a `split` separator or a `replace` old text that is empty (§5.2.1)
 - a file, host or setting that no permit covers (§8.13)
 
 ### 10.3 How mistakes are reported
@@ -1009,11 +1043,11 @@ shaping     = "where" or | "sorted" "by" [ "highest" | "lowest" ] NAME ;
 or          = and { "or" and } ;
 and         = not { "and" not } ;
 not         = "not" not | comparison ;
-comparison  = sum [ COMPARE sum ] ;
+comparison  = sum [ COMPARE sum | ( "contains" | "starts" "with" | "ends" "with" ) sum ] ;
 sum         = product { ( "+" | "-" ) product } ;
 product     = negative { ( "*" | "/" | "%" ) negative | "%" "of" negative } ;
 negative    = "-" negative | atom { "." NAME | "at" sum } ;
-atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | typed | ask | total | count | average | when_value | money ;
+atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | typed | ask | total | count | average | text_tool | when_value | money ;
 money       = "round" [ "up" | "down" ] sum [ "to" ( "cents" | negative "places" ) ]
             | "split" sum ( "into" | "by" ) sum
             | "convert" sum "to" CURRENCY "at" negative ;
@@ -1022,6 +1056,10 @@ ask         = "get" NAME { "," NAME } "of" negative { shaping } | "get" NAME "wi
 total       = "sum" NAME "of" negative { shaping } ;
 count       = "count" "of" negative { shaping } ;
 average     = "average" NAME "of" negative { shaping } ;
+text_tool   = ( "trim" | "uppercase" | "lowercase" ) negative
+            | "length" "of" negative
+            | "join" negative "with" negative
+            | "replace" negative "with" negative "in" negative ;
 list        = "list" ( "of" ( "text" | "number" | "true/false" ) | sum { "," sum } ) ;
 record      = "record" ( NEWLINE INDENT field { field } DEDENT | field { "," field } ) ;
 field       = NAME "=" value ;
