@@ -35,6 +35,7 @@ He chose a short name that would be easy to remember: Quill. The feather in the 
 | 3 November 2026 | **v0.4.2** adds `count`, `average`, and `sorted by`, types, exact rounding and splitting of money, files brought together with `bring`, permits, JSON, web requests, asking an AI model, and web services. Quill files end in `.quill`. |
 | 3 November 2026 | **v0.4.5** adds eleven templates for `quill new`, from learning exercises to backends, AI services, finance, and automation, and text tools: `trim`, `contains`, `split`, `join`, `replace`, and more. The book's examples now have the editor's colors. |
 | 3 November 2026 | **v0.4.8** adds the `app` template, a whole app with a backend, an AI assistant, and exact money working together. Quill's colors work in VS Code's Restricted Mode and in Markdown files. |
+| 16 November 2026 | **v0.5.0** adds chance tools (`random`, `pick from`, `hash`, `seed`), request headers, `allow origin`, and a web server that answers many requests at once. |
 
 ## Where Quill is going
 

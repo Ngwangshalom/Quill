@@ -6,6 +6,8 @@ What changed in each version of Quill. The newest version is at the top.
 
 Changes that are finished but not yet in a release.
 
+## v0.5.0 (16 November 2026)
+
 - **Chance: random, pick, hash, and seed.** `random 1..100` draws a whole number from 1 through 100. `pick from names` chooses one item from a list. `hash secret` is SHA-256 as 64 lowercase hex letters. `seed 42` makes later `random` and `pick` draws the same every run, so checks can use them. None of these words is reserved. They are ember (`#E6A07A` on a dark editor, `#9A4E28` on a light one). The [draw](https://github.com/Ngwangshalom/Quill/tree/main/examples/draw) example shows a seeded ticket and a hash.
 - **Headers, who may call, and a server that keeps answering.** Inside a route, `request.headers` is a record of the request's headers: `Authorization` is `request.headers.authorization`, and `-` in a name is `_`. `respond 200, "ok", list "X-Token: secret"` sends headers on the answer. `allow origin "https://kopsala.app"` lets that site call every route, answers `OPTIONS` preflights with `204`, and is refused in a brought file; `allow` is rust, like `permit`. `quill run` answers many requests at once, refuses a body larger than 1 MB with `413`, and prints one log line per request without the query, like `POST /bookings 201 12ms`. When the port is already taken, Quill names a free one, like `PORT=49152`. The [gate](https://github.com/Ngwangshalom/Quill/tree/main/examples/gate) example shows headers and who may call.
 - This book is published at <https://ngwangshalom.github.io/Quill/>, tested and updated after every change to it. The `QUILL.md` in each new project links there.
