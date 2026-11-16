@@ -229,6 +229,7 @@ fn response_parts(value: Option<Value>) -> Option<Answer> {
 
 /// Runs the route that fits a request, and gives back its answer.
 /// A problem while it runs is shown on `log` and answered with 500.
+#[allow(clippy::too_many_arguments)]
 pub fn answer(
     chunk: &Chunk,
     routes: &[Route],
@@ -334,7 +335,6 @@ fn handle(
     let cors = cors_origin(origins, origin);
 
     if method == "OPTIONS" && !origins.is_empty() {
-        let mut notes = Vec::new();
         reply(
             request,
             plain(204, String::new()),
@@ -342,14 +342,13 @@ fn handle(
             &request_headers,
             true,
         );
-        write_log(log, &mut notes, "OPTIONS", path, 204, started);
+        write_log(log, &[], "OPTIONS", path, 204, started);
         return;
     }
 
     let body = match read_body(&mut request) {
         Ok(body) => body,
         Err(BodyError::TooLarge) => {
-            let mut notes = Vec::new();
             let answered = plain(
                 413,
                 "The request is larger than 1 MB, so it wasn't read.\n\
@@ -358,15 +357,14 @@ fn handle(
             );
             let status = answered.status;
             reply(request, answered, cors.as_deref(), &request_headers, false);
-            write_log(log, &mut notes, &method, path, status, started);
+            write_log(log, &[], &method, path, status, started);
             return;
         }
         Err(BodyError::Io) => {
-            let mut notes = Vec::new();
             let answered = plain(400, "Quill couldn't read the request body.".to_string());
             let status = answered.status;
             reply(request, answered, cors.as_deref(), &request_headers, false);
-            write_log(log, &mut notes, &method, path, status, started);
+            write_log(log, &[], &method, path, status, started);
             return;
         }
     };
@@ -382,7 +380,7 @@ fn handle(
     );
     let status = answered.status;
     reply(request, answered, cors.as_deref(), &request_headers, false);
-    write_log(log, &mut notes, &method, path, status, started);
+    write_log(log, &notes, &method, path, status, started);
 }
 
 enum BodyError {
@@ -466,7 +464,7 @@ fn reply(
 
 fn write_log(
     log: &Mutex<impl Write>,
-    notes: &mut Vec<u8>,
+    notes: &[u8],
     method: &str,
     path: &str,
     status: u16,
@@ -623,7 +621,7 @@ mod tests {
             .nth(1)
             .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
             .and_then(|digits| digits.parse::<u16>().ok());
-        let open = suggested.expect(&format!("no free PORT in: {problem}"));
+        let open = suggested.unwrap_or_else(|| panic!("no free PORT in: {problem}"));
         assert_ne!(open, busy);
         assert!(
             std::net::TcpListener::bind(("127.0.0.1", open)).is_ok(),

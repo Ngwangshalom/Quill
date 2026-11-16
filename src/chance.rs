@@ -9,15 +9,11 @@ use crate::diagnostic::{Diagnostic, Span};
 use crate::value::Value;
 
 /// The run's source of chance: OS entropy, or a fixed seed after `seed`.
+#[derive(Default)]
 pub enum Chance {
+    #[default]
     Open,
-    Seeded(StdRng),
-}
-
-impl Default for Chance {
-    fn default() -> Self {
-        Chance::Open
-    }
+    Seeded(Box<StdRng>),
 }
 
 impl Chance {
@@ -28,14 +24,14 @@ impl Chance {
         for (i, byte) in raw.iter().cycle().take(32).enumerate() {
             bytes[i] = *byte;
         }
-        *self = Chance::Seeded(StdRng::from_seed(bytes));
+        *self = Chance::Seeded(Box::new(StdRng::from_seed(bytes)));
     }
 
     fn rng(&mut self) -> &mut StdRng {
         if matches!(self, Chance::Open) {
             let mut seed = [0u8; 32];
             OsRng.fill_bytes(&mut seed);
-            *self = Chance::Seeded(StdRng::from_seed(seed));
+            *self = Chance::Seeded(Box::new(StdRng::from_seed(seed)));
         }
         match self {
             Chance::Seeded(rng) => rng,

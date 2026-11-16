@@ -3989,14 +3989,14 @@ impl<'a> Parser<'a> {
                 return self.random_expr();
             }
             TokenKind::Identifier(name)
-                if name == "pick" && is_word(&self.peek_at(1), "from") =>
+                if name == "pick" && is_word(self.peek_at(1), "from") =>
             {
                 return self.pick_from_expr();
             }
             TokenKind::Identifier(name)
                 if name == "hash"
                     && starts_value(&self.peek_at(1).kind)
-                    && !is_call_after_word(self.peek(), &self.peek_at(1), "hash") =>
+                    && !is_call_after_word(self.peek(), self.peek_at(1), "hash") =>
             {
                 return self.hash_expr();
             }
