@@ -327,28 +327,41 @@ fn command(args: &[&str]) -> ExitCode {
         ["explain", target] => explain_file(target),
         ["new", name] => new_project(name, None),
         ["new", name, template] => new_project(name, Some(template)),
-        ["test", ..] => fail(
-            "quill test accepts at most one file.\n\
-             Run it without a file to test the project folder."
-                .to_string(),
-            Some("quill test".to_string()),
-        ),
-        ["explain"] => fail(
-            "quill explain needs a file and a line number, written as file.quill:LINE.".to_string(),
-            Some("quill explain hello.quill:1".to_string()),
-        ),
-        ["new"] => fail(
-            format!(
-                "quill new needs a name for the project, and can take a template after it.\n\
-                 The templates are:\n{}",
-                templates::listing().trim_end()
-            ),
-            Some("quill new shop backend".to_string()),
-        ),
-        [command @ ("run" | "check" | "tokens")] => fail(
-            format!("quill {command} needs a file to work on."),
-            Some(format!("quill {command} hello.quill")),
-        ),
+        ["test", ..] => {
+            fail(
+                "quill test accepts at most one file.\n\
+                 Run it without a file to test the project folder."
+                    .to_string(),
+                Some("quill test".to_string()),
+            );
+            ExitCode::FAILURE
+        }
+        ["explain"] => {
+            fail(
+                "quill explain needs a file and a line number, written as file.quill:LINE."
+                    .to_string(),
+                Some("quill explain hello.quill:1".to_string()),
+            );
+            ExitCode::FAILURE
+        }
+        ["new"] => {
+            fail(
+                format!(
+                    "quill new needs a name for the project, and can take a template after it.\n\
+                     The templates are:\n{}",
+                    templates::listing().trim_end()
+                ),
+                Some("quill new shop backend".to_string()),
+            );
+            ExitCode::FAILURE
+        }
+        [command @ ("run" | "check" | "tokens")] => {
+            fail(
+                format!("quill {command} needs a file to work on."),
+                Some(format!("quill {command} hello.quill")),
+            );
+            ExitCode::FAILURE
+        }
         [command, rest @ ..] if !COMMANDS.contains(command) => {
             let suggestion = closest_match(command, COMMANDS).map(|fixed| {
                 let mut line = vec!["quill", fixed];
@@ -361,15 +374,19 @@ fn command(args: &[&str]) -> ExitCode {
                      Run quill help to see what it can do."
                 ),
                 suggestion,
-            )
+            );
+            ExitCode::FAILURE
         }
-        [command, ..] => fail(
-            format!(
-                "quill {command} was given more than it needs.\n\
-                 Each command works on one file at a time."
-            ),
-            None,
-        ),
+        [command, ..] => {
+            fail(
+                format!(
+                    "quill {command} was given more than it needs.\n\
+                     Each command works on one file at a time."
+                ),
+                None,
+            );
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -396,7 +413,10 @@ fn run(path: &str) -> ExitCode {
     let served = quill::web::port().and_then(|port| quill::web::serve(&chunk, port, &files));
     match served {
         Ok(()) => ExitCode::SUCCESS,
-        Err(message) => fail(message, None),
+        Err(message) => {
+            fail(message, None);
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -425,13 +445,14 @@ fn test(target: Option<&str>) -> ExitCode {
     let root = match env::current_dir() {
         Ok(root) => root,
         Err(err) => {
-            return fail(
+            fail(
                 format!(
                     "Quill couldn't see the current folder: {err}.\n\
                      Run quill test from the project folder."
                 ),
                 None,
             );
+            return ExitCode::FAILURE;
         }
     };
     let mut files = Vec::new();
@@ -445,7 +466,8 @@ fn test(target: Option<&str>) -> ExitCode {
     };
     if let Some(folder) = folder {
         if let Err(message) = collect_tests(&folder, &mut files) {
-            return fail(message, None);
+            fail(message, None);
+            return ExitCode::FAILURE;
         }
     }
     files.sort();
@@ -507,33 +529,37 @@ fn test(target: Option<&str>) -> ExitCode {
 
 fn explain_file(target: &str) -> ExitCode {
     let Some((path, line_text)) = target.rsplit_once(':') else {
-        return fail(
+        fail(
             "quill explain needs a file and a line number, written as file.quill:LINE.".to_string(),
             Some(format!("quill explain {target}:1")),
         );
+        return ExitCode::FAILURE;
     };
     if path.is_empty() {
-        return fail(
+        fail(
             "quill explain needs a file before the line number.".to_string(),
             Some("quill explain hello.quill:1".to_string()),
         );
+        return ExitCode::FAILURE;
     }
     let Ok(line) = line_text.parse::<usize>() else {
-        return fail(
+        fail(
             format!(
                 "{line_text} isn't a line number.\n\
                  A line number is a whole number, like 1."
             ),
             Some(format!("quill explain {path}:1")),
         );
+        return ExitCode::FAILURE;
     };
     if line == 0 {
-        return fail(
+        fail(
             "Line numbers start at 1.\n\
              There is no line 0."
                 .to_string(),
             Some(format!("quill explain {path}:1")),
         );
+        return ExitCode::FAILURE;
     }
     let Some(source) = read(path) else {
         return ExitCode::FAILURE;
@@ -545,7 +571,7 @@ fn explain_file(target: &str) -> ExitCode {
     };
     if line > count {
         let word = if count == 1 { "line" } else { "lines" };
-        return fail(
+        fail(
             format!(
                 "{path} has {count} {word}, so line {line} isn't there.\n\
                  Pick a line that exists."
@@ -556,6 +582,7 @@ fn explain_file(target: &str) -> ExitCode {
                 Some(format!("quill explain {path}:1"))
             },
         );
+        return ExitCode::FAILURE;
     }
     print!("{}", explain::explain_file(path, &source, line));
     ExitCode::SUCCESS
@@ -563,13 +590,14 @@ fn explain_file(target: &str) -> ExitCode {
 
 fn new_project(name: &str, template: Option<&str>) -> ExitCode {
     if let Some((message, suggestion)) = invalid_project_name(name) {
-        return fail(message, suggestion);
+        fail(message, suggestion);
+        return ExitCode::FAILURE;
     }
     let template = match template {
         Some(chosen) => match templates::find(chosen) {
             Some(template) => template,
             None => {
-                return fail(
+                fail(
                     format!(
                         "Quill doesn't have a template called {chosen}.\n\
                          The templates are:\n{}",
@@ -578,6 +606,7 @@ fn new_project(name: &str, template: Option<&str>) -> ExitCode {
                     closest_match(chosen, templates::names())
                         .map(|fixed| format!("quill new {name} {fixed}")),
                 );
+                return ExitCode::FAILURE;
             }
         },
         None if io::stdin().is_terminal() && io::stderr().is_terminal() => {
@@ -593,22 +622,24 @@ fn new_project(name: &str, template: Option<&str>) -> ExitCode {
     };
     let dir = Path::new(name);
     if dir.exists() {
-        return fail(
+        fail(
             format!(
                 "{name} already exists.\n\
                  Quill won't replace it. Pick another name, or delete that folder if you mean to start over."
             ),
             None,
         );
+        return ExitCode::FAILURE;
     }
     if let Err(err) = fs::create_dir(dir) {
-        return fail(
+        fail(
             format!(
                 "Quill couldn't create {name}: {err}.\n\
                  Check that you're allowed to create a folder here."
             ),
             None,
         );
+        return ExitCode::FAILURE;
     }
     let files = template
         .files
@@ -622,13 +653,14 @@ fn new_project(name: &str, template: Option<&str>) -> ExitCode {
             .and_then(|()| fs::write(&file, contents.replace("{{name}}", name)));
         if let Err(err) = written {
             let _ = fs::remove_dir_all(dir);
-            return fail(
+            fail(
                 format!(
                     "Quill created {name} but couldn't write {path}: {err}.\n\
                      Check that you're allowed to create files in that folder."
                 ),
                 None,
             );
+            return ExitCode::FAILURE;
         }
     }
     println!("Created {name}, a {} project.", template.name);
@@ -843,12 +875,11 @@ fn note(message: &str, colored: bool) -> String {
 }
 
 /// Reports a problem that isn't tied to a line of code.
-fn fail(message: String, suggestion: Option<String>) -> ExitCode {
+fn fail(message: String, suggestion: Option<String>) {
     eprintln!("Problem: {message}");
     if let Some(suggestion) = suggestion {
         eprintln!("\nDid you mean:  {suggestion}");
     }
-    ExitCode::FAILURE
 }
 
 #[cfg(test)]
