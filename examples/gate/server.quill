@@ -1,0 +1,24 @@
+-- A small gate: a site may call it, and a shared secret opens the private route.
+--
+-- Run it:   quill run examples/gate/server.quill
+-- Try it:
+--   curl localhost:8080/hello/Amina
+--   curl -H "Origin: https://kopsala.app" localhost:8080/hello/Amina -i
+--   curl -H "Authorization: Bearer desk-key" localhost:8080/secret
+--   curl -X OPTIONS -H "Origin: https://kopsala.app" localhost:8080/hello/Amina -i
+bring web
+allow origin "https://kopsala.app"
+
+say "The gate is open."
+
+route GET "/health"
+  respond 200, "ok"
+
+route GET "/hello/{name}"
+  respond 200, "Hello, {name}!"
+
+-- Needs Authorization: Bearer desk-key. Answers with an X-Gate header too.
+route GET "/secret"
+  when
+    request.headers.authorization == "Bearer desk-key" -> respond 200, "The vault is open.", list "X-Gate: open"
+    else -> respond 401, "Send Authorization: Bearer desk-key."

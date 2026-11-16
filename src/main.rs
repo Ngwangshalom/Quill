@@ -103,6 +103,14 @@ Text tools tidy, measure, and look inside text:
   parts = split line by \",\"
   say join parts with \", \"
 
+Chance tools draw a number, pick an item, or fingerprint text. seed makes
+the draws the same every run, so checks can use them:
+
+  seed 1
+  ticket = random 1..1000
+  winner = pick from names
+  code = hash secret
+
 get place of desk.bookings reads a field of a list on a record.
 get gpa of school.acceptances reads a field of a nested record.
 Name the record before the dot: first = desk.bookings at 1, then first.place.
@@ -127,11 +135,14 @@ permit says what a program may touch outside itself. Anything else is refused:
     on FileMissing -> \"none\"
 
 bring web turns a program into a web service. quill run serves its routes on
-PORT (8080 unless set):
+PORT (8080 unless set). Many requests are answered at once. allow origin lets a
+site call every route. request.headers holds each header as a field (Authorization
+is request.headers.authorization); respond may send headers too:
 
   bring web
+  allow origin \"https://kopsala.app\"
   route GET \"/hello/{name}\"
-    respond 200, \"Hello, {name}!\"
+    respond 200, \"Hello, {name}!\", list \"X-Token: secret\"
 
 bring ai asks a model. The key you permit chooses Claude or an OpenAI-compatible
 service, and as checks the answer against a type:

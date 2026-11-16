@@ -25,6 +25,7 @@
     { "include": "#contract" },
     { "include": "#rule" },
     { "include": "#money" },
+    { "include": "#chance" },
     { "include": "#module" },
     { "include": "#permit" },
     { "include": "#ask-model" },
@@ -205,7 +206,7 @@
       "name": "keyword.other.ask-model.quill"
     },
     "permit": {
-      "match": "\\b(permit)\\b",
+      "match": "\\b(permit|allow)\\b",
       "name": "keyword.other.permit.quill"
     },
     "module": {
@@ -215,6 +216,18 @@
     "money": {
       "match": "\\b(round|split|convert)\\b",
       "name": "keyword.other.money.quill"
+    },
+    "chance": {
+      "patterns": [
+        {
+          "match": "\\b(random|hash|seed)\\b(?=[ \\t]+[A-Za-z_\"0-9\\-])",
+          "name": "keyword.other.chance.quill"
+        },
+        {
+          "match": "\\bpick\\b(?=[ \\t]+from\\b)",
+          "name": "keyword.other.chance.quill"
+        }
+      ]
     },
     "rule": {
       "match": "\\b(where|type|as)\\b",

@@ -81,6 +81,10 @@
   '((((background light)) :foreground "#2E7A5C")
     (t :foreground "#8FD3B5"))
   "round, split, and convert: money that never loses a cent." :group 'quill)
+(defface quill-chance
+  '((((background light)) :foreground "#9A4E28")
+    (t :foreground "#E6A07A"))
+  "random, pick, hash, and seed: a draw, a fingerprint, a fixed seed for tests." :group 'quill)
 (defface quill-module
   '((((background light)) :foreground "#3D5270")
     (t :foreground "#A8C0D8"))
@@ -88,7 +92,7 @@
 (defface quill-permit
   '((((background light)) :foreground "#8C4E20")
     (t :foreground "#C47848"))
-  "permit: what a program may touch." :group 'quill)
+  "permit and allow: what a program may touch, and who may call it." :group 'quill)
 (defface quill-ask-model
   '((((background light)) :foreground "#8E2C8A")
     (t :foreground "#E57BE0"))
@@ -133,8 +137,10 @@
     ("\\b\\(require\\|ensure\\)\\b" . 'quill-contract)
     ("\\b\\(where\\|type\\|as\\)\\b" . 'quill-rule)
     ("\\b\\(round\\|split\\|convert\\)\\b" . 'quill-money)
+    ("\\b\\(random\\|hash\\|seed\\)[ \t]+[A-Za-z_\"0-9\\-]" 1 'quill-chance)
+    ("\\b\\(pick\\)[ \t]+from\\b" 1 'quill-chance)
     ("\\b\\(bring\\|route\\|respond\\)\\b" . 'quill-module)
-    ("\\b\\(permit\\)\\b" . 'quill-permit)
+    ("\\b\\(permit\\|allow\\)\\b" . 'quill-permit)
     ("\\b\\(ask\\)\\b" . 'quill-ask-model)
     ("\\bensure\\b" ("\\bresult\\b" nil nil (0 'quill-contract)))
     ("\\b\\(true\\|false\\)\\b" . 'quill-truth)

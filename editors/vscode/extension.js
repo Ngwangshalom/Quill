@@ -26,6 +26,7 @@ const DARK = {
   contract: "#C8A06A",
   rule: "#6AA8C8",
   money: "#8FD3B5",
+  chance: "#E6A07A",
   module: "#A8C0D8",
   permit: "#C47848",
   askModel: "#E57BE0",
@@ -57,6 +58,7 @@ const LIGHT = {
   contract: "#7A5A20",
   rule: "#1A5270",
   money: "#2E7A5C",
+  chance: "#9A4E28",
   module: "#3D5270",
   permit: "#8C4E20",
   askModel: "#8E2C8A",
@@ -68,7 +70,7 @@ const LIGHT = {
   escape: "#C45C12",
 };
 
-const PALETTE_MARK = { dark: "#949CF5", light: "#3A44A0" };
+const PALETTE_MARK = { dark: "#E6A07A", light: "#9A4E28" };
 
 const SCOPE = {
   say: "keyword.other.say.quill",
@@ -90,6 +92,7 @@ const SCOPE = {
   contract: "keyword.other.contract.quill, variable.language.result.quill",
   rule: "keyword.other.rule.quill",
   money: "keyword.other.money.quill",
+  chance: "keyword.other.chance.quill",
   module: "keyword.other.module.quill",
   permit: "keyword.other.permit.quill",
   askModel: "keyword.other.ask-model.quill",

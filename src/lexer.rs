@@ -65,6 +65,8 @@ pub enum TokenKind {
     Bring,
     /// `permit read "config"`, what the program may touch outside itself.
     Permit,
+    /// `allow origin "https://kopsala.app"`, which sites may call this service.
+    Allow,
     /// `body as Booking`, reading JSON text as a kind.
     As,
     /// `ask "Summarize: {text}"`, a question for an AI model.
@@ -209,6 +211,7 @@ impl fmt::Display for TokenKind {
             TokenKind::Type => "type",
             TokenKind::Bring => "bring",
             TokenKind::Permit => "permit",
+            TokenKind::Allow => "allow",
             TokenKind::As => "as",
             TokenKind::Ask => "ask",
             TokenKind::Route => "route",
@@ -797,6 +800,7 @@ impl Lexer {
             "type" => TokenKind::Type,
             "bring" => TokenKind::Bring,
             "permit" => TokenKind::Permit,
+            "allow" => TokenKind::Allow,
             "as" => TokenKind::As,
             "ask" => TokenKind::Ask,
             "route" => TokenKind::Route,

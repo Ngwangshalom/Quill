@@ -4,6 +4,7 @@
 
 pub mod ai;
 pub mod bring;
+pub mod chance;
 pub mod checker;
 pub mod compiler;
 pub mod decimal;

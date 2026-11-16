@@ -138,6 +138,19 @@ impl Loader {
                             ),
                         )]);
                     }
+                    Statement::Allow { span, .. } => {
+                        return Err(vec![Diagnostic::new(
+                            span,
+                            format!(
+                                "{} is brought into {}, and a brought file can't allow origins.\n\
+                                 allow origin belongs to the program you run, so you see which \
+                                 sites may call it. Move this line to the top of {}.",
+                                self.files[index].path,
+                                self.name(file),
+                                self.name(0)
+                            ),
+                        )]);
+                    }
                     other => {
                         return Err(vec![Diagnostic::new(
                             span_of(&other),

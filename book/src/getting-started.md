@@ -245,14 +245,15 @@ On a dark editor:
 | `require`, `ensure`, and `result` in an `ensure` | `#C8A06A` brass | a function's rules |
 | `where`, `type` and `as` | `#6AA8C8` steel | which values fit: a range, the records to keep, a kind of record |
 | `round`, `split`, `convert` | `#8FD3B5` mint | money that never loses a cent |
+| `random`, `pick`, `hash`, `seed` | `#E6A07A` ember | a draw, a fingerprint, a fixed seed for tests |
 | `bring`, `route`, `respond` | `#A8C0D8` mist | another file, a Quill module, a web route |
-| `permit` | `#C47848` rust | what a program may touch |
+| `permit` and `allow` | `#C47848` rust | what a program may touch, and who may call it |
 | `ask` | `#E57BE0` spark | a question for an AI model |
 | Numbers | `#E7C98A` sand | counted things |
 | Text in quotes | `#F3E6D0` warm paper | the page |
 | Comments | `#9A9186` faded ink | ink, faded |
 
-On a light editor the same ideas use deeper shades, so they stay readable on paper: `say` `#C45C12`, `when` `#1D408A`, `true` `#157A42`, `list` `#8C4E32`, `record` `#3E5C32`, `of` `#8A5A00`, `at` `#5C2E9A`, `get` `#15556A`, `trim` `#3A44A0`, `fn` `#8A3D78`, `maybe` `#A85A38`, `fails` `#A33B3B`, `require` `#7A5A20`, `where` and `type` `#1A5270`, `round` `#2E7A5C`, `bring` `#3D5270`, `permit` `#8C4E20`, `ask` `#8E2C8A`, numbers `#9A4A12`, text `#6B3A22`. Where to write `of` and `at` is in [Lists and records](groups.md#where-of-and-at-are-used). Asking for a field is in [Asking for data](asking.md).
+On a light editor the same ideas use deeper shades, so they stay readable on paper: `say` `#C45C12`, `when` `#1D408A`, `true` `#157A42`, `list` `#8C4E32`, `record` `#3E5C32`, `of` `#8A5A00`, `at` `#5C2E9A`, `get` `#15556A`, `trim` `#3A44A0`, `fn` `#8A3D78`, `maybe` `#A85A38`, `fails` `#A33B3B`, `require` `#7A5A20`, `where` and `type` `#1A5270`, `round` `#2E7A5C`, `random` `#9A4E28`, `bring` `#3D5270`, `permit` and `allow` `#8C4E20`, `ask` `#8E2C8A`, numbers `#9A4A12`, text `#6B3A22`. Where to write `of` and `at` is in [Lists and records](groups.md#where-of-and-at-are-used). Asking for a field is in [Asking for data](asking.md). Chance tools are in [Chance](chance.md).
 
 Every word Quill has today has its color. A word is painted only once the language has it, so a name you invent is never colored by mistake.
 

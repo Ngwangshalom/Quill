@@ -289,6 +289,10 @@ fn native_signatures() -> Vec<KnownFn> {
                         name: "kind".to_string(),
                         kind: Kind::Text,
                     },
+                    FieldKind {
+                        name: "headers".to_string(),
+                        kind: Kind::List(Box::new(Kind::Text)),
+                    },
                 ]),
                 native::Kind::Answer => Kind::Record(vec![
                     FieldKind {
@@ -345,6 +349,12 @@ pub fn program_types(program: &Program) -> Vec<KnownType> {
             kind_span: Span::default(),
             rule: None,
         };
+        // Headers is an open record: any field is text, so request.headers.authorization works.
+        types.push(KnownType {
+            name: "Headers".to_string(),
+            span: Span::default(),
+            fields: vec![],
+        });
         types.push(KnownType {
             name: "Request".to_string(),
             span: Span::default(),
@@ -353,6 +363,7 @@ pub fn program_types(program: &Program) -> Vec<KnownType> {
                 field("path", SigKind::Text),
                 field("query", SigKind::Text),
                 field("body", SigKind::Text),
+                field("headers", SigKind::Named("Headers".to_string())),
             ],
         });
         types.push(KnownType {
@@ -362,6 +373,7 @@ pub fn program_types(program: &Program) -> Vec<KnownType> {
                 field("status", SigKind::Number),
                 field("body", SigKind::Text),
                 field("kind", SigKind::Text),
+                field("headers", SigKind::List(Box::new(SigKind::Text))),
             ],
         });
     }
@@ -644,6 +656,24 @@ impl<'a> Checker<'a> {
                 target_span,
                 ..
             } => self.permit_statement(*access, target, *target_span),
+            Statement::Allow {
+                target,
+                target_span,
+                ..
+            } => self.allow_statement(target, *target_span),
+            Statement::Seed { value, span } => {
+                let kind = self.value(value, None, &|fixed| fixed.to_string());
+                if kind.known() && kind != Kind::Number {
+                    self.problems.push(Diagnostic::new(
+                        *span,
+                        format!(
+                            "seed needs a whole number, but {value} is {}.\n\
+                             seed 42 makes random and pick give the same answers each run.",
+                            kind.with_article()
+                        ),
+                    ));
+                }
+            }
         }
         false
     }
@@ -2216,6 +2246,19 @@ impl<'a> Checker<'a> {
                     ));
                 }
             }
+            if let Some(headers) = args.get(2) {
+                let kind = self.value(headers, None, &|fixed| fixed.to_string());
+                if kind.known() && kind != Kind::List(Box::new(Kind::Text)) {
+                    self.problems.push(Diagnostic::new(
+                        headers.span,
+                        format!(
+                            "respond's headers are a list of text, but {headers} is {}.\n\
+                             Each header looks like \"Authorization: Bearer KEY\".",
+                            kind.with_article()
+                        ),
+                    ));
+                }
+            }
             return;
         }
         let Some((access, at)) = native.guard else {
@@ -2254,6 +2297,31 @@ impl<'a> Checker<'a> {
             )
             .suggest(native::permit_for(access, target)),
         );
+    }
+
+    /// `allow origin "https://kopsala.app"` needs `bring web`, and a real site or `*`.
+    fn allow_statement(&mut self, target: &str, span: Span) {
+        if !self.modules.iter().any(|module| module == "web") {
+            self.problems.push(
+                Diagnostic::new(
+                    span,
+                    "allow origin is part of Quill's web module, which this program doesn't bring.\n\
+                     Add bring web at the top, so a reader sees that the program serves requests.",
+                )
+                .suggest("bring web"),
+            );
+            return;
+        }
+        if target != "*" && !(target.starts_with("https://") || target.starts_with("http://")) {
+            self.problems.push(Diagnostic::new(
+                span,
+                format!(
+                    "{target} isn't a site address.\n\
+                     allow origin needs a site that starts with https:// or http://, \
+                     or * for every site."
+                ),
+            ));
+        }
     }
 
     /// `permit net "api.stripe.com"` names a host; `permit env "STRIPE_KEY"` names a setting.
@@ -2667,6 +2735,54 @@ impl<'a> Checker<'a> {
                 args,
                 word_span,
             } => self.text_kind(*tool, value, args, *word_span, context),
+            ExprKind::Random { low, high, .. } => {
+                for (side, role) in [(low, "start"), (high, "end")] {
+                    let kind = self.value(side, None, &|fixed| fixed.to_string());
+                    if kind.known() && kind != Kind::Number {
+                        self.problems.push(Diagnostic::new(
+                            side.span,
+                            format!(
+                                "The {role} of a random range has to be a number, but {side} is {}.\n\
+                                 random 1..100 draws a whole number from 1 through 100.",
+                                kind.with_article()
+                            ),
+                        ));
+                    }
+                }
+                Kind::Number
+            }
+            ExprKind::PickFrom { list, word_span } => {
+                let kind = self.value(list, None, &|fixed| format!("pick from {fixed}"));
+                match kind {
+                    Kind::List(item) => *item,
+                    Kind::Unknown => Kind::Unknown,
+                    other => {
+                        self.problems.push(Diagnostic::new(
+                            *word_span,
+                            format!(
+                                "pick from needs a list, but {list} is {}.\n\
+                                 pick from names chooses one name from the list.",
+                                other.with_article()
+                            ),
+                        ));
+                        Kind::Unknown
+                    }
+                }
+            }
+            ExprKind::Hash { value, word_span } => {
+                let kind = self.value(value, None, &|fixed| format!("hash {fixed}"));
+                if kind.known() && kind != Kind::Text {
+                    self.problems.push(Diagnostic::new(
+                        *word_span,
+                        format!(
+                            "hash needs text, but {value} is {}.\n\
+                             hash secret turns that text into 64 hex letters.",
+                            kind.with_article()
+                        ),
+                    ));
+                }
+                Kind::Text
+            }
             ExprKind::Field {
                 record,
                 name,
@@ -3396,6 +3512,10 @@ impl<'a> Checker<'a> {
         if let Some(field) = fields.iter().find(|field| field.name == name) {
             return field.kind.clone();
         }
+        // An open record (request headers) accepts any field as text.
+        if fields.is_empty() {
+            return Kind::Text;
+        }
         let known = fields.iter().map(|field| field.name.as_str());
         let problem = Diagnostic::new(
             span,
@@ -3822,7 +3942,9 @@ fn span_of(statement: &Statement) -> Span {
         Statement::Match { span, .. } | Statement::Fail { span, .. } => *span,
         Statement::Type { span, .. }
         | Statement::Bring { span, .. }
-        | Statement::Permit { span, .. } => *span,
+        | Statement::Permit { span, .. }
+        | Statement::Allow { span, .. }
+        | Statement::Seed { span, .. } => *span,
     }
 }
 
@@ -4143,6 +4265,23 @@ fn replace(expr: &Expr, span: Span, with: &Expr) -> Expr {
             field_span: *field_span,
             highest: *highest,
             sorted_span: *sorted_span,
+        },
+        ExprKind::Random {
+            low,
+            high,
+            word_span,
+        } => ExprKind::Random {
+            low: swap(low),
+            high: swap(high),
+            word_span: *word_span,
+        },
+        ExprKind::PickFrom { list, word_span } => ExprKind::PickFrom {
+            list: swap(list),
+            word_span: *word_span,
+        },
+        ExprKind::Hash { value, word_span } => ExprKind::Hash {
+            value: swap(value),
+            word_span: *word_span,
         },
         other => other.clone(),
     };
@@ -4949,6 +5088,11 @@ say count
     fn routes_need_the_module_and_respond_on_every_path() {
         let ok = problems("bring web\nroute GET \"/hi/{name}\"\n  respond 200, \"Hi {name} from {request.path}\"\n");
         assert!(ok.is_empty(), "{ok:#?}");
+        let headers = problems(
+            "bring web\nallow origin \"https://kopsala.app\"\n\
+             route GET \"/me\"\n  respond 200, request.headers.authorization, list \"X-Token: a\"\n",
+        );
+        assert!(headers.is_empty(), "{headers:#?}");
         let module = problem("route GET \"/hi\"\n  respond 200, \"Hi\"\n");
         assert_eq!(module.suggestion.as_deref(), Some("bring web"));
         let silent = problem("bring web\nroute GET \"/hi\"\n  say \"hi\"\n");
@@ -4963,6 +5107,12 @@ say count
         assert!(taken
             .message
             .starts_with("Request is a type Quill's web module gives"));
+        let origin = problem("allow origin \"https://kopsala.app\"\n");
+        assert_eq!(origin.suggestion.as_deref(), Some("bring web"));
+        let site = problem("bring web\nallow origin \"kopsala.app\"\n");
+        assert!(site
+            .message
+            .starts_with("kopsala.app isn't a site address."));
     }
 
     const CHARGE: &str = "fn charge(amount: USD) -> text

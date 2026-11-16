@@ -6,6 +6,8 @@ Small Quill projects, each in its own folder. Run them from the top of the repos
 |---|---|---|
 | [events](events) | A venue booking system split across files: types with ranges, `bring`, money, failures, contracts and tests | `quill run examples/events/main.quill` |
 | [myapi](myapi) | A first web service with JSON orders, and a Dockerfile for hosting it on Render, Railway or Fly.io | `cd examples/myapi && quill run server.quill` |
+| [gate](gate) | Headers, `allow origin`, and a secret route: who may call, and who may open the vault | `quill run examples/gate/server.quill` |
+| [draw](draw) | Chance tools: a seeded ticket draw with checks, and a live web draw with `random`, `pick from`, and `hash` | `quill run examples/draw/draw.quill` · `quill run examples/draw/server.quill` |
 | [school](school) | A class report with no counters: `count of`, `average`, `sorted by` and `where`, with checks | `quill run examples/school/report.quill` |
 | [reviews](reviews) | A web service that reads JSON, asks a model to rate it with `ask ... as Rating`, and answers with JSON | `ANTHROPIC_API_KEY=... quill run examples/reviews/server.quill` |
 

@@ -48,31 +48,10 @@ name the right file; the book test harness supports `quill,part,file=NAME` block
    (`rusqlite` with the bundled feature). Planned shape: save and find records of a
    type, and reuse `where` for queries, e.g. `bookings where paid == false`. Needs a
    `permit` for the database file. Book chapter, spec §8.18, tests, colors.
-2. **Headers.** `request.headers`, so a route can read a login token, and a way
-   to send headers with `respond`. Plus one line for CORS beside the permits:
-   `allow origin "https://kopsala.app"`, covering every route. Needed for the
-   Kattegat service.
-3. **A server ready for production** (found reading `src/web.rs`, 21 Oct):
-   - **Many requests at once.** `serve` answers one request at a time, so a route
-     that calls `ask` or `fetch` makes every other visitor wait. Most important.
-     Design: a pool of 32 workers in `std::thread::scope`, each looping on
-     `server.recv()` (tiny_http's `Server` can be shared). The compiled `Chunk`
-     has no `Rc` or `RefCell`, so it is shared by reference as it is; a trial
-     build on 21 Oct compiled.
-   - **A request size limit.** The body is read whole into memory; refuse large
-     ones with `413`. Design: 1 MB. Check `body_length()` first, and read a body
-     sent without a length (chunked) through `take(MAX + 1)`, so it's never read
-     past the limit. Answer: "The request is larger than 1 MB, so it wasn't read.
-     Send less at a time."
-   - **One log line per request**, like `POST /orders 201 12ms`, so
-     `journalctl -u myapi` shows what happened. Design: leave the query out of
-     the log (it can hold a token), and print a request's `say` output, any
-     problem, and its log line together in one write, so requests answered at
-     once don't mix their lines.
-   - Tests: a route that `fetch`es a service that waits 2 s, while `/fast` still
-     answers at once; a 2 MB body with and without a length gets `413`; the log
-     line has no query. Book: `web.md` (the server answers many requests at
-     once, 413, the log line); spec §8.17; "Unreleased".
+2. ~~**Headers.**~~ Done (Unreleased): `request.headers`, `respond` with a header
+   list, and `allow origin`.
+3. ~~**A server ready for production.**~~ Done (Unreleased): 32 workers, 1 MB → 413,
+   one log line per request without the query.
 4. **Routes in brought files, made official.** They already work (a brought
    `routes.quill` is served), but spec §8.12 says a brought file holds only `fn`,
    `type` and `bring`. Allow `route` there in the spec and book; permits stay in

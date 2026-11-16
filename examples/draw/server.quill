@@ -1,0 +1,25 @@
+-- A live draw over the web: each request gets a fresh ticket and winner.
+-- hash turns a secret into the same fingerprint every time.
+--
+-- Run it:  quill run examples/draw/server.quill
+-- Try it:
+--   curl localhost:8080/draw
+--   curl localhost:8080/draw
+--   curl localhost:8080/code/desk-key
+bring web
+
+say "The draw is open."
+
+route GET "/health"
+  respond 200, "ok"
+
+-- A new ticket and winner on every request (no seed).
+route GET "/draw"
+  names = list "Amina", "Omar", "Sola"
+  ticket = random 1..1000
+  winner = pick from names
+  respond 200, record ticket = ticket, winner = winner
+
+-- The same secret always gives the same 64 hex letters.
+route GET "/code/{secret}"
+  respond 200, hash secret

@@ -323,6 +323,20 @@ impl Describer<'_> {
                     format!("allow the program to {what}; anything else is refused"),
                 )]
             }
+            Statement::Allow { target, .. } => {
+                vec![(
+                    format!("allow origin {target:?}"),
+                    "let that site call every route of this service".to_string(),
+                )]
+            }
+            Statement::Seed { value, .. } => {
+                let mut rows = vec![(
+                    format!("seed {value}"),
+                    "make later random and pick draws follow from this number".to_string(),
+                )];
+                rows.extend(self.value(value));
+                rows
+            }
             Statement::Bring { target, quoted, .. } => {
                 let file = if *quoted {
                     target.clone()
@@ -536,6 +550,11 @@ impl Describer<'_> {
                 };
                 format!("{what}, {kind}")
             }
+            ExprKind::Random { .. } => {
+                format!("a whole number drawn from that range, {kind}")
+            }
+            ExprKind::PickFrom { .. } => format!("one item drawn from the list, {kind}"),
+            ExprKind::Hash { .. } => format!("the text hashed to hex letters, {kind}"),
             ExprKind::Call { name, .. } => format!("a call of {name}, {kind}"),
             ExprKind::Money { .. } => kind,
             ExprKind::Found(_) => format!("a maybe that holds a value, {kind}"),

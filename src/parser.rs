@@ -130,6 +130,14 @@ pub enum Statement {
         target_span: Span,
         span: Span,
     },
+    /// `allow origin "https://kopsala.app"`: which sites may call this service.
+    Allow {
+        target: String,
+        target_span: Span,
+        span: Span,
+    },
+    /// `seed 42`: make later `random` and `pick` draws follow from this number.
+    Seed { value: Expr, span: Span },
     /// `type Booking`, then indented fields like `guests: number where 1..500`.
     /// `span` covers the `type` keyword.
     Type {
@@ -466,6 +474,8 @@ impl Statement {
             | Statement::Fail { span, .. }
             | Statement::Type { span, .. }
             | Statement::Permit { span, .. }
+            | Statement::Allow { span, .. }
+            | Statement::Seed { span, .. }
             | Statement::Bring { span, .. } => *span,
         }
     }
@@ -734,6 +744,23 @@ pub enum ExprKind {
         args: Vec<Expr>,
         word_span: Span,
     },
+    /// `random 1..100`: a whole number from low through high. `random` is a word only
+    /// before a range, so it stays free as a name.
+    Random {
+        low: Box<Expr>,
+        high: Box<Expr>,
+        word_span: Span,
+    },
+    /// `pick from names`: one item from a list. `pick` is a word only before `from`.
+    PickFrom {
+        list: Box<Expr>,
+        word_span: Span,
+    },
+    /// `hash secret`: SHA-256 of the text as hex. `hash` is a word only before a value.
+    Hash {
+        value: Box<Expr>,
+        word_span: Span,
+    },
 }
 
 /// What a text tool does.
@@ -956,6 +983,12 @@ impl Expr {
                     }
                 }
             }
+            ExprKind::Random { low, high, .. } => {
+                low.collect_names(names);
+                high.collect_names(names);
+            }
+            ExprKind::PickFrom { list, .. } => list.collect_names(names),
+            ExprKind::Hash { value, .. } => value.collect_names(names),
             ExprKind::GetWith { source, .. } => source.collect_names(names),
             ExprKind::Where {
                 list, condition, ..
@@ -1161,6 +1194,9 @@ impl fmt::Display for Expr {
                 }
                 _ => write!(f, "{} {value}", tool.word()),
             },
+            ExprKind::Random { low, high, .. } => write!(f, "random {low}..{high}"),
+            ExprKind::PickFrom { list, .. } => write!(f, "pick from {list}"),
+            ExprKind::Hash { value, .. } => write!(f, "hash {value}"),
         }
     }
 }
@@ -1261,6 +1297,8 @@ impl fmt::Display for Statement {
             Statement::Permit { access, target, .. } => {
                 write!(f, "permit {} {target:?}", access.word())
             }
+            Statement::Allow { target, .. } => write!(f, "allow origin {target:?}"),
+            Statement::Seed { value, .. } => write!(f, "seed {value}"),
             Statement::Bring { target, quoted, .. } => {
                 if *quoted {
                     write!(f, "bring {target:?}")
@@ -1387,6 +1425,12 @@ impl<'a> Parser<'a> {
             TokenKind::Route => self.route_statement(),
             TokenKind::Respond => self.respond_statement(),
             TokenKind::Permit => self.permit_statement(),
+            TokenKind::Allow => self.allow_statement(),
+            TokenKind::Identifier(name)
+                if name == "seed" && starts_value(&self.peek_at(1).kind) =>
+            {
+                self.seed_statement()
+            }
             TokenKind::Return => self.return_statement(),
             TokenKind::Fail => self.fail_statement(),
             TokenKind::Fails => Err(Diagnostic::new(
@@ -2310,16 +2354,112 @@ impl<'a> Parser<'a> {
             .suggest(format!("respond {status}, \"OK\"")));
         }
         let value = self.expression()?;
-        let span = cover(keyword.span(), value.span);
+        let headers = if self.peek().kind == TokenKind::Comma {
+            self.advance();
+            if !starts_value(&self.peek().kind) {
+                return Err(Diagnostic::new(
+                    keyword.span(),
+                    "respond's headers go after the second comma, as a list of text.\n\
+                     Each header looks like \"Authorization: Bearer KEY\".",
+                )
+                .suggest("respond 200, \"OK\", list \"X-Token: secret\""));
+            }
+            self.expression()?
+        } else {
+            Expr {
+                span: value.span,
+                kind: ExprKind::List {
+                    items: Vec::new(),
+                    empty: Some(SigKind::Text),
+                },
+            }
+        };
+        let args = vec![status, value, headers];
+        let span = cover(keyword.span(), args[1].span);
         Ok(Statement::Return {
             value: Some(Expr {
                 span,
                 kind: ExprKind::Call {
                     name: "respond".to_string(),
                     name_span: keyword.span(),
-                    args: vec![status, value],
+                    args,
                 },
             }),
+            span: keyword.span(),
+        })
+    }
+
+    /// `seed 42`: later `random` and `pick` draws follow from this number.
+    fn seed_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "seed needs a whole number after it.\n\
+                 seed 42 makes random and pick give the same answers each run, so checks can use them.",
+            )
+            .suggest("seed 42"));
+        }
+        let value = self.expression()?;
+        Ok(Statement::Seed {
+            value,
+            span: keyword.span(),
+        })
+    }
+
+    /// `allow origin "https://kopsala.app"`, at the top level of a program that brings web.
+    fn allow_statement(&mut self) -> Result<Statement, Diagnostic> {
+        let keyword = self.advance().clone();
+        if self.in_function {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "allow goes at the top of the program, not inside a function.\n\
+                 Every allow sits with the permits, so a reader sees who may call this service.",
+            ));
+        }
+        let word = self.peek().clone();
+        let TokenKind::Identifier(name) = &word.kind else {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "allow needs origin, then the site in quotes.\n\
+                 allow origin \"https://kopsala.app\" lets that site call every route.",
+            )
+            .suggest("allow origin \"https://kopsala.app\""));
+        };
+        if name != "origin" {
+            let problem = Diagnostic::new(
+                word.span(),
+                format!(
+                    "allow doesn't know {name}.\n\
+                     Quill knows allow origin, for a site that may call this service."
+                ),
+            );
+            return Err(match closest_match(name, ["origin"]) {
+                Some(fixed) => problem.suggest(format!("allow {fixed}")),
+                None => problem,
+            });
+        }
+        self.advance();
+        let target_token = self.peek().clone();
+        let TokenKind::Text(target) = &target_token.kind else {
+            return Err(Diagnostic::new(
+                word.span(),
+                "allow origin needs the site in quotes, like \"https://kopsala.app\".\n\
+                 That site may then call every route of this service.",
+            )
+            .suggest("allow origin \"https://kopsala.app\""));
+        };
+        if target.trim().is_empty() {
+            return Err(Diagnostic::new(
+                target_token.span(),
+                "allow origin names a site. An empty one would allow nothing, or everything.",
+            ));
+        }
+        let target = target.clone();
+        self.advance();
+        Ok(Statement::Allow {
+            target,
+            target_span: target_token.span(),
             span: keyword.span(),
         })
     }
@@ -3421,6 +3561,92 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `random 1..100`: a whole number from low through high.
+    fn random_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "random needs a range after it: the smallest, .., then the largest.\n\
+                 random 1..100 draws a whole number from 1 through 100.",
+            )
+            .suggest("random 1..100"));
+        }
+        let low = self.sum()?;
+        if self.peek().kind != TokenKind::DotDot {
+            return Err(Diagnostic::new(
+                self.peek().span(),
+                format!(
+                    "random needs .. between the smallest and the largest, but found {}.\n\
+                     random 1..100 draws a whole number from 1 through 100.",
+                    describe(&self.peek().kind)
+                ),
+            )
+            .suggest(format!("random {low}..{low}")));
+        }
+        let dots = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                dots.span(),
+                "This random range is missing the largest number, after ..\n\
+                 random 1..100 draws a whole number from 1 through 100.",
+            )
+            .suggest(format!("random {low}..{low}")));
+        }
+        let high = self.sum()?;
+        Ok(Expr {
+            span: cover(keyword.span(), high.span),
+            kind: ExprKind::Random {
+                low: Box::new(low),
+                high: Box::new(high),
+                word_span: keyword.span(),
+            },
+        })
+    }
+
+    /// `pick from names`: one item from a list.
+    fn pick_from_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        self.advance(); // from
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "pick from needs a list after it.\n\
+                 pick from names chooses one name from the list.",
+            )
+            .suggest("pick from names"));
+        }
+        let list = self.unary()?;
+        Ok(Expr {
+            span: cover(keyword.span(), list.span),
+            kind: ExprKind::PickFrom {
+                list: Box::new(list),
+                word_span: keyword.span(),
+            },
+        })
+    }
+
+    /// `hash secret`: SHA-256 of the text as hex.
+    fn hash_expr(&mut self) -> Result<Expr, Diagnostic> {
+        let keyword = self.advance().clone();
+        if !starts_value(&self.peek().kind) {
+            return Err(Diagnostic::new(
+                keyword.span(),
+                "hash needs the text after it.\n\
+                 hash secret turns that text into 64 hex letters.",
+            )
+            .suggest("hash secret"));
+        }
+        let value = self.unary()?;
+        Ok(Expr {
+            span: cover(keyword.span(), value.span),
+            kind: ExprKind::Hash {
+                value: Box::new(value),
+                word_span: keyword.span(),
+            },
+        })
+    }
+
     /// `average fee of roster`: the sum of that field, divided by how many there are.
     fn average_expr(&mut self) -> Result<Expr, Diagnostic> {
         let keyword = self.advance().clone();
@@ -3756,6 +3982,23 @@ impl<'a> Parser<'a> {
                     && matches!(&self.peek_at(1).kind, TokenKind::Identifier(next) if next != "sorted") =>
             {
                 return self.average_expr();
+            }
+            TokenKind::Identifier(name)
+                if name == "random" && starts_value(&self.peek_at(1).kind) =>
+            {
+                return self.random_expr();
+            }
+            TokenKind::Identifier(name)
+                if name == "pick" && is_word(&self.peek_at(1), "from") =>
+            {
+                return self.pick_from_expr();
+            }
+            TokenKind::Identifier(name)
+                if name == "hash"
+                    && starts_value(&self.peek_at(1).kind)
+                    && !is_call_after_word(self.peek(), &self.peek_at(1), "hash") =>
+            {
+                return self.hash_expr();
             }
             TokenKind::Identifier(name) => ExprKind::Name(name.clone()),
             TokenKind::List => return self.list_expr(),
@@ -5070,6 +5313,19 @@ fn is_word(token: &Token, word: &str) -> bool {
     matches!(&token.kind, TokenKind::Identifier(name) if name == word)
 }
 
+/// `hash(x)` with no space is a call; `hash x` or `hash (x)` is the tool.
+fn is_call_after_word(word: &Token, next: &Token, name: &str) -> bool {
+    let TokenKind::Identifier(written) = &word.kind else {
+        return false;
+    };
+    if written != name {
+        return false;
+    }
+    next.kind == TokenKind::LeftParen
+        && next.line == word.line
+        && next.column == word.column + word.length
+}
+
 fn write_steps(f: &mut fmt::Formatter, steps: &[Access]) -> fmt::Result {
     for step in steps {
         match step {
@@ -5108,7 +5364,9 @@ fn contains_record(statement: &Statement) -> bool {
         | Statement::Type { .. }
         | Statement::Bring { .. }
         | Statement::Permit { .. }
+        | Statement::Allow { .. }
         | Statement::Fail { .. } => false,
+        Statement::Seed { value, .. } => contains_record_expr(value),
         Statement::Return { value, .. } => value.as_ref().is_some_and(contains_record_expr),
         Statement::Call { args, .. } => args.iter().any(contains_record_expr),
     }
@@ -5130,6 +5388,11 @@ fn contains_record_expr(expr: &Expr) -> bool {
         ExprKind::Tool { value, args, .. } => {
             contains_record_expr(value) || args.iter().any(contains_record_expr)
         }
+        ExprKind::Random { low, high, .. } => {
+            contains_record_expr(low) || contains_record_expr(high)
+        }
+        ExprKind::PickFrom { list, .. } => contains_record_expr(list),
+        ExprKind::Hash { value, .. } => contains_record_expr(value),
         ExprKind::GetWith { source, .. } => contains_record_expr(source),
         ExprKind::Round { value, to, .. } => {
             contains_record_expr(value)

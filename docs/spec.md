@@ -85,7 +85,7 @@ A name can't start with a digit: `2x` is a mistake.
 These words have a meaning in Quill and can't be used as names:
 
 ```
-say  check  var  set  when  else  for  in  list  record  of  at  get  sum  with  fn  return  maybe  found  missing  fails  fail  on  try  require  ensure  where  type  round  split  convert  bring  permit  as  ask  route  respond  true  false  and  or  not
+say  check  var  set  when  else  for  in  list  record  of  at  get  sum  with  fn  return  maybe  found  missing  fails  fail  on  try  require  ensure  where  type  round  split  convert  bring  permit  allow  as  ask  route  respond  true  false  and  or  not
 ```
 
 ## 4. Kinds of values
@@ -215,6 +215,22 @@ true
 - `join LIST with SEPARATOR` is one text: the items of `LIST`, each shown as `say` shows it (§4.3), with `SEPARATOR` between them. The items are text, numbers, money, or true/false.
 - Every value a tool reads must be text where the tool says text. A number becomes text inside braces: `length of "{year}"`.
 - `trim`, `uppercase`, `lowercase`, `join`, and `replace` are tools only when a value follows them on the same line. Right against `(`, as in `trim(x)`, they call a function of that name; with a space, `trim (parts at 1)` is the tool. A call to `trim(x)` with no function `trim` is a mistake that says the tool takes no brackets. `length` is a tool only before `of`, `contains` only between two values, and `starts` and `ends` only before `with`. Everywhere else they are ordinary names.
+
+#### 5.2.2 Chance: random, pick, hash, and seed
+
+```quill
+seed 1
+ticket = random 1..1000
+winner = pick from list "Amina", "Omar", "Sola"
+code = hash "desk-key"
+```
+
+- `random LOW..HIGH` is a whole number from `LOW` through `HIGH`, both ends included. The range has the same shape as `for` (§7.1). `LOW` and `HIGH` are numbers. A part of a number, or `HIGH` smaller than `LOW`, stops the program (§10.2). A range too wide for Quill to draw from also stops.
+- `pick from LIST` is one item of `LIST`. The kind is the list's item kind. An empty list stops the program (§10.2).
+- `hash TEXT` is the SHA-256 of `TEXT` as 64 lowercase hex letters. The same text always gives the same letters.
+- `seed NUMBER` is a statement at the top level or in a function. `NUMBER` is a whole number. Later `random` and `pick from` in that run follow from it, so checks can use them. Without `seed`, each run draws from the operating system's entropy. A web request that never writes `seed` gets a fresh source of chance.
+- These are mistakes found before running: ends of `random` that aren't numbers; `pick from` of something that isn't a list; `hash` of something that isn't text; `seed` of something that isn't a number. When those values are only known while running, the same mistakes stop the program (§10.2), and a seed that isn't a whole number does too.
+- `random`, `pick`, `hash`, and `seed` are tools only in those shapes. Right against `(`, as in `hash(x)`, they call a function of that name. `from` is an ordinary name everywhere else. Everywhere else `random`, `pick`, `hash`, and `seed` are ordinary names too.
 
 ### 5.3 Numbers
 
@@ -874,14 +890,16 @@ route GET "/hello/{name}"
 
 ```
 route METHOD "PATH" NEWLINE INDENT { statement } DEDENT
-respond STATUS "," VALUE
+respond STATUS "," VALUE [ "," HEADERS ]
+allow "origin" TEXT
 ```
 
 - A route is written at the top level of a program that brings `web`. `METHOD` is `GET`, `POST`, `PUT`, `PATCH` or `DELETE`. `PATH` starts with `/`; each `{NAME}` in it matches one part of a requested path and is a text value named `NAME` inside the route, with `%` escapes worked out.
-- Inside a route, `request` is a record with `method`, `path`, `query` (after `?`, or `""`) and `body`, all text. A route doesn't see values created outside it, like a function (§8.6).
-- `respond STATUS, VALUE` ends the route with its answer, as `return` ends a function. `STATUS` is a whole number from 100 through 599. Text is sent as `text/plain`; any other value as JSON (§8.14), as `application/json`. Every path through a route must reach `respond`, which may also stand after `on ... ->`. `return` in a route and `respond` outside one are mistakes.
-- `Request` and `Response` are types the web module gives; a program can't write types with those names.
-- `quill run` runs the program's top level, then answers requests on port `PORT` (8080 when the setting isn't set) until it is stopped. A request runs the route whose method and path match. A path no route has is answered `404`; a path a route has with another method `405`. A route that stops the program (§10.2) is answered `500`, its problem is shown where the server runs, and the server keeps answering. `quill check` and `quill test` don't serve.
+- Inside a route, `request` is a record with `method`, `path`, `query` (after `?`, or `""`) and `body`, all text, and `headers`, a record whose fields are the request's headers. A header name is lowercase, with `-` written as `_` (`Authorization` is `request.headers.authorization`). Any field of `headers` is text. A route doesn't see values created outside it, like a function (§8.6).
+- `respond STATUS, VALUE` ends the route with its answer, as `return` ends a function. `respond STATUS, VALUE, HEADERS` also sends headers: `HEADERS` is a list of text, each `"Name: value"`. `STATUS` is a whole number from 100 through 599. Text is sent as `text/plain`; any other value as JSON (§8.14), as `application/json`. Every path through a route must reach `respond`, which may also stand after `on ... ->`. `return` in a route and `respond` outside one are mistakes.
+- `allow origin "https://example.com"` at the top of a program that brings `web` lets that site call every route. The browser's `Origin` must match exactly, or the origin may be `*` for every site. Matching answers get `Access-Control-Allow-Origin`. An `OPTIONS` request with at least one `allow origin` is answered `204` with CORS headers, with no route. A brought file can't write `allow origin`.
+- `Request`, `Response` and `Headers` are types the web module gives; a program can't write types with those names.
+- `quill run` runs the program's top level, then answers requests on port `PORT` (8080 when the setting isn't set) until it is stopped. Many requests are answered at once. A request runs the route whose method and path match. A path no route has is answered `404`; a path a route has with another method `405`. A body larger than 1 048 576 bytes is answered `413` and is not read. A route that stops the program (§10.2) is answered `500`, its problem is shown where the server runs, and the server keeps answering. Each request prints one log line without the query, like `POST /orders 201 12ms`. When the chosen port is already in use, Quill stops and names a free port to try, like `PORT=49152`. `quill check` and `quill test` don't serve.
 
 ## 9. Tests: `check` and doc examples
 
@@ -949,6 +967,7 @@ A few mistakes can only be found while running. When one happens, the program st
 - a list position past the end, or a position in an empty list
 - an `average` of a list with no amount in that field (§5.6)
 - a `split` separator or a `replace` old text that is empty (§5.2.1)
+- a `random` range whose ends aren't whole numbers, go the wrong way, or are too wide; `pick from` an empty list; or a `seed` that isn't a whole number (§5.2.2)
 - a file, host or setting that no permit covers (§8.13)
 
 ### 10.3 How mistakes are reported
@@ -1001,8 +1020,7 @@ The README describes these features. They are part of Quill's design but not of 
 | Feature | README section |
 |---|---|
 | `require` and `ensure` proven before running (static verification) | Contracts |
-| Permissions: `permit` | Permissions |
-| Modules: `use`, `web`, `db`, `route`, `respond` | A small web API |
+| Database: `bring db` | A small web API |
 
 ## 13. Grammar summary
 
@@ -1011,7 +1029,8 @@ This grammar describes the shape of programs. The rules above add the meaning an
 ```
 program     = { statement | NEWLINE } ;
 
-statement   = say | create | change | check | when | match | for | function | type | return | call | fail ;
+statement   = say | create | change | check | when | match | for | function | type | bring | permit | allow | seed | route | return | call | fail ;
+seed        = "seed" value ;
 type        = "type" NAME NEWLINE INDENT parameter NEWLINE { parameter NEWLINE } DEDENT ;
 say         = "say" value ;
 create      = [ "var" ] NAME "=" value ;
@@ -1034,7 +1053,7 @@ match       = "when" value NEWLINE INDENT catch { catch } DEDENT ;
 catch       = ( "found" NAME | "missing" ) "->" statement ;
 fail        = "fail" NAME ;
 CURRENCY    = three capital letters ;
-fn_body     = say | create | change | check | when | for | return ;
+fn_body     = say | create | change | check | when | for | seed | return ;
 return      = "return" [ value ] ;
 call        = NAME "(" [ value { "," value } ] ")" ;
 
@@ -1047,10 +1066,13 @@ comparison  = sum [ COMPARE sum | ( "contains" | "starts" "with" | "ends" "with"
 sum         = product { ( "+" | "-" ) product } ;
 product     = negative { ( "*" | "/" | "%" ) negative | "%" "of" negative } ;
 negative    = "-" negative | atom { "." NAME | "at" sum } ;
-atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | typed | ask | total | count | average | text_tool | when_value | money ;
+atom        = TEXT | NUMBER | "true" | "false" | NAME | call | "(" value ")" | list | record | typed | ask | total | count | average | text_tool | chance_tool | when_value | money ;
 money       = "round" [ "up" | "down" ] sum [ "to" ( "cents" | negative "places" ) ]
             | "split" sum ( "into" | "by" ) sum
             | "convert" sum "to" CURRENCY "at" negative ;
+chance_tool = "random" sum ".." sum
+            | "pick" "from" sum
+            | "hash" sum ;
 typed       = TYPE ( field { "," field } | NEWLINE INDENT field { field } DEDENT ) ;
 ask         = "get" NAME { "," NAME } "of" negative { shaping } | "get" NAME "with" NAME "in" negative ;
 total       = "sum" NAME "of" negative { shaping } ;

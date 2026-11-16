@@ -1,0 +1,30 @@
+-- Chance tools: random, pick from, hash, and seed.
+--
+-- Run it:  quill run examples/draw/draw.quill
+-- Test it: quill test examples/draw/draw.quill
+--
+-- seed makes random and pick give the same answers every run,
+-- so checks and demos stay stable. Leave seed out for a live draw.
+
+seed 1
+
+-- random LOW..HIGH: a whole number, both ends included
+ticket = random 1..1000
+--- example: ticket == 177
+check ticket == 177
+say "Ticket number: {ticket}"
+
+-- pick from LIST: one item from the list
+names = list "Amina", "Omar", "Sola"
+winner = pick from names
+--- example: winner == "Amina"
+check winner == "Amina"
+say "Winner: {winner}"
+
+-- hash TEXT: SHA-256 as 64 lowercase hex letters (always the same for the same text)
+code = hash "desk-key"
+check hash "" == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+check code == "fd501e4e4eabb3b62f313e4d323048dfbddebb4d702c7b63512125b3fa21dd28"
+say "Code fingerprint: {code}"
+
+say "Ticket {ticket}, winner {winner}."

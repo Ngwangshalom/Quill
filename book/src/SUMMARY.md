@@ -14,6 +14,7 @@
 - [Lists and records](groups.md)
 - [Functions](functions.md)
 - [Money](money.md)
+- [Chance: random, pick, and hash](chance.md)
 - [Maybe](maybe.md)
 - [Failures](failures.md)
 - [Contracts](contracts.md)

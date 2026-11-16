@@ -66,9 +66,13 @@ contexts:
       scope: keyword.other.rule.quill
     - match: '\b(round|split|convert)\b'
       scope: keyword.other.money.quill
+    - match: '\b(random|hash|seed)\b(?=[ \t]+[A-Za-z_"0-9\-])'
+      scope: keyword.other.chance.quill
+    - match: '\bpick\b(?=[ \t]+from\b)'
+      scope: keyword.other.chance.quill
     - match: '\b(bring|route|respond)\b'
       scope: keyword.other.module.quill
-    - match: '\b(permit)\b'
+    - match: '\b(permit|allow)\b'
       scope: keyword.other.permit.quill
     - match: '\b(ask)\b'
       scope: keyword.other.ask-model.quill

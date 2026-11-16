@@ -774,43 +774,212 @@ fn ask_works_with_an_openai_compatible_service() {
     );
 }
 
-#[test]
-fn a_program_with_routes_serves_them() {
+fn http_exchange(port: u16, request: &str) -> String {
     use std::io::{Read, Write};
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(2)));
+    let _ = write!(stream, "{request}");
+    let mut reply = String::new();
+    let _ = stream.read_to_string(&mut reply);
+    reply
+}
+
+fn with_web_server(source: &str, run: impl FnOnce(u16, &mut std::process::Child)) {
     let free = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = free.local_addr().unwrap().port();
     drop(free);
-    let dir = std::env::temp_dir().join(format!("quill-web-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("quill-web-{}-{}", std::process::id(), port));
     std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(
-        dir.join("app.quill"),
-        "bring web\nsay \"ready\"\nroute GET \"/hello/{name}\"\n  respond 200, \"Hello, {name}!\"\n",
-    )
-    .unwrap();
+    std::fs::write(dir.join("app.quill"), source).unwrap();
     let mut server = Command::new(env!("CARGO_BIN_EXE_quill"))
         .args(["run", "app.quill"])
         .current_dir(&dir)
         .env("QUILL_NO_EDITOR_SETUP", "1")
         .env("PORT", port.to_string())
-        .stdout(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
-    let mut reply = String::new();
+    let mut ready = false;
     for _ in 0..50 {
-        if let Ok(mut stream) = std::net::TcpStream::connect(("127.0.0.1", port)) {
-            let _ = write!(
-                stream,
-                "GET /hello/Amina HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
-            );
-            let _ = stream.read_to_string(&mut reply);
+        if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+            ready = true;
             break;
+        }
+        if let Ok(Some(status)) = server.try_wait() {
+            let mut err = String::new();
+            if let Some(mut stderr) = server.stderr.take() {
+                use std::io::Read;
+                let _ = stderr.read_to_string(&mut err);
+            }
+            panic!("quill run exited early ({status}): {err}");
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
+    assert!(
+        ready,
+        "quill run never accepted a connection on port {port}"
+    );
+    run(port, &mut server);
     let _ = server.kill();
     let _ = server.wait();
-    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
-    assert!(reply.ends_with("Hello, Amina!"), "{reply}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_program_with_routes_serves_them() {
+    with_web_server(
+        "bring web\nroute GET \"/hello/{name}\"\n  respond 200, \"Hello, {name}!\"\n",
+        |port, _| {
+            let reply = http_exchange(
+                port,
+                "GET /hello/Amina HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            );
+            assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+            assert!(reply.ends_with("Hello, Amina!"), "{reply}");
+        },
+    );
+}
+
+#[test]
+fn a_route_reads_headers_and_allow_origin_adds_cors() {
+    with_web_server(
+        "bring web\nallow origin \"https://kopsala.app\"\n\
+         route GET \"/me\"\n  respond 200, request.headers.authorization, list \"X-Token: secret\"\n",
+        |port, _| {
+            let reply = http_exchange(
+                port,
+                "GET /me HTTP/1.1\r\nHost: localhost\r\nOrigin: https://kopsala.app\r\n\
+                 Authorization: Bearer abc\r\nConnection: close\r\n\r\n",
+            );
+            assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+            assert!(
+                reply.to_ascii_lowercase().contains("access-control-allow-origin: https://kopsala.app"),
+                "{reply}"
+            );
+            assert!(
+                reply.to_ascii_lowercase().contains("x-token: secret"),
+                "{reply}"
+            );
+            assert!(reply.ends_with("Bearer abc"), "{reply}");
+
+            let preflight = http_exchange(
+                port,
+                "OPTIONS /me HTTP/1.1\r\nHost: localhost\r\nOrigin: https://kopsala.app\r\n\
+                 Access-Control-Request-Method: GET\r\nConnection: close\r\n\r\n",
+            );
+            assert!(preflight.starts_with("HTTP/1.1 204"), "{preflight}");
+            assert!(
+                preflight
+                    .to_ascii_lowercase()
+                    .contains("access-control-allow-origin: https://kopsala.app"),
+                "{preflight}"
+            );
+        },
+    );
+}
+
+#[test]
+fn a_body_over_one_megabyte_is_refused() {
+    with_web_server(
+        "bring web\nroute POST \"/data\"\n  respond 200, request.body\n",
+        |port, _| {
+            let big = "x".repeat(1_048_577);
+            let request = format!(
+                "POST /data HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{big}",
+                big.len()
+            );
+            let reply = http_exchange(port, &request);
+            assert!(reply.starts_with("HTTP/1.1 413"), "{reply}");
+            assert!(reply.contains("larger than 1 MB"), "{reply}");
+        },
+    );
+}
+
+#[test]
+fn the_server_answers_two_requests_at_once() {
+    use std::io::{BufRead, BufReader, Read, Write};
+    // A service that waits 2 s before answering, so a route that fetches it holds a worker.
+    let upstream = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let upstream_port = upstream.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for stream in upstream.incoming().flatten() {
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).unwrap_or(0) == 0 || line == "\r\n" {
+                    break;
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            let mut stream = stream;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nConnection: close\r\n\r\nslow"
+            );
+        }
+    });
+    let source = format!(
+        "bring web\nbring http\npermit net \"127.0.0.1\"\n\
+         route GET \"/slow\"\n  answer = fetch(\"http://127.0.0.1:{upstream_port}/wait\")\n    on NetworkDown -> respond 500, \"down\"\n  respond 200, answer.body\n\
+         route GET \"/fast\"\n  respond 200, \"fast\"\n"
+    );
+    with_web_server(&source, |port, _| {
+        let slow = std::thread::spawn(move || {
+            let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(10)));
+            let _ = write!(
+                stream,
+                "GET /slow HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            );
+            let mut reply = String::new();
+            let _ = stream.read_to_string(&mut reply);
+            reply
+        });
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let started = std::time::Instant::now();
+        let fast = http_exchange(
+            port,
+            "GET /fast HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        );
+        let waited = started.elapsed();
+        let slow_reply = slow.join().unwrap();
+        assert!(fast.ends_with("fast"), "{fast}");
+        assert!(slow_reply.ends_with("slow"), "{slow_reply}");
+        assert!(
+            waited < std::time::Duration::from_millis(500),
+            "fast waited {waited:?}, so requests were not answered at once"
+        );
+    });
+}
+
+#[test]
+fn each_request_gets_a_log_line_without_the_query() {
+    use std::io::Read;
+    with_web_server(
+        "bring web\nroute GET \"/hello\"\n  respond 200, \"hi\"\n",
+        |port, server| {
+            let _ = http_exchange(
+                port,
+                "GET /hello?token=secret HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            );
+            // Give the worker a moment to write the log line, then stop it.
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let mut stdout = server.stdout.take().unwrap();
+            let _ = server.kill();
+            let _ = server.wait();
+            let mut text = String::new();
+            let _ = stdout.read_to_string(&mut text);
+            assert!(
+                text.lines().any(|line| {
+                    line.starts_with("GET /hello 200 ")
+                        && line.ends_with("ms")
+                        && !line.contains("token")
+                }),
+                "log missing or leaked query: {text}"
+            );
+        },
+    );
 }
 
 #[test]
@@ -847,6 +1016,9 @@ fn the_sample_programs_in_the_repository_still_work() {
         "hello.quill",
         "examples/events/main.quill",
         "examples/myapi/server.quill",
+        "examples/gate/server.quill",
+        "examples/draw/draw.quill",
+        "examples/draw/server.quill",
         "examples/reviews/server.quill",
         "examples/school/report.quill",
     ] {

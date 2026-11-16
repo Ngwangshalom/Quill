@@ -105,6 +105,14 @@ pub enum Op {
     /// Pop the tool's values, then the text or list, and push the answer. The values were
     /// pushed in the order `ExprKind::Tool` holds them: the text first, then its `args`.
     Text(TextTool),
+    /// Pop high, then low, and push a whole number from low through high.
+    Random,
+    /// Pop a list and push one of its items.
+    PickFrom,
+    /// Pop text and push its SHA-256 as hex.
+    Hash,
+    /// Pop a whole number and fix later Random/PickFrom draws to follow from it.
+    Seed,
     /// Pop a list of records and push it in order of the field `constants[name]`.
     /// `highest` puts the highest first. Records with the same value keep their order.
     SortBy {
@@ -195,6 +203,8 @@ pub struct Chunk {
     pub contracts: Vec<ContractInfo>,
     /// Every `permit` the program writes.
     pub permits: Vec<(Permission, String)>,
+    /// Every `allow origin` the program writes.
+    pub origins: Vec<String>,
     /// What each `as KIND` reads, for `Op::Read`.
     pub shapes: Vec<crate::json::Shape>,
     /// The kind each `ask` answers with, for `Op::Ask`. `None` is text.
@@ -423,6 +433,13 @@ impl Compiler {
             Statement::Permit { access, target, .. } => {
                 self.chunk.permits.push((*access, target.clone()));
             }
+            Statement::Allow { target, .. } => {
+                self.chunk.origins.push(target.clone());
+            }
+            Statement::Seed { value, span } => {
+                self.expression(value)?;
+                self.emit(Op::Seed, *span);
+            }
             Statement::Return { value, span } => match value {
                 Some(value) => {
                     self.expression(value)?;
@@ -633,6 +650,19 @@ impl Compiler {
                     self.expression(arg)?;
                 }
                 self.emit(Op::Text(*tool), span);
+            }
+            ExprKind::Random { low, high, .. } => {
+                self.expression(low)?;
+                self.expression(high)?;
+                self.emit(Op::Random, span);
+            }
+            ExprKind::PickFrom { list, .. } => {
+                self.expression(list)?;
+                self.emit(Op::PickFrom, span);
+            }
+            ExprKind::Hash { value, .. } => {
+                self.expression(value)?;
+                self.emit(Op::Hash, span);
             }
             ExprKind::Average { field, list, .. } => {
                 self.expression(list)?;

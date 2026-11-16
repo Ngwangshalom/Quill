@@ -53,7 +53,16 @@ route GET "/acts"
 
 ## The request
 
-Inside a route, `request` holds what was asked: `request.method` (like `"POST"`), `request.path`, `request.query` (what comes after `?` in the address), and `request.body`, the text that was sent.
+Inside a route, `request` holds what was asked: `request.method` (like `"POST"`), `request.path`, `request.query` (what comes after `?` in the address), `request.body`, the text that was sent, and `request.headers`, a record of the request's headers.
+
+Header names are lowercase, with `-` written as `_`: `Authorization` is `request.headers.authorization`, and `Content-Type` is `request.headers.content_type`.
+
+```quill,ignore
+bring web
+
+route GET "/me"
+  respond 200, request.headers.authorization
+```
 
 A body is usually JSON. Read it as a type with `as`, and every rule is checked before your code uses it:
 
@@ -73,17 +82,75 @@ route POST "/bookings"
 
 A request with 9000 guests gets `400 That isn't a booking.`, and the route never holds a `Booking` that breaks its rules. `on Invalid -> respond ...` answers and ends the route there, the same way `on` ends a function.
 
+## Headers on the answer
+
+`respond` can send headers after the value, as a list of text. Each one looks like `"Name: value"`, the same way [`send`](http.md) writes them:
+
+```quill,ignore
+bring web
+
+route GET "/secret"
+  respond 200, "ok", list "X-Token: secret"
+```
+
+## Who may call: `allow origin`
+
+A website in a browser may only call your service when you say so. `allow origin` names that site, next to the permits, and covers every route:
+
+```quill,ignore
+bring web
+allow origin "https://kopsala.app"
+
+route GET "/hello"
+  respond 200, "Hello"
+```
+
+The browser sends an `Origin` header. When it matches, Quill adds `Access-Control-Allow-Origin` on the answer. An `OPTIONS` preflight gets `204` with the CORS headers, with no route of your own. Write `allow origin "*"` only when every site may call. A brought file can't write `allow origin`; it belongs on the program you run.
+
+`allow` is rust, like `permit`.
+
 ## When something goes wrong
 
 Quill answers some requests by itself:
 
 - A path no route has gets `404`.
 - A path a route has, with another method, gets `405`.
+- A body larger than 1 MB gets `413`, and Quill doesn't read it.
 - A route that stops with a problem, like dividing by zero, gets `500`, and the problem is shown where the server was started, with its line. The server keeps answering other requests.
+
+## How the server runs
+
+Many requests are answered at once, so a route that [`ask`](ai.md)s a model or [`fetch`](http.md)es another service doesn't make every other visitor wait. Each request gets one log line, without the query (a query can hold a token):
+
+```text
+POST /bookings 201 12ms
+GET /hello/Amina 200 1ms
+```
+
+The server listens on port 8080. Set the setting `PORT` to use another one, like `PORT=3000 quill run desk.quill`. If that port is already taken, Quill names a free one you can use, like `PORT=49152`.
+
+## Chance in a route
+
+[Chance](chance.md) tools work inside a route the same way they do in a plain program. Leave `seed` out so each request gets a fresh draw. `hash` is always the same for the same text, which is handy for a token or a fingerprint:
+
+```quill,ignore
+bring web
+
+route GET "/draw"
+  names = list "Amina", "Omar", "Sola"
+  ticket = random 1..1000
+  winner = pick from names
+  respond 200, record ticket = ticket, winner = winner
+
+route GET "/code/{secret}"
+  respond 200, hash secret
+```
+
+`GET /draw` answers a new ticket and winner each time. `GET /code/desk-key` answers the same 64 hex letters every time. The [draw](https://github.com/Ngwangshalom/Quill/tree/main/examples/draw) example shows the same tools with `seed` and checks.
 
 ## Putting it together
 
-Routes can use everything else in Quill: functions, types, money, [files](permits.md), [other services](http.md), and [AI models](ai.md). Here a booking desk works out the deposit:
+Routes can use everything else in Quill: functions, types, money, [chance](chance.md), [files](permits.md), [other services](http.md), and [AI models](ai.md). Here a booking desk works out the deposit:
 
 ```quill,ignore
 bring web
@@ -105,8 +172,6 @@ route POST "/quote"
 ```
 
 The lines outside routes run once, when the program starts. Then Quill serves the routes.
-
-The server listens on port 8080. Set the setting `PORT` to use another one, like `PORT=3000 quill run desk.quill`.
 
 ## Growing your service
 
@@ -205,3 +270,4 @@ Did you mean:  POST
 2. Add `route GET "/time"` that responds with any text you like, and a request to a path you didn't write. Look at the `404`.
 3. Write a `type Student` with `score: number where 0..100`, and a `POST "/students"` route that reads the body `as Student`. Send a score of `120` with a tool like `curl -X POST localhost:8080/students -d '{"name": "Amina", "score": 120}'`.
 4. Respond with a list of records, and see the JSON your browser shows.
+5. Add `GET "/draw"` with `random` and `pick from`, hit it twice, and check the answers change. Then add `GET "/code/{secret}"` with `hash` and check the same secret always gives the same letters.

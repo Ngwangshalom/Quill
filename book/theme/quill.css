@@ -106,6 +106,7 @@
 .hljs-quill-contract { color: #7A5A20; }
 .hljs-quill-rule { color: #1A5270; }
 .hljs-quill-money { color: #2E7A5C; }
+.hljs-quill-chance { color: #9A4E28; }
 .hljs-quill-module { color: #3D5270; }
 .hljs-quill-permit { color: #8C4E20; }
 .hljs-quill-ask-model { color: #8E2C8A; }
@@ -135,6 +136,7 @@
 .coal .hljs-quill-contract, .navy .hljs-quill-contract, .ayu .hljs-quill-contract { color: #C8A06A; }
 .coal .hljs-quill-rule, .navy .hljs-quill-rule, .ayu .hljs-quill-rule { color: #6AA8C8; }
 .coal .hljs-quill-money, .navy .hljs-quill-money, .ayu .hljs-quill-money { color: #8FD3B5; }
+.coal .hljs-quill-chance, .navy .hljs-quill-chance, .ayu .hljs-quill-chance { color: #E6A07A; }
 .coal .hljs-quill-module, .navy .hljs-quill-module, .ayu .hljs-quill-module { color: #A8C0D8; }
 .coal .hljs-quill-permit, .navy .hljs-quill-permit, .ayu .hljs-quill-permit { color: #C47848; }
 .coal .hljs-quill-ask-model, .navy .hljs-quill-ask-model, .ayu .hljs-quill-ask-model { color: #E57BE0; }

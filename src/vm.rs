@@ -74,6 +74,7 @@ fn execute(
     mut frames: Vec<Frame>,
 ) -> Result<Vec<Value>, Diagnostic> {
     let mut stack: Vec<Value> = Vec::new();
+    let mut chance = crate::chance::Chance::default();
     let permits = crate::native::Permits {
         list: chunk.permits.clone(),
         folder: std::path::PathBuf::from(&chunk.folder),
@@ -445,6 +446,44 @@ fn execute(
                 args.reverse();
                 let value = pop(&mut stack, span)?;
                 stack.push(text_tool(tool, value, args, span)?);
+            }
+            Op::Random => {
+                let high = pop_number(&mut stack, span)?;
+                let low = pop_number(&mut stack, span)?;
+                stack.push(chance.random(&low, &high, span)?);
+            }
+            Op::PickFrom => {
+                let list = pop(&mut stack, span)?;
+                stack.push(chance.pick_from(list, span)?);
+            }
+            Op::Hash => {
+                let text = match pop(&mut stack, span)? {
+                    Value::Text(text) => text,
+                    other => {
+                        return Err(Diagnostic::new(
+                            span,
+                            format!(
+                                "hash needs text, but got {}.\n\
+                                 hash secret turns that text into 64 hex letters.",
+                                other.written()
+                            ),
+                        ));
+                    }
+                };
+                stack.push(Value::Text(crate::chance::hash_text(&text)));
+            }
+            Op::Seed => {
+                let number = pop_number(&mut stack, span)?;
+                let Some(n) = number.whole() else {
+                    return Err(Diagnostic::new(
+                        span,
+                        format!(
+                            "seed needs a whole number, but got {number}.\n\
+                             seed 42 makes random and pick give the same answers each run."
+                        ),
+                    ));
+                };
+                chance.seed(n);
             }
             Op::SortBy { name, highest } => {
                 let field = field_name(chunk, name, span)?;
@@ -1912,6 +1951,22 @@ say average fee of list quiet
             run_source(&source).unwrap(),
             "John, omar, Amina\nAmina, omar, John\nAmina, John, omar\nomar, Tie, Amina\n"
         );
+    }
+
+    #[test]
+    fn seed_makes_random_and_pick_stable() {
+        let output = run_source(
+            "seed 1\nsay random 1..10\nsay pick from list \"a\", \"b\", \"c\"\nsay hash \"desk\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            output,
+            "9\na\n49be417ad74080a0031b636b44cfc26fdd0065492d6cd3b033960c4414955cf7\n"
+        );
+        let again =
+            run_source("seed 1\nsay random 1..10\nsay pick from list \"a\", \"b\", \"c\"\n")
+                .unwrap();
+        assert_eq!(again, "9\na\n");
     }
 
     #[test]

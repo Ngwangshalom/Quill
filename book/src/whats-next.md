@@ -6,6 +6,6 @@ Functions, [money](money.md), [maybe](maybe.md), [failures](failures.md), [contr
 
 ## And more
 
-[Types](types.md) with rules on their fields are here, and so are [bringing in files](bring.md), [permits](permits.md), [JSON](json.md), [web requests](http.md), [AI models](ai.md) and [web services](web.md). Still ahead: a built-in module for databases (`bring db`), and contracts that Quill proves before the program runs. See the [README](https://github.com/Ngwangshalom/Quill#readme) for the full design.
+[Types](types.md) with rules on their fields are here, and so are [bringing in files](bring.md), [permits](permits.md), [JSON](json.md), [web requests](http.md), [AI models](ai.md), [web services](web.md) with headers and `allow origin`, and [chance](chance.md) with `random`, `pick from`, `hash`, and `seed`. Still ahead: a built-in module for databases (`bring db`), and contracts that Quill proves before the program runs. See the [README](https://github.com/Ngwangshalom/Quill#readme) for the full design.
 
 Each of these will get its own chapter in this book as it's built. Want to help build one? Read the [contributor guide](https://github.com/Ngwangshalom/Quill/blob/main/CONTRIBUTING.md).

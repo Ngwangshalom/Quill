@@ -101,7 +101,11 @@ pub const NATIVES: &[Native] = &[
     },
     Native {
         name: "respond",
-        params: &[("status", Kind::Number), ("value", Kind::Any)],
+        params: &[
+            ("status", Kind::Number),
+            ("value", Kind::Any),
+            ("headers", Kind::TextList),
+        ],
         result: Some(Kind::Response),
         fails: &[],
         guard: None,
@@ -312,6 +316,40 @@ pub fn call(index: usize, args: Vec<Value>, permits: &Permits) -> Result<Outcome
                 Some(value) => (crate::json::write(value), "application/json"),
                 None => (String::new(), "text/plain; charset=utf-8"),
             };
+            let headers = match args.get(2) {
+                Some(Value::List(items)) => {
+                    let mut headers = Vec::new();
+                    for item in items {
+                        match item {
+                            Value::Text(text) => {
+                                if !text.contains(':') {
+                                    return Err(format!(
+                                        "The header {text:?} needs a name, a colon, and a value.\n\
+                                         A header looks like \"Authorization: Bearer KEY\"."
+                                    ));
+                                }
+                                headers.push(Value::Text(text.clone()));
+                            }
+                            other => {
+                                return Err(format!(
+                                    "respond's headers are a list of text, but one item is {}.\n\
+                                     Each header looks like \"Authorization: Bearer KEY\".",
+                                    other.written()
+                                ));
+                            }
+                        }
+                    }
+                    Value::List(headers)
+                }
+                Some(other) => {
+                    return Err(format!(
+                        "respond's headers are a list of text, but got {}.\n\
+                         Each header looks like \"Authorization: Bearer KEY\".",
+                        other.written()
+                    ));
+                }
+                None => Value::List(Vec::new()),
+            };
             Ok(Outcome::Value(Value::Record(vec![
                 (
                     "status".to_string(),
@@ -319,6 +357,7 @@ pub fn call(index: usize, args: Vec<Value>, permits: &Permits) -> Result<Outcome
                 ),
                 ("body".to_string(), Value::Text(body)),
                 ("kind".to_string(), Value::Text(kind.to_string())),
+                ("headers".to_string(), headers),
             ])))
         }
         "json" => Ok(Outcome::Value(Value::Text(crate::json::write(

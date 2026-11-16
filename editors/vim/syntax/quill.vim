@@ -27,8 +27,10 @@ syn keyword quillFail fails fail on try
 syn keyword quillContract require ensure
 syn keyword quillRule where type as
 syn keyword quillMoney round split convert
+syn match quillChance "\<\(random\|hash\|seed\)\ze[ \t]\+[A-Za-z_\"0-9\-]"
+syn match quillChance "\<pick\ze[ \t]\+from\>"
 syn keyword quillModule bring route respond
-syn keyword quillPermit permit
+syn keyword quillPermit permit allow
 syn keyword quillAskModel ask
 syn match quillResult "\(\<ensure\>.*\)\@<=\<result\>"
 syn keyword quillTruth true false
@@ -37,7 +39,7 @@ syn match quillExample "---\s\+example:"
 syn region quillString start='"' skip='\\.' end='"' contains=quillEscape,quillInterpolation
 syn region quillString start='"""' end='"""' contains=quillEscape,quillInterpolation
 syn match quillEscape "\\." contained
-syn region quillInterpolation start="{" end="}" contained contains=quillSay,quillWhen,quillBind,quillCheck,quillLogic,quillLoop,quillList,quillRecord,quillOf,quillAt,quillAsk,quillText,quillFn,quillMaybe,quillFail,quillContract,quillRule,quillMoney,quillModule,quillPermit,quillAskModel,quillTruth,quillNumber,quillOperator
+syn region quillInterpolation start="{" end="}" contained contains=quillSay,quillWhen,quillBind,quillCheck,quillLogic,quillLoop,quillList,quillRecord,quillOf,quillAt,quillAsk,quillText,quillFn,quillMaybe,quillFail,quillContract,quillRule,quillMoney,quillChance,quillModule,quillPermit,quillAskModel,quillTruth,quillNumber,quillOperator
 syn match quillNumber "\<\d\+\(\.\d\+\)\?"
 syn match quillOperator "->\|==\|!=\|<=\|>=\|[=+\-*/%<>]"
 
@@ -61,6 +63,7 @@ if &background == "light"
   hi def QuillContract guifg=#7A5A20 ctermfg=94
   hi def QuillRule guifg=#1A5270 ctermfg=24
   hi def QuillMoney guifg=#2E7A5C ctermfg=29
+  hi def QuillChance guifg=#9A4E28 ctermfg=94
   hi def QuillModule guifg=#3D5270 ctermfg=60
   hi def QuillPermit guifg=#8C4E20 ctermfg=94
   hi def QuillAskModel guifg=#8E2C8A ctermfg=90
@@ -90,6 +93,7 @@ else
   hi def QuillContract guifg=#C8A06A ctermfg=179
   hi def QuillRule guifg=#6AA8C8 ctermfg=74
   hi def QuillMoney guifg=#8FD3B5 ctermfg=115
+  hi def QuillChance guifg=#E6A07A ctermfg=173
   hi def QuillModule guifg=#A8C0D8 ctermfg=152
   hi def QuillPermit guifg=#C47848 ctermfg=173
   hi def QuillAskModel guifg=#E57BE0 ctermfg=170
@@ -122,6 +126,7 @@ hi def link quillContract QuillContract
 hi def link quillResult QuillContract
 hi def link quillRule QuillRule
 hi def link quillMoney QuillMoney
+hi def link quillChance QuillChance
 hi def link quillModule QuillModule
 hi def link quillPermit QuillPermit
 hi def link quillAskModel QuillAskModel

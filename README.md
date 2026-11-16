@@ -26,7 +26,7 @@ Quill is a programming language where intent is clear, failures are explicit, an
 
 The syntax stays human-readable. `when`, `found`, `missing`, `fails`, `on`, and `check` are the words that give Quill its voice.
 
-Quill can call web services and ask AI models, each behind a `permit`. A web server and a database are next. That is the path to a service you can deploy.
+Quill can call web services and ask AI models, each behind a `permit`, and serve its own routes with `bring web`. A database is next. That is the path to a service you can deploy.
 
 What works now:
 
@@ -34,6 +34,7 @@ What works now:
 - **Money is exact.** `100 USD + 50 USD` is `150 USD`. `0.1 + 0.2` is `0.3`. Dollars and euros cannot be added; `convert 100 USD to EUR at 0.92` changes one at the rate you write. `split 100 USD into 3` gives `33.34, 33.33, 33.33`, so no cent is lost, and `round total to cents` rounds the way banks do.
 - **Ask for the data.** `sum fee of roster` adds each fee. `get fee of roster` takes that field. `get place of desk.bookings` reads a field of a list on a record. `students where score >= 50` keeps only the records that match, and `sum fee of roster where paid == false` adds what is still owed. `count of students where paid == false` says how many still owe, `average score of students` gives the class average, and `students sorted by highest score` ranks them. A missing amount is left out. `for` remains when each record needs its own step.
 - **Text tools read like English.** `trim name`, `uppercase code`, `length of name`, `email contains "@"`, `code starts with "INV"`, `replace "-" with " " in code`, `split line by ","`, and `join names with ", "`.
+- **Chance tools for draws and tokens.** `random 1..1000` draws a whole number, `pick from names` chooses one item, `hash secret` is SHA-256 as hex, and `seed 42` makes the draws the same every run so checks can use them.
 - **Nothing is missing by surprise.** There is no `null`. A `maybe` says the value might be missing, and both cases have to be handled.
 - **Ask a model, and trust the answer.** `ask "Rate this review: {text}" as Review` asks Claude, or any OpenAI-compatible model, and checks the answer against every rule of `Review`. A model that fails or breaks the rules is a failure the program handles.
 - **Call other services.** `bring http`, then `fetch(url)` or `post(url, json(order))`. The host needs a `permit net`, and `NetworkDown` has to be handled.
@@ -402,6 +403,7 @@ Quill is for backend engineering, financial software, automation, reliable busin
 - [x] Asking for data (`sum fee of roster`, `get fee of roster`, `get place of desk.bookings`, `count of roster`, `average fee of roster`, `roster sorted by fee`)
 - [x] Lists and records
 - [x] Text tools (`trim`, `uppercase`, `length of`, `contains`, `starts with`, `replace`, `split ... by`, `join ... with`)
+- [x] Chance tools (`random 1..100`, `pick from`, `hash`, `seed`)
 - [x] Functions (`fn double(n: number) -> number`, `return`, and calls)
 
 **Safety**
@@ -421,7 +423,7 @@ Quill is for backend engineering, financial software, automation, reliable busin
 
 **Ecosystem**
 - [x] Permissions (`permit`), files, and settings
-- [ ] `web` module: HTTP server and routing
+- [x] `web` module: HTTP server and routing (`bring web`, `route`, `respond`, `allow origin`)
 - [ ] `db` module: PostgreSQL and SQLite
 - [x] AI module: type-checked model calls (`ask ... as Review`), Claude and OpenAI-compatible
 - [x] Syntax highlighting for VS Code and Cursor ([editors/vscode](editors/vscode))
