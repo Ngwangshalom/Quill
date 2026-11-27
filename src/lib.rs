@@ -7,6 +7,7 @@ pub mod bring;
 pub mod chance;
 pub mod checker;
 pub mod compiler;
+pub mod database;
 pub mod decimal;
 pub mod diagnostic;
 pub mod explain;
